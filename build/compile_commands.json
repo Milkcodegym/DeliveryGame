@@ -17,6 +17,56 @@
       "-std=c++17",
       "-c",
       "-o",
+      "obj/x64/Debug/DeliveryGame/map.o",
+      "../../src/map.h"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/map.h",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "obj/x64/Debug/DeliveryGame/player.o",
+      "../../src/player.h"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/player.h",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
       "obj/x64/Debug/DeliveryGame/resource_dir.o",
       "../../include/resource_dir.h"
     ],
@@ -48,6 +98,56 @@
     "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
     "file": "C:/Users/micha/Desktop/DeliveryGame/src/main.c",
     "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/main.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "obj/x64/Debug/DeliveryGame/map.o",
+      "../../src/map.c"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/map.c",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "obj/x64/Debug/DeliveryGame/player.o",
+      "../../src/player.c"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/player.c",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
   },
   {
     "arguments": [
