@@ -17,6 +17,7 @@ int main(void)
     // Initialize Subsystems
     GameMap map = LoadGameMap("resources/Maps/Testmap3.png");
     Player player = InitPlayer((Vector3){ 10.0f, 5.0f, 10.0f });
+    DrawPlayer(&player);
     TrafficManager traffic = {0};
     InitTraffic(&traffic);
 
@@ -39,7 +40,8 @@ int main(void)
             BeginMode3D(camera);
                 DrawGrid(20, 1.0f);
                 DrawGameMap(&map);
-                DrawPlayer(&player);
+                //DrawPlayer(&player);
+                DrawModelEx(player.model, player.position, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.1f, 0.1f, 0.1f}, WHITE);
                 DrawTraffic(&traffic);
             EndMode3D();
 
@@ -60,6 +62,7 @@ int main(void)
         EndDrawing();
     }
 
+    UnloadModel(player.model);
     UnloadGameMap(&map);
     CloseWindow();
     return 0;

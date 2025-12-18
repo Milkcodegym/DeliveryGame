@@ -11,6 +11,7 @@ typedef struct Player {
     float yVelocity;
     bool isGrounded;
     float angle;
+    Model model;
 } Player;
 
 Player InitPlayer(Vector3 startPos);
