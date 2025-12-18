@@ -20,6 +20,7 @@ typedef struct GameMap {
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map);
-bool CheckMapCollision(GameMap *map, float x, float z);
+bool IsTileWall(GameMap *map, int gx, int gz);
+bool CheckMapCollision(GameMap *map, float x, float z, float radius);
 
 #endif

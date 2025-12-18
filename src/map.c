@@ -101,13 +101,45 @@ void DrawGameMap(GameMap *map) {
     }
 }
 
-bool CheckMapCollision(GameMap *map, float x, float z) {
-    int gx = (int)(x + 0.5f);
-    int gz = (int)(z + 0.5f);
-    
+// Helper: Checks if a specific grid coordinate (gx, gz) is a red wall
+bool IsTileWall(GameMap *map, int gx, int gz) {
+    // 1. Check if inside map bounds
     if (gx >= 0 && gx < map->width && gz >= 0 && gz < map->height) {
+        // 2. Check color
         Color c = map->pixels[gz * map->width + gx];
-        if (c.r > 200 && c.g < 50 && c.b < 50) return true; // Hit Wall
+        if (c.r > 200 && c.g < 50 && c.b < 50) {
+            return true; // It is a wall
+        }
     }
+    return false; // Not a wall (or out of bounds)
+}
+
+bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
+    // 1. Shift coordinates by +0.5 to align with "Centered" tiles
+    // If a wall is at x=5, it visually starts at 4.5.
+    // By adding 0.5, we treat 4.5 as 5.0, making the math simpler.
+    float checkX = x + 0.5f;
+    float checkZ = z + 0.5f;
+
+    // 2. Define the "Hit Box" corners based on the shifted coordinates
+    // We shrink the radius slightly (0.9f) to prevent getting stuck on corners
+    float padding = radius * 0.9f; 
+
+    // 3. Check the four corners of the player's bounding box
+    int minX = (int)floorf(checkX - padding);
+    int maxX = (int)floorf(checkX + padding);
+    int minZ = (int)floorf(checkZ - padding);
+    int maxZ = (int)floorf(checkZ + padding);
+
+    // 4. Check these grid tiles for walls
+    // Top-Left
+    if (IsTileWall(map, minX, minZ)) return true;
+    // Top-Right
+    if (IsTileWall(map, maxX, minZ)) return true;
+    // Bottom-Left
+    if (IsTileWall(map, minX, maxZ)) return true;
+    // Bottom-Right
+    if (IsTileWall(map, maxX, maxZ)) return true;
+
     return false;
 }

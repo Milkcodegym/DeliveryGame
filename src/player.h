@@ -10,6 +10,7 @@ typedef struct Player {
     float radius;
     float yVelocity;
     bool isGrounded;
+    float angle;
 } Player;
 
 Player InitPlayer(Vector3 startPos);

@@ -3,6 +3,7 @@
 #include "player.h"
 #include "traffic.h"
 #include <stdio.h> // Needed for sprintf
+#include <math.h>
 
 int main(void)
 {
@@ -30,7 +31,7 @@ int main(void)
 
         // Camera Follow
         camera.target = player.position;
-        camera.position = (Vector3){ player.position.x, player.position.y + 8.0f, player.position.z + 8.0f };
+        camera.position = (Vector3){ player.position.x - 8.0f*sin(player.angle*DEG2RAD), player.position.y + 8.0f, player.position.z - 8.0f*cos(player.angle*DEG2RAD)};
 
         BeginDrawing();
             ClearBackground(RAYWHITE);
@@ -47,7 +48,6 @@ int main(void)
             
             if (map.width == 0) {
                 DrawText("ERROR: map.png NOT FOUND!", 10, 40, 20, RED);
-                DrawText("Make sure map.png is next to the .exe file", 10, 60, 20, RED);
             } else {
                 char sizeText[50];
                 sprintf(sizeText, "Map Size: %dx%d", map.width, map.height);
