@@ -1,11 +1,12 @@
 #include "raylib.h"
 #include "map.h"
 #include "player.h"
+#include "traffic.h"
 #include <stdio.h> // Needed for sprintf
 
 int main(void)
 {
-    InitWindow(800, 600, "Delivery Game");
+    InitWindow(2000, 1500, "Delivery Game");
 
     Camera3D camera = { 0 };
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
@@ -13,8 +14,10 @@ int main(void)
     camera.projection = CAMERA_PERSPECTIVE;
 
     // Initialize Subsystems
-    GameMap map = LoadGameMap("resources/Maps/Testmap2.png");
+    GameMap map = LoadGameMap("resources/Maps/Testmap3.png");
     Player player = InitPlayer((Vector3){ 10.0f, 5.0f, 10.0f });
+    TrafficManager traffic = {0};
+    InitTraffic(&traffic);
 
     SetTargetFPS(60);
 
@@ -23,6 +26,7 @@ int main(void)
         float dt = GetFrameTime();
 
         UpdatePlayer(&player, &map, dt);
+        UpdateTraffic(&traffic, &player, &map, dt);
 
         // Camera Follow
         camera.target = player.position;
@@ -35,6 +39,7 @@ int main(void)
                 DrawGrid(20, 1.0f);
                 DrawGameMap(&map);
                 DrawPlayer(&player);
+                DrawTraffic(&traffic);
             EndMode3D();
 
             // --- DEBUG OVERLAY ---
@@ -47,6 +52,9 @@ int main(void)
                 char sizeText[50];
                 sprintf(sizeText, "Map Size: %dx%d", map.width, map.height);
                 DrawText(sizeText, 10, 40, 20, GREEN);
+                
+                // Optional: Draw Traffic Count
+                DrawText("Traffic Active", 10, 70, 20, BLUE);
             }
 
         EndDrawing();
