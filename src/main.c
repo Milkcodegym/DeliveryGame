@@ -41,7 +41,7 @@ int main(void)
                 DrawGrid(20, 1.0f);
                 DrawGameMap(&map);
                 //DrawPlayer(&player);
-                DrawModelEx(player.model, player.position, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.1f, 0.1f, 0.1f}, WHITE);
+                DrawModelEx(player.model, player.position, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){1.1f, 1.1f, 1.1f}, WHITE);
                 DrawTraffic(&traffic);
             EndMode3D();
 

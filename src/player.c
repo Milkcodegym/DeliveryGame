@@ -75,5 +75,5 @@ void UpdatePlayer(Player *player, GameMap *map, float dt) {
 
 void DrawPlayer(Player *player) {
     //DrawSphere(player->position, player->radius, YELLOW);
-    player->model = LoadModel("resources/Car.obj");
+    player->model = LoadModel("resources/vehicle-suv.obj");
 }
