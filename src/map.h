@@ -3,24 +3,39 @@
 
 #include "raylib.h"
 
-typedef struct RoadTile {
-    bool isRoad;
-    bool connects[4];     // 0:North, 1:East, 2:South, 3:West
-    Vector3 waypoints[4]; // The target position for the lane in that direction
-} RoadTile;
+// --- Data Structures ---
+
+typedef struct Node {
+    int id;
+    Vector2 position;
+} Node;
+
+typedef struct Edge {
+    int startNode; // Index into nodes array
+    int endNode;   // Index into nodes array
+    float width;
+} Edge;
+
+typedef struct Building {
+    Vector2 *footprint; // Array of points
+    int pointCount;
+    float height;
+    Color color;
+    Model model;        // The procedurally generated mesh
+} Building;
 
 typedef struct GameMap {
-    Image image;
-    Color *pixels;
-    int width;
-    int height;
-    RoadTile *roads; // 1D array representing the grid
+    Node *nodes;
+    int nodeCount;
+    Edge *edges;
+    int edgeCount;
+    Building *buildings;
+    int buildingCount;
 } GameMap;
 
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map);
-bool IsTileWall(GameMap *map, int gx, int gz);
 bool CheckMapCollision(GameMap *map, float x, float z, float radius);
 
 #endif

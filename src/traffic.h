@@ -3,17 +3,29 @@
 
 #include "raylib.h"
 #include "map.h"
-#include "player.h"
+#include "player.h" 
 
-#define MAX_VEHICLES 50
+#define MAX_VEHICLES 100
+
+// --- SPEED SETTINGS ---
+// Adjust these values to slow down/speed up traffic
+#define TRAFFIC_BASE_SPEED 5.0f   // Meters per second (approx 18 km/h)
+#define TRAFFIC_SPEED_VAR 2.0f    // Random variance (+/- this amount)
 
 typedef struct Vehicle {
     bool active;
     Vector3 position;
-    Vector3 target;
-    float speed;
-    int direction; // 0:N, 1:E, 2:S, 3:W
+    Vector3 forward;  
     Color color;
+    
+    // Graph Navigation State
+    int currentEdgeIndex; 
+    int startNodeID;      
+    int endNodeID;        
+    
+    float progress;       
+    float edgeLength;     
+    float speed;          
 } Vehicle;
 
 typedef struct TrafficManager {
