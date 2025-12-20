@@ -2,6 +2,7 @@
 #include "map.h"
 #include "player.h"
 #include "traffic.h"
+#include "camera.h"
 #include <stdio.h>
 #include <math.h>
 
@@ -9,10 +10,7 @@ int main(void)
 {
     InitWindow(1600, 900, "Delivery Game - Real Map");
 
-    Camera3D camera = { 0 };
-    camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 45.0f;
-    camera.projection = CAMERA_PERSPECTIVE;
+    InitCamera();
 
     // 1. Load Map
     GameMap map = LoadGameMap("resources/maps/real_city.map");
@@ -42,27 +40,12 @@ int main(void)
         UpdatePlayer(&player, &map, dt);
         UpdateTraffic(&traffic, &player, &map, dt);
 
-        // Camera Follow Logic
-        // Calculate the camera position behind the player based on angle
-        float camDist = 3.0f;
-        float camHeight = 1.5f;
-        
-        Vector3 desiredPos;
-        desiredPos.x = player.position.x - camDist * sinf(player.angle * DEG2RAD);
-        desiredPos.z = player.position.z - camDist * cosf(player.angle * DEG2RAD);
-        desiredPos.y = player.position.y + camHeight;
-
-        // Simple smooth follow (Lerp)
-        camera.position.x += (desiredPos.x - camera.position.x) * 5.0f * dt;
-        camera.position.z += (desiredPos.z - camera.position.z) * 5.0f * dt;
-        camera.position.y += (desiredPos.y - camera.position.y) * 5.0f * dt;
-        
-        camera.target = player.position;
+        Update_Camera(player.position, player.angle, dt);
 
         BeginDrawing();
             ClearBackground(RAYWHITE);
 
-            BeginMode3D(camera);
+            Begin3Dmode();
                 DrawGrid(100, 1.0f); // Larger grid
                 DrawGameMap(&map);
                 

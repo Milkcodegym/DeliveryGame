@@ -6,10 +6,10 @@ Player InitPlayer(Vector3 startPos) {
     Player p = {0};
     p.position = startPos;
     p.current_speed = 0.0f;
-    p.friction = 7.0f;    //Needs to be over 1
-    p.acceleration = 1.4f;
-    p.max_speed = 8.0f;
-    p.brake_power = 9.0f; //Needs to be over 1
+    p.friction = 9.0f;    //Needs to be over 1
+    p.acceleration = 1.3f;
+    p.max_speed = 12.0f;
+    p.brake_power = 6.0f; //Needs to be over 1
     p.rotationSpeed = 90.0f;
     p.radius = 0.3f;
     p.yVelocity = 0.0f;
