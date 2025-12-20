@@ -20,9 +20,9 @@
       "obj/x64/Debug/DeliveryGame/camera.o",
       "../../src/camera.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/camera.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/camera.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/camera.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/camera.o"
   },
   {
     "arguments": [
@@ -45,9 +45,9 @@
       "obj/x64/Debug/DeliveryGame/map.o",
       "../../src/map.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/map.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/map.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
   },
   {
     "arguments": [
@@ -70,9 +70,9 @@
       "obj/x64/Debug/DeliveryGame/maps_app.o",
       "../../src/maps_app.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/maps_app.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/maps_app.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/maps_app.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/maps_app.o"
   },
   {
     "arguments": [
@@ -95,9 +95,9 @@
       "obj/x64/Debug/DeliveryGame/phone.o",
       "../../src/phone.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/phone.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/phone.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/phone.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/phone.o"
   },
   {
     "arguments": [
@@ -120,9 +120,9 @@
       "obj/x64/Debug/DeliveryGame/player.o",
       "../../src/player.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/player.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/player.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
   },
   {
     "arguments": [
@@ -145,9 +145,9 @@
       "obj/x64/Debug/DeliveryGame/resource_dir.o",
       "../../include/resource_dir.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/include/resource_dir.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/resource_dir.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/include/resource_dir.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/resource_dir.o"
   },
   {
     "arguments": [
@@ -170,9 +170,9 @@
       "obj/x64/Debug/DeliveryGame/traffic.o",
       "../../src/traffic.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/traffic.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/traffic.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/traffic.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/traffic.o"
   },
   {
     "arguments": [
@@ -195,9 +195,9 @@
       "obj/x64/Debug/DeliveryGame/camera.o",
       "../../src/camera.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/camera.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/camera.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/camera.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/camera.o"
   },
   {
     "arguments": [
@@ -220,9 +220,9 @@
       "obj/x64/Debug/DeliveryGame/main.o",
       "../../src/main.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/main.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/main.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/main.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/main.o"
   },
   {
     "arguments": [
@@ -245,9 +245,9 @@
       "obj/x64/Debug/DeliveryGame/map.o",
       "../../src/map.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/map.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/map.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/map.o"
   },
   {
     "arguments": [
@@ -270,9 +270,9 @@
       "obj/x64/Debug/DeliveryGame/maps_app.o",
       "../../src/maps_app.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/maps_app.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/maps_app.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/maps_app.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/maps_app.o"
   },
   {
     "arguments": [
@@ -295,9 +295,9 @@
       "obj/x64/Debug/DeliveryGame/phone.o",
       "../../src/phone.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/phone.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/phone.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/phone.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/phone.o"
   },
   {
     "arguments": [
@@ -320,9 +320,9 @@
       "obj/x64/Debug/DeliveryGame/player.o",
       "../../src/player.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/player.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/player.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/player.o"
   },
   {
     "arguments": [
@@ -345,9 +345,9 @@
       "obj/x64/Debug/DeliveryGame/traffic.o",
       "../../src/traffic.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/src/traffic.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/traffic.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/src/traffic.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/traffic.o"
   },
   {
     "arguments": [
@@ -366,9 +366,9 @@
       "obj/x64/Debug/raylib/config.o",
       "../external/raylib-master/src/config.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/config.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/config.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/config.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/config.o"
   },
   {
     "arguments": [
@@ -387,9 +387,9 @@
       "obj/x64/Debug/raylib/raylib.o",
       "../external/raylib-master/src/raylib.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/raylib.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raylib.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/raylib.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raylib.o"
   },
   {
     "arguments": [
@@ -408,9 +408,9 @@
       "obj/x64/Debug/raylib/raymath.o",
       "../external/raylib-master/src/raymath.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/raymath.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raymath.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/raymath.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raymath.o"
   },
   {
     "arguments": [
@@ -429,9 +429,9 @@
       "obj/x64/Debug/raylib/rcamera.o",
       "../external/raylib-master/src/rcamera.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rcamera.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rcamera.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rcamera.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rcamera.o"
   },
   {
     "arguments": [
@@ -450,9 +450,9 @@
       "obj/x64/Debug/raylib/rgestures.o",
       "../external/raylib-master/src/rgestures.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rgestures.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rgestures.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rgestures.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rgestures.o"
   },
   {
     "arguments": [
@@ -471,9 +471,9 @@
       "obj/x64/Debug/raylib/rlgl.o",
       "../external/raylib-master/src/rlgl.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rlgl.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rlgl.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rlgl.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rlgl.o"
   },
   {
     "arguments": [
@@ -492,9 +492,9 @@
       "obj/x64/Debug/raylib/utils.o",
       "../external/raylib-master/src/utils.h"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/utils.h",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/utils.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/utils.h",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/utils.o"
   },
   {
     "arguments": [
@@ -513,9 +513,9 @@
       "obj/x64/Debug/raylib/raudio.o",
       "../external/raylib-master/src/raudio.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/raudio.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raudio.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/raudio.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/raudio.o"
   },
   {
     "arguments": [
@@ -534,9 +534,9 @@
       "obj/x64/Debug/raylib/rcore.o",
       "../external/raylib-master/src/rcore.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rcore.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rcore.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rcore.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rcore.o"
   },
   {
     "arguments": [
@@ -555,9 +555,9 @@
       "obj/x64/Debug/raylib/rglfw.o",
       "../external/raylib-master/src/rglfw.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rglfw.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rglfw.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rglfw.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rglfw.o"
   },
   {
     "arguments": [
@@ -576,9 +576,9 @@
       "obj/x64/Debug/raylib/rmodels.o",
       "../external/raylib-master/src/rmodels.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rmodels.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rmodels.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rmodels.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rmodels.o"
   },
   {
     "arguments": [
@@ -597,9 +597,9 @@
       "obj/x64/Debug/raylib/rshapes.o",
       "../external/raylib-master/src/rshapes.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rshapes.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rshapes.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rshapes.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rshapes.o"
   },
   {
     "arguments": [
@@ -618,9 +618,9 @@
       "obj/x64/Debug/raylib/rtext.o",
       "../external/raylib-master/src/rtext.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rtext.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rtext.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rtext.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rtext.o"
   },
   {
     "arguments": [
@@ -639,9 +639,9 @@
       "obj/x64/Debug/raylib/rtextures.o",
       "../external/raylib-master/src/rtextures.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/rtextures.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rtextures.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/rtextures.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/rtextures.o"
   },
   {
     "arguments": [
@@ -660,8 +660,8 @@
       "obj/x64/Debug/raylib/utils.o",
       "../external/raylib-master/src/utils.c"
     ],
-    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
-    "file": "C:/Users/micha/Desktop/DeliveryGame/build/external/raylib-master/src/utils.c",
-    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/raylib/utils.o"
+    "directory": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files",
+    "file": "C:/Users/Lucas/Documents/DeliveryGame/build/external/raylib-master/src/utils.c",
+    "output": "C:/Users/Lucas/Documents/DeliveryGame/build/build_files/obj/x64/Debug/raylib/utils.o"
   },
 ]

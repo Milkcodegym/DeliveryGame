@@ -37,12 +37,12 @@ Player InitPlayer(Vector3 startPos) {
     
     // Physics Init (Restored your original values)
     p.current_speed = 0.0f;
-    p.friction = 9.0f;    // Needs to be over 1
+    p.friction = 2.0f;    // Needs to be over 1
     p.acceleration = 1.3f;
     p.max_speed = 12.0f;
     p.brake_power = 6.0f; // Needs to be over 1
     p.rotationSpeed = 90.0f;
-    p.radius = 0.3f;
+    p.radius = 0.0f;
     p.yVelocity = 0.0f;
     p.isGrounded = false;
     p.angle = 0.0f;
@@ -61,6 +61,8 @@ void LoadPlayerContent(Player *player) {
     player->model = LoadModel("resources/vehicle-suv.obj");
 }
 
+bool checkcamera_collision=false;
+
 void UpdatePlayer(Player *player, GameMap *map, float dt) {
     // --- SAFETY FIX: Clamp Delta Time ---
     if (dt > 0.1f) dt = 0.1f;
@@ -78,7 +80,10 @@ void UpdatePlayer(Player *player, GameMap *map, float dt) {
     float target_speed = 0.0f;
 
     if (!inputBlocked) {
-        if (IsKeyDown(KEY_W)) target_speed = player->max_speed;
+        if (IsKeyDown(KEY_W)) {
+            target_speed = player->max_speed;
+            checkcamera_collision = true;
+        }
         if (IsKeyDown(KEY_S)) target_speed = -player->max_speed;
     }
 
@@ -112,7 +117,7 @@ void UpdatePlayer(Player *player, GameMap *map, float dt) {
         }
         
         // Friction logic (Coasting)
-        if (target_speed = 0) { // EDW EXEIS LATHOS ALLA EINAI KALYTERA ME TO LATHOS LARF
+        if (target_speed == 0) { // EDW EXEIS LATHOS ALLA EINAI KALYTERA ME TO LATHOS LARF
             player->current_speed -= player->acceleration * dt * (player->friction - 1);
         }
     }
@@ -141,10 +146,10 @@ void UpdatePlayer(Player *player, GameMap *map, float dt) {
     }
 
     // --- 5. Horizontal Collision ---
-    if (!CheckMapCollision(map, player->position.x + move.x, player->position.z, player->radius)) {
+    if (!CheckMapCollision(map, player->position.x + move.x, player->position.z)) {
         player->position.x += move.x;
-    }
-    if (!CheckMapCollision(map, player->position.x, player->position.z + move.z, player->radius)) {
+    } else {player->current_speed=0;}
+    if (!CheckMapCollision(map, player->position.x, player->position.z + move.z)) {
         player->position.z += move.z;
-    }
+    } else {player->current_speed=0;}
 }

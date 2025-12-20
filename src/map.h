@@ -71,7 +71,7 @@ typedef struct GameMap {
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map);
-bool CheckMapCollision(GameMap *map, float x, float z, float radius);
+bool CheckMapCollision(GameMap *map, float x, float z);
 
 // --- NEW PATHFINDING FUNCTIONS ---
 void BuildMapGraph(GameMap *map); 

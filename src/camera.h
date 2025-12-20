@@ -3,10 +3,10 @@
 
 #include "raylib.h"
 #include "map.h"
-//#include "player.h"
+#include "player.h"
 
+extern Camera3D camera;
 void InitCamera();
-void Update_Camera(Vector3 player_position, float player_angle, float dt);
-void Begin3Dmode();
+void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt);
 
 #endif

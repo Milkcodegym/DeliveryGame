@@ -38,6 +38,7 @@ typedef struct Player {
 
 } Player;
 
+extern bool checkcamera_collision;
 Player InitPlayer(Vector3 startPos);
 void LoadPlayerContent(Player *player);
 void UpdatePlayer(Player *player, GameMap *map, float dt);

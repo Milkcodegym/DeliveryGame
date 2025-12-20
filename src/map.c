@@ -449,7 +449,7 @@ void DrawGameMap(GameMap *map) {
     rlEnableBackfaceCulling();
 }
 
-bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
+bool CheckMapCollision(GameMap *map, float x, float z) {
     Vector2 p = { x, z };
     for (int i = 0; i < map->buildingCount; i++) {
         if (CheckCollisionPointPoly(p, map->buildings[i].footprint, map->buildings[i].pointCount)) {

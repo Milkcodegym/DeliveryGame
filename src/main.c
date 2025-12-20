@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <math.h>
 
-// Include your custom headers
+// Custom headers
+#include "camera.h"
 #include "map.h"
 #include "player.h"
 #include "traffic.h"
@@ -17,10 +18,6 @@ int main(void)
     // IMPORTANT: Init Audio Device for the Music App
     InitAudioDevice(); 
 
-    Camera3D camera = { 0 };
-    camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 45.0f;
-    camera.projection = CAMERA_PERSPECTIVE;
 
     // --- Load Game Resources ---
     GameMap map = LoadGameMap("resources/maps/real_city.map");
@@ -39,6 +36,8 @@ int main(void)
         startPos.z = map.nodes[0].position.y; 
         startPos.y = 0.5f; // Slightly above ground
     }
+
+    InitCamera();
 
     Player player = InitPlayer(startPos);
     LoadPlayerContent(&player); 
@@ -65,24 +64,7 @@ int main(void)
         // Now passing Player and Map so the GPS/Bank apps work correctly
         UpdatePhone(&phone, &player, &map); 
 
-        // Camera Follow Logic
-        float camDist = 5.0f; // Distance behind car
-        float camHeight = 2.5f; // Height above car
-        
-        Vector3 desiredPos;
-        // Calculate position behind player based on angle
-        desiredPos.x = player.position.x - camDist * sinf(player.angle * DEG2RAD);
-        desiredPos.z = player.position.z - camDist * cosf(player.angle * DEG2RAD);
-        desiredPos.y = player.position.y + camHeight;
-
-        // Smooth Camera Lerp (Video game style camera lag)
-        camera.position.x += (desiredPos.x - camera.position.x) * 5.0f * dt;
-        camera.position.z += (desiredPos.z - camera.position.z) * 5.0f * dt;
-        camera.position.y += (desiredPos.y - camera.position.y) * 5.0f * dt;
-        
-        // Look slightly above the car
-        camera.target = player.position;
-        camera.target.y += 1.0f; 
+        Update_Camera(player.position, &map, player.angle, dt);
 
         // --- Drawing ---
         BeginDrawing();
