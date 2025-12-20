@@ -1,39 +1,89 @@
-#ifndef PHONE_H
-#define PHONE_H
+#ifndef PHONE_UI_H
+#define PHONE_UI_H
 
 #include "raylib.h"
+#include <stdbool.h> 
 
-// --- Dimensions ---
-#define PHONE_WIDTH 300
-#define PHONE_HEIGHT 600
-#define PHONE_SCREEN_WIDTH 260
-#define PHONE_SCREEN_HEIGHT 540
+// --- Forward Declarations ---
+// We tell the compiler these structs exist, so we can use pointers to them.
+typedef struct Player Player;
+typedef struct GameMap GameMap;
+
+// --- Constants ---
+#define PHONE_WIDTH 320
+#define PHONE_HEIGHT 640
+#define SCREEN_WIDTH 280
+#define SCREEN_HEIGHT 560
+#define SCREEN_OFFSET_X 20
+#define SCREEN_OFFSET_Y 40
 
 // --- App States ---
 typedef enum {
-    APP_HOME,       // Main Grid of Icons
-    APP_MAP,
+    APP_HOME,
     APP_DELIVERY,
-    APP_BROWSER,
-    APP_RADIO
-} PhoneApp;
+    APP_MAP,
+    APP_BANK,
+    APP_MUSIC,
+    APP_SETTINGS,
+    APP_BROWSER
+} AppState;
 
-typedef struct Phone {
-    // Animation State
-    bool active;           // Is the phone requested to be up?
-    float animProgress;    // 0.0f (Hidden) -> 1.0f (Fully Visible)
-    
-    // Internal State
-    PhoneApp currentApp;
-    RenderTexture2D target; // The "Virtual Screen" texture
-    
-    // Home Screen Selection
-    int selectedIconIndex; 
-} Phone;
+// --- Data Structures ---
+typedef struct DeliveryTask {
+    char restaurant[32];
+    char customer[32];
+    float pay;
+    float distance;
+    bool active;
+} DeliveryTask;
 
-void InitPhone(Phone *phone);
-void UpdatePhone(Phone *phone, float dt);
-void DrawPhone(Phone *phone);
-void UnloadPhone(Phone *phone);
+// Music Data
+typedef struct Song {
+    char title[32];
+    char artist[32];
+    char filePath[64];
+    Music stream;     
+    float duration;    
+} Song;
+
+typedef struct MusicState {
+    bool isPlaying;
+    int currentSongIdx;
+    Song library[3]; 
+} MusicState;
+
+// Settings Data
+typedef struct SettingsState {
+    float masterVolume;
+    float sfxVolume;
+    bool mute;
+} SettingsState;
+
+typedef struct PhoneState {
+    // Visuals
+    RenderTexture2D screenTexture;
+    Texture2D themeAtlas; // Added for the custom UI texture we discussed
+    float slideAnim; 
+    bool isOpen;
+    
+    // Navigation
+    AppState currentApp;
+    
+    // App Specific Data
+    // NOTE: walletBalance removed (It is now inside Player)
+    DeliveryTask tasks[5];
+    MusicState music;     
+    SettingsState settings;
+} PhoneState;
+
+void InitPhone(PhoneState *phone);
+
+// Updated: Now accepts Player/Map to update GPS logic
+void UpdatePhone(PhoneState *phone, Player *player, GameMap *map); 
+
+// Updated: Now accepts Player/Map to draw Bank Balance and GPS
+void DrawPhone(PhoneState *phone, Player *player, GameMap *map);
+
+void UnloadPhone(PhoneState *phone);
 
 #endif

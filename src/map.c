@@ -5,6 +5,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <float.h> // For FLT_MAX
+
+
+// --- TEST LOCATIONS (Hardcoded for now) ---
+#define LOC_COUNT 5
+MapLocation testLocations[LOC_COUNT] = {
+    {"Burger Joint", {20.0f, 40.0f}, 1},
+    {"Gas Station North", {-50.0f, 10.0f}, 2},
+    {"City Center Mall", {0.0f, 0.0f}, 0},
+    {"Mechanic Shop", {35.0f, -20.0f}, 0},
+    {"Pizza Place", {-15.0f, -60.0f}, 1}
+};
+
+void InitSearchLocations() {
+    // Determine real coordinates based on map scale if needed
+    // For now, we assume the hardcoded values match the scaled world
+}
 
 // --- CONFIGURATION ---
 #define MAX_NODES 50000
@@ -23,6 +40,21 @@ Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     Vector2 normal2D = { -dir.y, dir.x };
     normal2D = Vector2Normalize(normal2D);
     return (Vector3){ normal2D.x, 0.0f, normal2D.y };
+}
+
+int SearchLocations(const char* query, MapLocation* results) {
+    if (strlen(query) == 0) return 0;
+    
+    int count = 0;
+    for (int i = 0; i < LOC_COUNT; i++) {
+        // Simple substring check (case sensitive for simplicity, ideally use tolower)
+        if (strstr(testLocations[i].name, query) != NULL) {
+            results[count] = testLocations[i];
+            count++;
+            if (count >= MAX_SEARCH_RESULTS) break;
+        }
+    }
+    return count;
 }
 
 // --- Helper: Draw Solid Road Segment ---
@@ -138,6 +170,175 @@ Model GenerateBuildingMesh(Vector2 *footprint, int count, float height, Color co
     Model model = LoadModelFromMesh(mesh);
     model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = color;
     return model;
+}
+
+// Helper for A* Priority Queue
+typedef struct {
+    int nodeIndex;
+    float fScore;
+} PQNode;
+
+// --- GRAPH & PATHFINDING IMPLEMENTATION ---
+
+void BuildMapGraph(GameMap *map) {
+    printf("Building Navigation Graph...\n");
+    
+    // Allocate graph array (one entry per node)
+    map->graph = (NodeGraph*)calloc(map->nodeCount, sizeof(NodeGraph));
+
+    // Iterate all edges to build adjacency list
+    for (int i = 0; i < map->edgeCount; i++) {
+        int u = map->edges[i].startNode;
+        int v = map->edges[i].endNode;
+        
+        // Safety check
+        if (u >= map->nodeCount || v >= map->nodeCount) continue;
+
+        float dist = Vector2Distance(map->nodes[u].position, map->nodes[v].position);
+
+        // Add U -> V
+        if (map->graph[u].count >= map->graph[u].capacity) {
+            map->graph[u].capacity = (map->graph[u].capacity == 0) ? 4 : map->graph[u].capacity * 2;
+            map->graph[u].connections = realloc(map->graph[u].connections, map->graph[u].capacity * sizeof(GraphConnection));
+        }
+        map->graph[u].connections[map->graph[u].count].targetNodeIndex = v;
+        map->graph[u].connections[map->graph[u].count].distance = dist;
+        map->graph[u].count++;
+
+        // Add V -> U (Undirected graph)
+        if (map->graph[v].count >= map->graph[v].capacity) {
+            map->graph[v].capacity = (map->graph[v].capacity == 0) ? 4 : map->graph[v].capacity * 2;
+            map->graph[v].connections = realloc(map->graph[v].connections, map->graph[v].capacity * sizeof(GraphConnection));
+        }
+        map->graph[v].connections[map->graph[v].count].targetNodeIndex = u;
+        map->graph[v].connections[map->graph[v].count].distance = dist;
+        map->graph[v].count++;
+    }
+}
+
+int GetClosestNode(GameMap *map, Vector2 position) {
+    int bestNode = -1;
+    float minDst = FLT_MAX;
+
+    // Optimization: In a real game, use a Spatial Hash or QuadTree. 
+    // For 50k nodes, a linear scan is okay-ish but might lag slightly.
+    for (int i = 0; i < map->nodeCount; i++) {
+        float d = Vector2DistanceSqr(position, map->nodes[i].position);
+        if (d < minDst) {
+            minDst = d;
+            bestNode = i;
+        }
+    }
+    return bestNode;
+}
+
+// A* Algorithm
+int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen) {
+    if (!map->graph) BuildMapGraph(map);
+
+    int startNode = GetClosestNode(map, startPos);
+    int endNode = GetClosestNode(map, endPos);
+
+    if (startNode == -1 || endNode == -1) return 0;
+    if (startNode == endNode) return 0;
+
+    // Allocations for A*
+    float *gScore = malloc(map->nodeCount * sizeof(float));
+    float *fScore = malloc(map->nodeCount * sizeof(float));
+    int *comeFrom = malloc(map->nodeCount * sizeof(int));
+    bool *inOpenSet = calloc(map->nodeCount, sizeof(bool)); // To quickly check if in set
+    
+    // Initialize
+    for(int i=0; i<map->nodeCount; i++) {
+        gScore[i] = FLT_MAX;
+        fScore[i] = FLT_MAX;
+        comeFrom[i] = -1;
+    }
+
+    // Open Set (Simple Array for simplicity, Binary Heap is faster but more code)
+    // Using a fixed size circular buffer or large array for the 'open' list pointers
+    // For simplicity, we will just scan the fScore array or use a simple list
+    // Let's use a simple list for the "Open Set" indices
+    int *openList = malloc(map->nodeCount * sizeof(int));
+    int openCount = 0;
+
+    gScore[startNode] = 0;
+    fScore[startNode] = Vector2Distance(map->nodes[startNode].position, map->nodes[endNode].position);
+    
+    openList[openCount++] = startNode;
+    inOpenSet[startNode] = true;
+
+    int found = 0;
+
+    while (openCount > 0) {
+        // 1. Find node in openList with lowest fScore
+        int lowestIdx = 0;
+        for(int i=1; i<openCount; i++) {
+            if (fScore[openList[i]] < fScore[openList[lowestIdx]]) {
+                lowestIdx = i;
+            }
+        }
+        int current = openList[lowestIdx];
+
+        // 2. Check complete
+        if (current == endNode) {
+            found = 1;
+            break;
+        }
+
+        // 3. Remove current from openList
+        openList[lowestIdx] = openList[openCount - 1];
+        openCount--;
+        inOpenSet[current] = false;
+
+        // 4. Check neighbors
+        for (int i = 0; i < map->graph[current].count; i++) {
+            int neighbor = map->graph[current].connections[i].targetNodeIndex;
+            float weight = map->graph[current].connections[i].distance;
+            
+            float tentative_g = gScore[current] + weight;
+
+            if (tentative_g < gScore[neighbor]) {
+                comeFrom[neighbor] = current;
+                gScore[neighbor] = tentative_g;
+                fScore[neighbor] = gScore[neighbor] + Vector2Distance(map->nodes[neighbor].position, map->nodes[endNode].position);
+
+                if (!inOpenSet[neighbor]) {
+                    openList[openCount++] = neighbor;
+                    inOpenSet[neighbor] = true;
+                }
+            }
+        }
+    }
+
+    int pathLen = 0;
+    if (found) {
+        // Reconstruct path backwards
+        int curr = endNode;
+        // Temporary buffer
+        Vector2 *tempPath = malloc(maxPathLen * sizeof(Vector2));
+        int count = 0;
+
+        while (curr != -1 && count < maxPathLen) {
+            tempPath[count++] = map->nodes[curr].position;
+            curr = comeFrom[curr];
+        }
+
+        // Reverse into outPath
+        for(int i=0; i<count; i++) {
+            outPath[i] = tempPath[count - 1 - i];
+        }
+        pathLen = count;
+        free(tempPath);
+    }
+
+    free(gScore);
+    free(fScore);
+    free(comeFrom);
+    free(inOpenSet);
+    free(openList);
+
+    return pathLen;
 }
 
 GameMap LoadGameMap(const char *fileName) {
