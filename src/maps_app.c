@@ -2,20 +2,19 @@
 #include "raymath.h"
 #include <stdio.h>
 #include <string.h>
-#include <float.h> // For FLT_MAX
+#include <float.h> 
 
 // --- MAPS APP STATE ---
 typedef struct {
     Camera2D camera;
     
-    // Interaction State
+    // Interaction
     bool isDragging;
     Vector2 dragStart;
     Vector2 playerPos; 
-    
     bool isFollowingPlayer; 
 
-    // Double Click State
+    // Input Timing
     float lastClickTime;
     Vector2 lastClickPos;
 
@@ -39,23 +38,18 @@ bool IsMapsAppTyping() {
     return mapsState.isSearching;
 }
 
-// --- HELPER: MATH FOR SNAPPING ---
+// --- MATH HELPERS ---
 Vector2 GetClosestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
     Vector2 ap = Vector2Subtract(p, a);
     Vector2 ab = Vector2Subtract(b, a);
-    
     float abLenSq = Vector2LengthSqr(ab);
-    if (abLenSq == 0.0f) return a; // a and b are same
-    
-    // Project point onto line, clamp between 0 and 1
+    if (abLenSq == 0.0f) return a; 
     float t = Vector2DotProduct(ap, ab) / abLenSq;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
-    
     return Vector2Add(a, Vector2Scale(ab, t));
 }
 
-// Scans all roads to find the closest point on a road center-line
 Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     Vector2 bestPoint = clickPos;
     float minDistSq = threshold * threshold;
@@ -65,37 +59,27 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
         Vector2 start = map->nodes[map->edges[i].startNode].position;
         Vector2 end = map->nodes[map->edges[i].endNode].position;
 
-        // --- OPTIMIZATION: AABB (Bounding Box) Check ---
-        // We calculate the rectangle (bounding box) of the road segment
-        // plus the threshold buffer. If the click isn't in this box, skip the heavy math.
-        
+        // AABB Check
         float minX = (start.x < end.x ? start.x : end.x) - threshold;
         float maxX = (start.x > end.x ? start.x : end.x) + threshold;
         float minY = (start.y < end.y ? start.y : end.y) - threshold;
         float maxY = (start.y > end.y ? start.y : end.y) + threshold;
 
-        if (clickPos.x < minX || clickPos.x > maxX || 
-            clickPos.y < minY || clickPos.y > maxY) {
-            continue; // Skip this road, it's too far away
-        }
+        if (clickPos.x < minX || clickPos.x > maxX || clickPos.y < minY || clickPos.y > maxY) continue; 
 
-        // --- HEAVY MATH ---
-        // Only runs for roads that are actually close to the click
         Vector2 closest = GetClosestPointOnSegment(clickPos, start, end);
         float dSq = Vector2DistanceSqr(clickPos, closest);
-        
         if (dSq < minDistSq) {
             minDistSq = dSq;
             bestPoint = closest;
             found = true;
         }
     }
-    
     return bestPoint;
 }
 
-void ShowRecommendedPlaces() {
-    mapsState.resultCount = SearchLocations("a", mapsState.searchResults);
+void ShowRecommendedPlaces(GameMap *map) {
+    mapsState.resultCount = SearchLocations(map, "a", mapsState.searchResults);
 }
 
 void InitMapsApp() {
@@ -116,17 +100,45 @@ void ResetMapCamera(Vector2 playerPos) {
     mapsState.isDragging = false;
 }
 
+// Robust SetMapDestination
 void SetMapDestination(GameMap *map, Vector2 dest) {
+    // Attempt pathfinding
+    int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
+    
+    // Check if pathfinding failed
+    if (len == 0) {
+        float dist = Vector2Distance(mapsState.playerPos, dest);
+        if (dist < 10.0f) {
+            printf("MapsApp: Target is too close (Already arrived).\n");
+            // Treat as success but no path needed
+            mapsState.destination = dest;
+            mapsState.hasDestination = false; // Don't draw path
+            return;
+        }
+        printf("MapsApp: Could not find path to target. (Graph disconnected?)\n");
+        return; 
+    }
+
+    // Success
     mapsState.destination = dest;
     mapsState.hasDestination = true;
-    mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
-    mapsState.isFollowingPlayer = true; 
+    mapsState.pathLen = len;
+    mapsState.isFollowingPlayer = true; // Auto-follow on new route
 }
 
 void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, bool isClicking) {
     mapsState.playerPos = (Vector2){currentPlayerPos.x, currentPlayerPos.y}; 
     
-    // --- 1. FOLLOW LOGIC ---
+    // --- 1. END NAVIGATION (Close Proximity Check) ---
+    if (mapsState.hasDestination) {
+        // Reduced distance to 5.0f so you get closer before it disappears
+        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
+            mapsState.hasDestination = false;
+            mapsState.pathLen = 0;
+        }
+    }
+
+    // --- 2. FOLLOW LOGIC ---
     if (mapsState.isFollowingPlayer && !mapsState.isDragging) {
         Vector2 diff = Vector2Subtract(mapsState.playerPos, mapsState.camera.target);
         if (Vector2Length(diff) > 0.1f) {
@@ -134,58 +146,61 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, b
         }
     }
 
-    // --- 2. MOUSE INTERACTIONS ---
+    // --- 3. MOUSE INTERACTIONS ---
     if (isClicking) {
-        // UI CLICK
-        if (localMouse.y <= 80) {
-             if (localMouse.x < 310 && localMouse.y > 30) {
-                 mapsState.isSearching = true;
-                 if (mapsState.searchCharCount == 0) ShowRecommendedPlaces();
-             }
-             else if (localMouse.x >= 310 && localMouse.y > 30) {
-                 ResetMapCamera(mapsState.playerPos);
-             }
-        }
-        // RE-CENTER BUTTON
-        else if (localMouse.x > 340 && localMouse.y > 540) {
-            mapsState.isFollowingPlayer = true;
-        }
-        // MAP CLICK
-        else {
-            float currentTime = GetTime();
-            if ((currentTime - mapsState.lastClickTime) < 0.3f) {
-                // --- DOUBLE CLICK LOGIC ---
-                
-                // 1. Calculate World Position of Click
-                Vector2 rel = Vector2Subtract(localMouse, mapsState.camera.offset);
-                Vector2 worldPos = Vector2Add(mapsState.camera.target, Vector2Scale(rel, 1.0f/mapsState.camera.zoom));
-                
-                // 2. SNAP TO ROAD (Threshold 15.0f is fairly wide/generous)
-                Vector2 snappedPos = SnapToRoad(map, worldPos, 15.0f);
-                
-                SetMapDestination(map, snappedPos);
-            }
-            mapsState.lastClickTime = currentTime;
+        bool handled = false;
 
-            mapsState.isDragging = true;
-            mapsState.dragStart = localMouse; 
-            mapsState.isSearching = false;    
-            mapsState.isFollowingPlayer = false; 
-        }
-        
-        // SEARCH RESULT CLICK
+        // A. SEARCH RESULTS CLICK 
         if (mapsState.isSearching) {
             for(int i=0; i<mapsState.resultCount; i++) {
                 Rectangle resRect = {10, 85 + i*45, 300, 40};
                 if (CheckCollisionPointRec(localMouse, resRect)) {
                     SetMapDestination(map, mapsState.searchResults[i].position);
                     mapsState.isSearching = false;
+                    handled = true;
+                    break;
                 }
+            }
+        }
+
+        if (!handled) {
+            // B. TOP UI CLICK 
+            if (localMouse.y <= 80) {
+                 if (localMouse.x < 310 && localMouse.y > 30) {
+                     mapsState.isSearching = true;
+                     if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
+                 }
+                 else if (localMouse.x >= 310 && localMouse.y > 30) {
+                     ResetMapCamera(mapsState.playerPos);
+                 }
+            }
+            // C. RE-CENTER BUTTON CLICK (Hitbox: 325-375, 425-475)
+            else if (localMouse.x > 325 && localMouse.x < 375 && localMouse.y > 425 && localMouse.y < 475) {
+                mapsState.isFollowingPlayer = true;
+            }
+            // D. MAP CLICK
+            else {
+                float currentTime = GetTime();
+                // Double Click Window 0.5s
+                if ((currentTime - mapsState.lastClickTime) < 0.5f) {
+                    Vector2 rel = Vector2Subtract(localMouse, mapsState.camera.offset);
+                    Vector2 worldPos = Vector2Add(mapsState.camera.target, Vector2Scale(rel, 1.0f/mapsState.camera.zoom));
+                    
+                    // Snap Threshold 30.0f
+                    Vector2 snappedPos = SnapToRoad(map, worldPos, 30.0f);
+                    SetMapDestination(map, snappedPos);
+                }
+                mapsState.lastClickTime = currentTime;
+
+                mapsState.isDragging = true;
+                mapsState.dragStart = localMouse; 
+                mapsState.isSearching = false;    
+                mapsState.isFollowingPlayer = false; 
             }
         }
     }
     
-    // --- 3. DRAGGING ---
+    // --- 4. DRAGGING ---
     if (mapsState.isDragging) {
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
             Vector2 delta = Vector2Subtract(mapsState.dragStart, localMouse);
@@ -197,7 +212,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, b
         }
     }
     
-    // --- 4. ZOOM ---
+    // --- 5. ZOOM ---
     float wheel = GetMouseWheelMove();
     if (wheel != 0) {
         mapsState.camera.zoom += wheel * 0.5f; 
@@ -205,7 +220,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, b
         if (mapsState.camera.zoom > 10.0f) mapsState.camera.zoom = 10.0f;
     }
 
-    // --- 5. KEYBOARD ---
+    // --- 6. KEYBOARD ---
     if (mapsState.isSearching) {
         int key = GetCharPressed();
         while (key > 0) {
@@ -213,7 +228,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, b
                 mapsState.searchQuery[mapsState.searchCharCount] = (char)key;
                 mapsState.searchQuery[mapsState.searchCharCount + 1] = '\0';
                 mapsState.searchCharCount++;
-                mapsState.resultCount = SearchLocations(mapsState.searchQuery, mapsState.searchResults);
+                mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
             }
             key = GetCharPressed();
         }
@@ -221,8 +236,8 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, b
             if (mapsState.searchCharCount > 0) {
                 mapsState.searchCharCount--;
                 mapsState.searchQuery[mapsState.searchCharCount] = '\0';
-                if (mapsState.searchCharCount == 0) ShowRecommendedPlaces();
-                else mapsState.resultCount = SearchLocations(mapsState.searchQuery, mapsState.searchResults);
+                if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
+                else mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
             }
         }
         if (IsKeyPressed(KEY_ENTER) && mapsState.resultCount > 0) {
@@ -238,7 +253,7 @@ void DrawMapsApp(GameMap *map) {
     BeginMode2D(mapsState.camera);
     
     // Draw Roads 
-    float lineThick = 4.0f / mapsState.camera.zoom; 
+    float lineThick = 5.0f / mapsState.camera.zoom; 
     if (lineThick < 1.0f) lineThick = 1.0f;
 
     for (int i = 0; i < map->edgeCount; i++) {
@@ -252,21 +267,21 @@ void DrawMapsApp(GameMap *map) {
         DrawTriangleFan(map->buildings[i].footprint, map->buildings[i].pointCount, map->buildings[i].color);
     }
 
-    // Draw Player
-    DrawCircleV(mapsState.playerPos, 1.0f, BLUE);
-    DrawCircleLines(mapsState.playerPos.x, mapsState.playerPos.y, 1.5f, SKYBLUE);
+    // Draw Player (Larger Icon)
+    DrawCircleV(mapsState.playerPos, 3.0f, BLUE);
+    DrawCircleLines(mapsState.playerPos.x, mapsState.playerPos.y, 3.5f, SKYBLUE);
 
-    // Draw Path
+    // Draw Path (THICK LINES)
     if (mapsState.hasDestination && mapsState.pathLen > 1) {
-        DrawLineStrip(mapsState.path, mapsState.pathLen, RED);
-        
-        // Draw connection from last path node to actual pin (Important visual fix)
-        // because pin is mid-road, but path ends at intersection
-        DrawLineEx(mapsState.path[mapsState.pathLen-1], mapsState.destination, lineThick, RED);
+        float pathThick = 8.0f / mapsState.camera.zoom; 
+        for (int i = 0; i < mapsState.pathLen - 1; i++) {
+            DrawLineEx(mapsState.path[i], mapsState.path[i+1], pathThick, RED);
+        }
+        DrawLineEx(mapsState.path[mapsState.pathLen-1], mapsState.destination, pathThick, RED);
         
         // Pin
-        DrawCircleV(mapsState.destination, 3.0f / mapsState.camera.zoom, RED);
-        DrawCircleLines(mapsState.destination.x, mapsState.destination.y, 3.0f / mapsState.camera.zoom, BLACK);
+        DrawCircleV(mapsState.destination, 4.0f / mapsState.camera.zoom, RED);
+        DrawCircleLines(mapsState.destination.x, mapsState.destination.y, 4.0f / mapsState.camera.zoom, BLACK);
     }
 
     EndMode2D();
@@ -301,17 +316,20 @@ void DrawMapsApp(GameMap *map) {
             if (CheckCollisionPointRec(GetMousePosition(), itemRect)) { 
                 DrawRectangleRec(itemRect, Fade(SKYBLUE, 0.3f));
             }
-            
             DrawText(mapsState.searchResults[i].name, 20, yPos, 20, BLACK);
             DrawText("Location", 20, yPos + 20, 10, GRAY);
             DrawLine(10, yPos + 40, 310, yPos + 40, LIGHTGRAY);
         }
     }
 
-    // Re-Center Floating Button
-    if (!mapsState.isFollowingPlayer) {
-        DrawCircle(360, 560, 25, BLACK);
-        DrawCircleLines(360, 560, 25, WHITE);
-        DrawText("O", 355, 552, 20, WHITE); 
-    }
+    // --- RE-CENTER FLOATING BUTTON (ALWAYS VISIBLE) ---
+    // Position: 350, 450 (Higher up to ensure visibility)
+    // GREEN = Locked/Following
+    // GRAY  = Unlocked/Free Camera
+    Color btnColor = mapsState.isFollowingPlayer ? GREEN : LIGHTGRAY;
+    Color iconColor = mapsState.isFollowingPlayer ? WHITE : BLACK;
+    
+    DrawCircle(350, 450, 25, btnColor);
+    DrawCircleLines(350, 450, 25, BLACK);
+    DrawText("O", 345, 442, 20, iconColor); 
 }

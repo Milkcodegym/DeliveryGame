@@ -12,7 +12,7 @@ void InitCamera(){
 void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
     // 1. Calculate the Ideal "Perfect" Position (Max Distance)
     float camDist = 3.0f;
-    float camHeight = 0.8f;
+    float camHeight = 1.0f;
 
     // Where we WANT the camera to be
     Vector3 desiredPos;
@@ -37,7 +37,8 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
             float checkX = player_position.x + (dx * t);
             float checkZ = player_position.z + (dz * t);
 
-            if (CheckMapCollision(map, checkX, checkZ)) {
+            // <--- FIX IS HERE: Added radius argument (0.2f)
+            if (CheckMapCollision(map, checkX, checkZ, 0.2f)) {
                 // WALL HIT! 
                 // Place camera slightly closer to player than the wall (buffer) to avoid clipping
                 float buffer = 0.2f; 

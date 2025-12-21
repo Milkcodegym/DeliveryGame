@@ -3,18 +3,27 @@
 
 #include "raylib.h"
 
-// --- EXISTING CONFIG ---
+// --- CONFIG ---
 #define MAX_NODES 50000
 #define MAX_EDGES 50000
 #define MAX_BUILDINGS 10000
-#define MAX_BUILDING_POINTS 100 
-
-// --- NEW CONFIG ---
+#define MAX_BUILDING_POINTS 100
+#define MAX_LOCATIONS 100 
 #define MAX_PATH_NODES 2048
 #define MAX_SEARCH_RESULTS 10
 
-// --- STRUCTS ---
+// --- ENUMS ---
+typedef enum {
+    LOC_HOUSE = 0,
+    LOC_GAS_STATION,
+    LOC_SUPERMARKET,
+    LOC_SHOP,
+    LOC_FOOD_HOT,
+    LOC_FOOD_COLD,
+    LOC_COFFEE
+} LocationType;
 
+// --- STRUCTS ---
 typedef struct {
     int id;
     Vector2 position;
@@ -34,8 +43,14 @@ typedef struct {
     Model model;
 } Building;
 
-// --- PATHFINDING STRUCTS ---
+typedef struct {
+    char name[64];
+    Vector2 position;
+    LocationType type; 
+    int iconID; 
+} MapLocation;
 
+// --- GRAPH STRUCTS ---
 typedef struct {
     int targetNodeIndex;
     float distance;
@@ -47,13 +62,6 @@ typedef struct {
     int capacity;
 } NodeGraph;
 
-typedef struct {
-    char name[64];
-    Vector2 position;
-    int iconID; 
-} MapLocation;
-
-// <--- FIX IS HERE: Added "GameMap" after "struct"
 typedef struct GameMap {
     Node *nodes;
     int nodeCount;
@@ -61,25 +69,29 @@ typedef struct GameMap {
     int edgeCount;
     Building *buildings;
     int buildingCount;
+    
+    // Locations Array
+    MapLocation *locations;
+    int locationCount;
 
-    // Graph Data for Pathfinding
     NodeGraph *graph; 
 } GameMap;
 
-// --- FUNCTION PROTOTYPES ---
-
+// --- PROTOTYPES ---
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map);
-bool CheckMapCollision(GameMap *map, float x, float z);
 
-// --- NEW PATHFINDING FUNCTIONS ---
+// Updated Collision Signature
+bool CheckMapCollision(GameMap *map, float x, float z, float radius);
+
 void BuildMapGraph(GameMap *map); 
-int GetClosestNode(GameMap *map, Vector2 position);
 int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen);
 
-// --- SEARCH FUNCTIONS ---
-void InitSearchLocations();
-int SearchLocations(const char* query, MapLocation* results);
+// Updated Search Signature
+int SearchLocations(GameMap *map, const char* query, MapLocation* results);
+
+// New: Visual Effects
+void UpdateMapEffects(GameMap *map, Vector3 playerPos);
 
 #endif
