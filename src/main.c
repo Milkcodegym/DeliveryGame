@@ -13,17 +13,15 @@
 int main(void)
 {
     // Initialize Window
-    InitWindow(1600, 900, "Delivery Game - v0.2");
+    InitWindow(1600, 900, "Delivery Game - v0.3");
     
     // IMPORTANT: Init Audio Device for the Music App
     InitAudioDevice(); 
-
 
     // --- Load Game Resources ---
     GameMap map = LoadGameMap("resources/maps/real_city.map");
     
     // [CRITICAL] Build the navigation graph for the GPS App
-    // This connects all the roads so the GPS can calculate paths.
     if (map.nodeCount > 0) {
         BuildMapGraph(&map);
     }
@@ -45,9 +43,10 @@ int main(void)
     TrafficManager traffic = {0};
     InitTraffic(&traffic);
 
-    // Initialize Phone (starts Music app, Maps app, etc.)
+    // Initialize Phone
+    // [FIX] Now passing &map so it can generate real delivery jobs
     PhoneState phone = {0};
-    InitPhone(&phone); 
+    InitPhone(&phone, &map); 
 
     SetTargetFPS(60);
 
@@ -60,8 +59,10 @@ int main(void)
         UpdatePlayer(&player, &map, dt);
         UpdateTraffic(&traffic, &player, &map, dt);
         
-        // Update Phone
-        // Now passing Player and Map so the GPS/Bank apps work correctly
+        // [NEW] Update Map Visuals (Pulsing spheres at locations)
+        UpdateMapEffects(&map, player.position);
+        
+        // Update Phone (GPS, Music, etc.)
         UpdatePhone(&phone, &player, &map); 
 
         Update_Camera(player.position, &map, player.angle, dt);
@@ -75,7 +76,7 @@ int main(void)
                 DrawGrid(100, 1.0f);
                 DrawGameMap(&map);
                 
-                // Draw Player (Offset slightly so wheels touch ground properly)
+                // Draw Player
                 Vector3 drawPos = player.position;
                 DrawModelEx(player.model, drawPos, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
                 
@@ -83,7 +84,6 @@ int main(void)
             EndMode3D();
 
             // 2. Draw 2D UI (Phone)
-            // Passing Map and Player allows the GPS to render and the Bank to show money
             DrawPhone(&phone, &player, &map);
             
             // Tooltip
@@ -106,8 +106,8 @@ int main(void)
     UnloadModel(player.model);
     UnloadGameMap(&map);
     
-    UnloadPhone(&phone); // Unload phone textures and music streams
-    CloseAudioDevice();  // Close audio device
+    UnloadPhone(&phone);
+    CloseAudioDevice(); 
     
     CloseWindow();
     return 0;

@@ -5,7 +5,6 @@
 #include <stdbool.h> 
 
 // --- Forward Declarations ---
-// We tell the compiler these structs exist, so we can use pointers to them.
 typedef struct Player Player;
 typedef struct GameMap GameMap;
 
@@ -28,16 +27,27 @@ typedef enum {
     APP_BROWSER
 } AppState;
 
-// --- Data Structures ---
+// --- Delivery Data ---
+typedef enum {
+    JOB_AVAILABLE,
+    JOB_ACCEPTED,
+    JOB_PICKED_UP,
+    JOB_DELIVERED
+} JobStatus;
+
 typedef struct DeliveryTask {
     char restaurant[32];
+    Vector2 restaurantPos; // Coordinates of the store
+    
     char customer[32];
+    Vector2 customerPos;   // Coordinates of the house
+    
     float pay;
-    float distance;
-    bool active;
+    float distance;        // Estimated distance
+    JobStatus status;      // Current state of the job
 } DeliveryTask;
 
-// Music Data
+// --- Music Data ---
 typedef struct Song {
     char title[32];
     char artist[32];
@@ -52,17 +62,18 @@ typedef struct MusicState {
     Song library[3]; 
 } MusicState;
 
-// Settings Data
+// --- Settings Data ---
 typedef struct SettingsState {
     float masterVolume;
     float sfxVolume;
     bool mute;
 } SettingsState;
 
+// --- Main Phone State ---
 typedef struct PhoneState {
     // Visuals
     RenderTexture2D screenTexture;
-    Texture2D themeAtlas; // Added for the custom UI texture we discussed
+    Texture2D themeAtlas; 
     float slideAnim; 
     bool isOpen;
     
@@ -70,20 +81,14 @@ typedef struct PhoneState {
     AppState currentApp;
     
     // App Specific Data
-    // NOTE: walletBalance removed (It is now inside Player)
     DeliveryTask tasks[5];
     MusicState music;     
     SettingsState settings;
 } PhoneState;
 
-void InitPhone(PhoneState *phone);
-
-// Updated: Now accepts Player/Map to update GPS logic
+void InitPhone(PhoneState *phone, GameMap *map); // UPDATED: Needs Map to generate jobs
 void UpdatePhone(PhoneState *phone, Player *player, GameMap *map); 
-
-// Updated: Now accepts Player/Map to draw Bank Balance and GPS
 void DrawPhone(PhoneState *phone, Player *player, GameMap *map);
-
 void UnloadPhone(PhoneState *phone);
 
 #endif
