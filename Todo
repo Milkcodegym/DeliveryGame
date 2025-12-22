@@ -18,6 +18,8 @@ Shop:
   - Decide on powerups, upgrades etc.
   - Decide on wether there will be eshops from phone or only    physical stores, or both.
 
+Map editor:
+  - fix editability on poi's
 
 work on scaling
 handling diagonals
@@ -29,3 +31,7 @@ Phone:
   - Apps:
     - efood
     - maps
+
+traffic follows rules avoids collision with itself, icons for places, entrances of places having delivery collisions
+
+traffic

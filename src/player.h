@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "map.h"
+#include "traffic.h"
 
 #define MAX_TRANSACTIONS 10
 
@@ -41,7 +42,7 @@ typedef struct Player {
 extern bool checkcamera_collision;
 Player InitPlayer(Vector3 startPos);
 void LoadPlayerContent(Player *player);
-void UpdatePlayer(Player *player, GameMap *map, float dt);
+void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt);
 
 // Helper: Safely add money and log it to history
 void AddMoney(Player *player, const char* desc, float amount);

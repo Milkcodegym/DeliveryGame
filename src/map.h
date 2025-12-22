@@ -8,31 +8,44 @@
 #define MAX_EDGES 50000
 #define MAX_BUILDINGS 10000
 #define MAX_BUILDING_POINTS 100
-#define MAX_LOCATIONS 100 
+#define MAX_LOCATIONS 200 
+#define MAX_AREAS 1000       // New: Limit for Parks/Water
 #define MAX_PATH_NODES 2048
 #define MAX_SEARCH_RESULTS 10
 
 // --- ENUMS ---
+// Must match the "get_poi_type" mapping in your Python script
 typedef enum {
-    LOC_HOUSE = 0,
-    LOC_GAS_STATION,
-    LOC_SUPERMARKET,
-    LOC_SHOP,
-    LOC_FOOD_HOT,
-    LOC_FOOD_COLD,
-    LOC_COFFEE
+    LOC_NONE = 0,
+    LOC_FUEL = 1,
+    LOC_FOOD = 2,       // Fast Food
+    LOC_CAFE = 3,
+    LOC_BAR = 4,
+    LOC_MARKET = 5,     // Mini Market
+    LOC_SUPERMARKET = 6,
+    LOC_RESTAURANT = 7,
+    LOC_HOUSE = 8,      // Was Entrance/House in Python
+    LOC_PARK = 9,       
+    LOC_WATER = 10
 } LocationType;
 
 // --- STRUCTS ---
+
 typedef struct {
     int id;
     Vector2 position;
+    int flags;          // New: 0=None, 1=Traffic Light, 2=Stop Sign
 } Node;
 
 typedef struct {
     int startNode;
     int endNode;
     float width;
+    
+    // New Traffic Data
+    bool oneway;    // true = can only drive Start->End
+    int maxSpeed;   // Speed limit in km/h
+    int lanes;      // Visual lane count
 } Edge;
 
 typedef struct {
@@ -42,6 +55,14 @@ typedef struct {
     int pointCount;
     Model model;
 } Building;
+
+// New: For Parks, Water, etc.
+typedef struct {
+    int type;           // 0 = Park, 1 = Water
+    Color color;
+    Vector2 *points;    // Polygon vertices
+    int pointCount;
+} MapArea;
 
 typedef struct {
     char name[64];
@@ -65,12 +86,17 @@ typedef struct {
 typedef struct GameMap {
     Node *nodes;
     int nodeCount;
+    
     Edge *edges;
     int edgeCount;
+    
     Building *buildings;
     int buildingCount;
     
-    // Locations Array
+    // New: Environment Areas
+    MapArea *areas;
+    int areaCount;
+    
     MapLocation *locations;
     int locationCount;
 
@@ -82,16 +108,15 @@ GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map);
 
-// Updated Collision Signature
+// Collision
 bool CheckMapCollision(GameMap *map, float x, float z, float radius);
 
+// Pathfinding
 void BuildMapGraph(GameMap *map); 
 int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen);
 
-// Updated Search Signature
+// Search & Logic
 int SearchLocations(GameMap *map, const char* query, MapLocation* results);
-
-// New: Visual Effects
 void UpdateMapEffects(GameMap *map, Vector3 playerPos);
 
 #endif

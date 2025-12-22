@@ -7,7 +7,7 @@
 #include <math.h>
 #include <float.h> 
 
-const float MAP_SCALE = 0.25f; 
+const float MAP_SCALE = 0.4f; 
 
 // --- SEARCH IMPLEMENTATION ---
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
@@ -171,6 +171,7 @@ GameMap LoadGameMap(const char *fileName) {
     map.edges = (Edge *)calloc(MAX_EDGES, sizeof(Edge));
     map.buildings = (Building *)calloc(MAX_BUILDINGS, sizeof(Building));
     map.locations = (MapLocation *)calloc(MAX_LOCATIONS, sizeof(MapLocation));
+    map.areas = (MapArea *)calloc(MAX_AREAS, sizeof(MapArea)); // New!
 
     char *text = LoadFileText(fileName);
     if (!text) {
@@ -185,6 +186,7 @@ GameMap LoadGameMap(const char *fileName) {
         if (strncmp(line, "NODES:", 6) == 0) { mode = 1; }
         else if (strncmp(line, "EDGES:", 6) == 0) { mode = 2; }
         else if (strncmp(line, "BUILDINGS:", 10) == 0) { mode = 3; }
+        else if (strncmp(line, "AREAS:", 6) == 0) { mode = 4; }
         else if (strncmp(line, "L ", 2) == 0) { 
              if (map.locationCount < MAX_LOCATIONS) {
                  int type; float x, y; char name[64];
@@ -202,18 +204,22 @@ GameMap LoadGameMap(const char *fileName) {
         }
         else {
             if (mode == 1 && map.nodeCount < MAX_NODES) {
-                int id; float x, y;
-                if (sscanf(line, "%d: %f %f", &id, &x, &y) == 3) {
+                int id; float x, y; int flags;
+                // Parse Flags too!
+                if (sscanf(line, "%d: %f %f %d", &id, &x, &y, &flags) >= 3) {
                     map.nodes[map.nodeCount].id = id;
                     map.nodes[map.nodeCount].position = (Vector2){x * MAP_SCALE, y * MAP_SCALE};
+                    // Store flags if struct updated... for now ignored or stored
                     map.nodeCount++;
                 }
             } else if (mode == 2 && map.edgeCount < MAX_EDGES) {
-                int start, end; float width;
-                if (sscanf(line, "%d %d %f", &start, &end, &width) == 3) {
+                int start, end, oneway, speed, lanes; float width;
+                // Updated format: Start End Width Oneway Speed Lanes
+                if (sscanf(line, "%d %d %f %d %d %d", &start, &end, &width, &oneway, &speed, &lanes) >= 3) {
                     map.edges[map.edgeCount].startNode = start;
                     map.edges[map.edgeCount].endNode = end;
                     map.edges[map.edgeCount].width = width * MAP_SCALE;
+                    // You could store speed/lanes here in struct
                     map.edgeCount++;
                 }
             } else if (mode == 3 && map.buildingCount < MAX_BUILDINGS) {
@@ -241,6 +247,29 @@ GameMap LoadGameMap(const char *fileName) {
                         map.buildingCount++;
                     }
                 }
+            } else if (mode == 4 && map.areaCount < MAX_AREAS) {
+                // New Area Parsing
+                int type, r, g, b;
+                char *ptr = line;
+                int read = 0;
+                MapArea *area = &map.areas[map.areaCount];
+                if (sscanf(ptr, "%d %d %d %d%n", &type, &r, &g, &b, &read) == 4) {
+                    area->type = type;
+                    area->color = (Color){r, g, b, 255};
+                    ptr += read;
+                    Vector2 tempPoints[MAX_BUILDING_POINTS]; // Reusing constant
+                    int pCount = 0;
+                    float px, py;
+                    while (sscanf(ptr, "%f %f%n", &px, &py, &read) == 2 && pCount < MAX_BUILDING_POINTS) {
+                        tempPoints[pCount] = (Vector2){px * MAP_SCALE, py * MAP_SCALE};
+                        pCount++;
+                        ptr += read;
+                    }
+                    area->points = (Vector2 *)malloc(sizeof(Vector2) * pCount);
+                    memcpy(area->points, tempPoints, sizeof(Vector2) * pCount);
+                    area->pointCount = pCount;
+                    map.areaCount++;
+                }
             }
         }
         line = strtok(NULL, "\n");
@@ -256,8 +285,12 @@ void UnloadGameMap(GameMap *map) {
         UnloadModel(map->buildings[i].model);
         free(map->buildings[i].footprint);
     }
+    for (int i = 0; i < map->areaCount; i++) {
+        free(map->areas[i].points);
+    }
     if (map->buildings) free(map->buildings);
     if (map->locations) free(map->locations);
+    if (map->areas) free(map->areas);
     if (map->graph) {
         for(int i=0; i<map->nodeCount; i++) if(map->graph[i].connections) free(map->graph[i].connections);
         free(map->graph);
@@ -266,7 +299,28 @@ void UnloadGameMap(GameMap *map) {
 
 void DrawGameMap(GameMap *map) {
     rlDisableBackfaceCulling(); 
-    // Draw Roads
+    
+    // 1. Draw Areas (Ground Level)
+    for(int i=0; i<map->areaCount; i++) {
+        // Draw flat polygon on ground (y=0.01)
+        // Raylib doesn't have a direct 3D poly fill, so we use TriangleFan logic
+        Vector3 center = {0, 0.01f, 0};
+        // Simple Fan triangulation
+        for(int j=0; j<map->areas[i].pointCount; j++) {
+            center.x += map->areas[i].points[j].x;
+            center.z += map->areas[i].points[j].y;
+        }
+        center.x /= map->areas[i].pointCount;
+        center.z /= map->areas[i].pointCount;
+
+        for(int j=0; j<map->areas[i].pointCount; j++) {
+            Vector2 p1 = map->areas[i].points[j];
+            Vector2 p2 = map->areas[i].points[(j+1)%map->areas[i].pointCount];
+            DrawTriangle3D(center, (Vector3){p2.x, 0.01f, p2.y}, (Vector3){p1.x, 0.01f, p1.y}, map->areas[i].color);
+        }
+    }
+
+    // 2. Draw Roads
     for (int i = 0; i < map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
@@ -274,17 +328,34 @@ void DrawGameMap(GameMap *map) {
         Vector2 en = map->nodes[e.endNode].position;
         DrawRoadSegment((Vector3){s.x, 0, s.y}, (Vector3){en.x, 0, en.y}, e.width);
     }
-    // Draw Buildings
+    
+    // 3. Draw Buildings
     for (int i = 0; i < map->buildingCount; i++) {
         DrawModel(map->buildings[i].model, (Vector3){0,0,0}, 1.0f, WHITE);
         DrawModelWires(map->buildings[i].model, (Vector3){0,0,0}, 1.0f, BLACK); 
     }
-    // NEW: Draw Locations (Red Spheres)
+    
+    // 4. Draw Locations (POIs)
     for (int i = 0; i < map->locationCount; i++) {
         Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
-        DrawSphere(pos, 1.5f, Fade(RED, 0.8f));
-        DrawSphereWires(pos, 1.55f, 8, 8, MAROON);
+        Color poiColor = RED;
+        
+        switch(map->locations[i].type) {
+            case LOC_FUEL: poiColor = ORANGE; break;
+            case LOC_FOOD: poiColor = GREEN; break;
+            case LOC_MARKET: poiColor = BLUE; break;
+            default: break;
+        }
+
+        DrawSphere(pos, 1.5f, Fade(poiColor, 0.8f));
+        
+        // Draw Text Label (Floating Billboard)
+        Vector3 textPos = { pos.x, 4.0f, pos.z };
+        // Ideally use Billboard for text, but for now simple DrawLine to indicate
+        DrawLine3D(pos, textPos, BLACK);
+        // DrawCube(textPos, 2.0f, 0.5f, 0.1f, WHITE); // Text Placeholder
     }
+    
     rlEnableBackfaceCulling();
 }
 

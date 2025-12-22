@@ -52,7 +52,7 @@ void LoadPlayerContent(Player *player) {
 
 bool checkcamera_collision=false;
 
-void UpdatePlayer(Player *player, GameMap *map, float dt) {
+void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt) {
     if (dt > 0.1f) dt = 0.1f;
     bool inputBlocked = IsMapsAppTyping();
 
@@ -132,5 +132,23 @@ void UpdatePlayer(Player *player, GameMap *map, float dt) {
         player->position.z += move.z;
     } else {
         player->current_speed = 0;
+    }
+
+    float putback=0.1f;
+    // --- 6. Collision with Traffic ---
+    if (!TrafficCollision(traffic, player->position.x + move.x, player->position.z, player->radius)) {
+        player->position.x += move.x;
+    }
+    else {
+        player->current_speed = 0;
+        player->position.x -= putback;
+    }
+
+    if (!TrafficCollision(traffic, player->position.x, player->position.z + move.z, player->radius)) {
+        player->position.z += move.z;
+    }
+    else {
+        player->current_speed = 0;
+        player->position.z -= putback;
     }
 }

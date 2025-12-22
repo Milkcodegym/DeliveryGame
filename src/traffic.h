@@ -3,7 +3,6 @@
 
 #include "raylib.h"
 #include "map.h"
-#include "player.h" 
 
 #define MAX_VEHICLES 100
 
@@ -30,11 +29,11 @@ typedef struct Vehicle {
 
 typedef struct TrafficManager {
     Vehicle vehicles[MAX_VEHICLES];
-    float spawnTimer;
 } TrafficManager;
 
 void InitTraffic(TrafficManager *traffic);
-void UpdateTraffic(TrafficManager *traffic, Player *player, GameMap *map, float dt);
+void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt);
 void DrawTraffic(TrafficManager *traffic);
+bool TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius);
 
 #endif

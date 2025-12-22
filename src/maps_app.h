@@ -5,12 +5,12 @@
 #include "map.h"
 
 void InitMapsApp();
-void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, Vector2 localMouse, bool isClicking);
+// Updated signature: Now accepts 'playerAngle'
+void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Vector2 localMouse, bool isClicking);
 void DrawMapsApp(GameMap *map);
 void SetMapDestination(GameMap *map, Vector2 dest);
 void ResetMapCamera(Vector2 playerPos);
 
-// New: Check if user is typing so we can disable car controls
 bool IsMapsAppTyping();
 
 #endif

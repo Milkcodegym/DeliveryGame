@@ -13,7 +13,6 @@ void InitTraffic(TrafficManager *traffic) {
     for (int i = 0; i < MAX_VEHICLES; i++) {
         traffic->vehicles[i].active = false;
     }
-    traffic->spawnTimer = 0.0f;
 }
 
 // --- Helper: Find a new road connected to 'nodeID' ---
@@ -41,13 +40,10 @@ int FindNextEdge(GameMap *map, int nodeID, int excludeEdgeIndex) {
     return excludeEdgeIndex; 
 }
 
-void UpdateTraffic(TrafficManager *traffic, Player *player, GameMap *map, float dt) {
+void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt) {
     if (map->edgeCount == 0) return;
 
     // --- 1. SPAWN LOGIC ---
-    traffic->spawnTimer += dt;
-    if (traffic->spawnTimer > SPAWN_RATE) {
-        traffic->spawnTimer = 0.0f;
 
         // Find free slot
         int slot = -1;
@@ -69,7 +65,7 @@ void UpdateTraffic(TrafficManager *traffic, Player *player, GameMap *map, float 
                 Vector3 p2 = { map->nodes[e.endNode].position.x, 0, map->nodes[e.endNode].position.y };
                 Vector3 mid = Vector3Scale(Vector3Add(p1, p2), 0.5f);
 
-                float distToPlayer = Vector3Distance(mid, player->position);
+                float distToPlayer = Vector3Distance(mid, player_position);
 
                 // Goldilocks Zone Check
                 if (distToPlayer > SPAWN_RADIUS_MIN && distToPlayer < SPAWN_RADIUS_MAX) {
@@ -93,7 +89,7 @@ void UpdateTraffic(TrafficManager *traffic, Player *player, GameMap *map, float 
                 }
             }
         }
-    }
+    
 
     // --- 2. UPDATE VEHICLES ---
     for (int i = 0; i < MAX_VEHICLES; i++) {
@@ -101,7 +97,7 @@ void UpdateTraffic(TrafficManager *traffic, Player *player, GameMap *map, float 
         if (!v->active) continue;
 
         // Despawn check
-        if (Vector3Distance(v->position, player->position) > DESPAWN_RADIUS) {
+        if (Vector3Distance(v->position, player_position) > DESPAWN_RADIUS) {
             v->active = false;
             continue;
         }
@@ -185,19 +181,7 @@ void DrawTraffic(TrafficManager *traffic) {
             float angle = atan2f(v->forward.x, v->forward.z) * RAD2DEG;
             
             Vector3 size = { 1.0f, 0.8f, 2.0f }; // Width, Height, Length
-            
-            // DrawCube doesn't support rotation easily, so we use DrawModel or wires
-            // Or use DrawCubeWires with a push matrix. 
-            // For simple prototype, lets manually rotate corners or just draw a Sphere for now?
-            // Actually, let's use a specialized function or just an aligned box if rotation is hard.
-            // Since we want rotation, let's use DrawCube but aligned to axis? No, looks bad.
-            
-            // Better: Use DrawModelEx with a built-in cube model if available, 
-            // or just draw a sphere/cylinder which doesn't need rotation visually as much.
-            
-            // For this specific prototype, let's assume we can draw an oriented box manually
-            // OR just draw a simple colored sphere for now until we import a car model.
-            // DrawSphere(v->position, 1.0f, v->color);
+        
             
             // Alternative: Draw Oriented Rectangle using Geometric math
             Vector3 pos = v->position;
@@ -210,4 +194,21 @@ void DrawTraffic(TrafficManager *traffic) {
             DrawLine3D(pos, Vector3Add(pos, Vector3Scale(forward, 2.0f)), BLACK); // Direction pointer
         }
     }
+}
+
+bool TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius){
+    for (int i = 0; i < MAX_VEHICLES; i++) {
+        Vehicle *v = &traffic->vehicles[i];
+        if (((v->position.x-player_radius<playerPosx)&&(playerPosx<v->position.x+player_radius))&&((v->position.z-player_radius<playerPosz)&&(playerPosz<v->position.z+player_radius))){
+            float speed = v->speed;
+            v->speed = 0;
+            for (int j=0; j<2000000; j++); //sleep
+            for (int j=1; j<speed+1; j++){
+                v->speed = j;
+            }
+            v->speed = speed;
+            return 1;
+        }
+    }
+    return 0;
 }

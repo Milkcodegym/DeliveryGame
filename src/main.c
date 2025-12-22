@@ -56,8 +56,8 @@ int main(void)
         float dt = GetFrameTime();
 
         // Update Game Logic
-        UpdatePlayer(&player, &map, dt);
-        UpdateTraffic(&traffic, &player, &map, dt);
+        UpdatePlayer(&player, &map, &traffic, dt);
+        UpdateTraffic(&traffic, player.position, &map, dt);
         
         // [NEW] Update Map Visuals (Pulsing spheres at locations)
         UpdateMapEffects(&map, player.position);
