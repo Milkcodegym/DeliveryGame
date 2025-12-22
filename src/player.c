@@ -34,7 +34,7 @@ Player InitPlayer(Vector3 startPos) {
     p.max_speed = 12.0f;
     p.brake_power = 6.0f; 
     p.rotationSpeed = 90.0f;
-    p.radius = 0.3f; // Set a small radius for collision (e.g., 0.3f)
+    p.radius = 0.3f; 
     p.yVelocity = 0.0f;
     p.isGrounded = false;
     p.angle = 0.0f;
@@ -120,35 +120,46 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
         player->isGrounded = false;
     }
 
-    // --- 5. Horizontal Collision (FIXED) ---
-    // Added 'player->radius' as the 4th argument
-    if (!CheckMapCollision(map, player->position.x + move.x, player->position.z, player->radius)) {
-        player->position.x += move.x;
-    } else {
-        player->current_speed = 0;
-    }
+    // --- 5 & 6. UNIFIED COLLISION DETECTION ---
     
-    if (!CheckMapCollision(map, player->position.x, player->position.z + move.z, player->radius)) {
-        player->position.z += move.z;
-    } else {
-        player->current_speed = 0;
-    }
+    // [ X-AXIS ]
+    float next_x = player->position.x + move.x;
+    
+    // Check Map first
+    bool hitMapX = CheckMapCollision(map, next_x, player->position.z, player->radius);
+    // Check Traffic second
+    bool hitCarX = TrafficCollision(traffic, next_x, player->position.z, player->radius);
 
-    float putback=0.1f;
-    // --- 6. Collision with Traffic ---
-    if (!TrafficCollision(traffic, player->position.x + move.x, player->position.z, player->radius)) {
+    if (!hitMapX && !hitCarX) {
         player->position.x += move.x;
-    }
+    } 
     else {
-        player->current_speed = 0;
-        player->position.x -= putback;
+        // Collision Response
+        if (hitCarX) {
+            // If hitting a car, bounce back slightly (feels better than sticking)
+            player->current_speed *= -0.5f; 
+        } else {
+            // If hitting a building, just stop
+            player->current_speed = 0;
+        }
     }
 
-    if (!TrafficCollision(traffic, player->position.x, player->position.z + move.z, player->radius)) {
+    // [ Z-AXIS ]
+    // Use the *current* X position (which might have changed) to allow sliding
+    float next_z = player->position.z + move.z;
+    
+    bool hitMapZ = CheckMapCollision(map, player->position.x, next_z, player->radius);
+    bool hitCarZ = TrafficCollision(traffic, player->position.x, next_z, player->radius);
+
+    if (!hitMapZ && !hitCarZ) {
         player->position.z += move.z;
-    }
+    } 
     else {
-        player->current_speed = 0;
-        player->position.z -= putback;
+        // Collision Response
+        if (hitCarZ) {
+            player->current_speed *= -0.5f;
+        } else {
+            player->current_speed = 0;
+        }
     }
 }
