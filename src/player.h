@@ -7,6 +7,12 @@
 
 #define MAX_TRANSACTIONS 10
 
+// Constants for the Health Bar
+#define BAR_WIDTH 220
+#define BAR_HEIGHT 25
+#define BAR_MARGIN_X 20
+#define BAR_MARGIN_Y 20
+
 // --- Economy Structures ---
 typedef struct Transaction {
     char description[32];
@@ -18,6 +24,7 @@ typedef struct Player {
     Vector3 position;
     
     // Physics
+    float health;
     float current_speed;
     float max_speed;
     float radius;
@@ -45,6 +52,7 @@ extern bool checkcamera_collision;
 Player InitPlayer(Vector3 startPos);
 void LoadPlayerContent(Player *player);
 void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt);
+void DrawHealthBar(Player *player);
 
 // Helper: Safely add money and log it to history
 void AddMoney(Player *player, const char* desc, float amount);

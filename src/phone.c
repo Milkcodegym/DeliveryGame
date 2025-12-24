@@ -30,7 +30,7 @@ bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localM
 void InitPhone(PhoneState *phone, GameMap *map) {
     phone->screenTexture = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     phone->currentApp = APP_HOME;
-    phone->isOpen = true;
+    phone->isOpen = false;
     phone->slideAnim = 1.0f;
     
     InitMapsApp(); 

@@ -27,7 +27,7 @@ void AddMoney(Player *player, const char* desc, float amount) {
 Player InitPlayer(Vector3 startPos) {
     Player p = {0};
     p.position = startPos;
-    
+    p.health = 100.0f;
     p.current_speed = 0.0f;
     p.friction = 1.5f;    
     p.acceleration = 1.3f;
@@ -51,6 +51,77 @@ void LoadPlayerContent(Player *player) {
 }
 
 bool checkcamera_collision=false;
+
+
+
+void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, float moveAmount, int axis) {
+    
+    // 1. Calculate the Test Position based on the axis
+    float testX = player->position.x;
+    float testZ = player->position.z;
+
+    if (axis == 1) testX += moveAmount;
+    else                testZ += moveAmount;
+
+    // 2. Run Collision Checks
+    bool hitMap = CheckMapCollision(map, testX, testZ, player->radius);
+    Vector3 hitCar = TrafficCollision(traffic, testX, testZ, player->radius);
+
+    // 3. LOGIC: If path is clear
+    if (!hitMap && hitCar.z == -1) {
+        // Apply movement to the correct axis
+        if (axis == 1) player->position.x += moveAmount;
+        else                player->position.z += moveAmount;
+        return; // We are done, exit function
+    }
+
+    // 4. LOGIC: Car Collision
+    if (hitCar.z != -1) {
+        float trafficSpeed = hitCar.z;
+
+        // --- CALCULATION ---
+        float pDirX = sinf(player->angle * DEG2RAD);
+        float pDirZ = cosf(player->angle * DEG2RAD);
+        float tDirX = hitCar.x;
+        float tDirZ = hitCar.y;
+
+        float alignment = (pDirX * tDirX) + (pDirZ * tDirZ);
+        float impactSpeed = 0.0f;
+
+        if (alignment < -0.2f) {
+            // Head-On
+            impactSpeed = player->current_speed + trafficSpeed;
+            player->current_speed *= -0.5f;
+        } else {
+            // Rear-end/Side
+            impactSpeed = fabsf(player->current_speed - trafficSpeed);
+            player->current_speed *= 0.5f;
+        }
+
+        // --- DAMAGE ---
+        if (impactSpeed > 2.0f) {
+            int damage = (int)((impactSpeed - 2.0f) * 5.0f);
+            player->health -= damage;
+            if (player->health < 0) player->health = 0;
+        }
+
+        // --- BOUNCE ---
+        player->current_speed *= -0.5f;
+        
+        // Push player back slightly to avoid sticking
+        if (axis == 1) player->position.x -= moveAmount;
+        else                player->position.z -= moveAmount;
+    } 
+    // 5. LOGIC: Map Collision
+    else {
+        if (player->current_speed > 2) {
+            int damage = (int)((player->current_speed - 2) * 10);
+            player->health -= damage;
+            if (player->health < 0) player->health = 0;
+        }
+        player->current_speed = 0;
+    }
+}
 
 void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt) {
     if (dt > 0.1f) dt = 0.1f;
@@ -121,45 +192,53 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     }
 
     // --- 5 & 6. UNIFIED COLLISION DETECTION ---
-    
-    // [ X-AXIS ]
-    float next_x = player->position.x + move.x;
-    
-    // Check Map first
-    bool hitMapX = CheckMapCollision(map, next_x, player->position.z, player->radius);
-    // Check Traffic second
-    bool hitCarX = TrafficCollision(traffic, next_x, player->position.z, player->radius);
+    // Attempt to move along X Axis
+    ResolveMovement(player, map, traffic, move.x, 1);
+    // Attempt to move along Z Axis
+    ResolveMovement(player, map, traffic, move.z, 0);
 
-    if (!hitMapX && !hitCarX) {
-        player->position.x += move.x;
-    } 
-    else {
-        // Collision Response
-        if (hitCarX) {
-            // If hitting a car, bounce back slightly (feels better than sticking)
-            player->current_speed *= -0.5f; 
-        } else {
-            // If hitting a building, just stop
-            player->current_speed = 0;
-        }
+}
+
+void DrawHealthBar(Player *player) {
+    int screenWidth = GetScreenWidth();
+    
+    // 1. Calculate Positions
+    // Bar coordinates
+    float barX = (float)(screenWidth - BAR_WIDTH - BAR_MARGIN_X);
+    float barY = (float)BAR_MARGIN_Y;
+    
+    // 2. Define Rectangles
+    // Background Rectangle (Full width)
+    Rectangle bgRect = { barX, barY, BAR_WIDTH, BAR_HEIGHT };
+    
+    // Health Rectangle (Calculated width)
+    float healthPercent = (float)player->health / 100.0f;
+    if (healthPercent < 0.0f) healthPercent = 0.0f;
+    if (healthPercent > 1.0f) healthPercent = 1.0f;
+    
+    Rectangle healthRect = { barX, barY, BAR_WIDTH * healthPercent, BAR_HEIGHT };
+
+    // 3. Draw Background (Gray/Black, Transparent, Rounded)
+    // roundness: 0.5f makes it pill-shaped
+    // segments: 10 makes the curves smooth
+    DrawRectangleRounded(bgRect, 0.5f, 10, Fade(BLACK, 0.5f));
+
+    // 4. Draw Health Fill (Red, Transparent, Rounded)
+    // Only draw if health > 0 to avoid visual glitches with rounded corners at 0 width
+    if (player->health > 0) {
+        DrawRectangleRounded(healthRect, 0.5f, 10, Fade(RED, 0.8f));
     }
 
-    // [ Z-AXIS ]
-    // Use the *current* X position (which might have changed) to allow sliding
-    float next_z = player->position.z + move.z;
-    
-    bool hitMapZ = CheckMapCollision(map, player->position.x, next_z, player->radius);
-    bool hitCarZ = TrafficCollision(traffic, player->position.x, next_z, player->radius);
+    // 5. Draw Border (White Outline)
+    DrawRectangleRoundedLines(bgRect, 0.5f, 10, Fade(WHITE, 0.5f));
 
-    if (!hitMapZ && !hitCarZ) {
-        player->position.z += move.z;
-    } 
-    else {
-        // Collision Response
-        if (hitCarZ) {
-            player->current_speed *= -0.5f;
-        } else {
-            player->current_speed = 0;
-        }
-    }
+    // 6. Draw Text Underneath
+    // "HEALTH POINTS = x/100"
+    const char *text;
+    if (player->health == 100){text = "HEALTH POINTS : 100";}
+    else {text = TextFormat("HEALTH POINTS : %3.1f", player->health);}
+    
+    // We measure the text size so we can align it nicely if you want (optional)
+    // Here I just align it to the start of the bar
+    DrawText(text, (int)barX-3, (int)(barY + BAR_HEIGHT + 5), 20, RED);
 }

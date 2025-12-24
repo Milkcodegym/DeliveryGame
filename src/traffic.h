@@ -33,6 +33,6 @@ typedef struct TrafficManager {
 void InitTraffic(TrafficManager *traffic);
 void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt);
 void DrawTraffic(TrafficManager *traffic);
-bool TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius);
+Vector3 TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius);
 
 #endif

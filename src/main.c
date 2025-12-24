@@ -10,6 +10,7 @@
 #include "phone.h" 
 #include "maps_app.h"
 #include "delivery_app.h" // <--- The new module
+#include "start_menu.h"
 
 
 int main(void)
@@ -17,6 +18,11 @@ int main(void)
     // Initialize Window
     InitWindow(1600, 900, "Delivery Game - v0.3");
     
+    while (!WindowShouldClose()){
+        startmenu();
+        break;
+    }
+
     // IMPORTANT: Init Audio Device for the Music App
     InitAudioDevice(); 
 
@@ -24,18 +30,10 @@ int main(void)
     GameMap map = LoadGameMap("resources/maps/real_city.map");
     
     // [CRITICAL] Build the navigation graph for the GPS App
-    if (map.nodeCount > 0) {
-        BuildMapGraph(&map);
-    }
+    if (map.nodeCount > 0) {BuildMapGraph(&map);}
 
     // Determine Safe Spawn Point
-    Vector3 startPos = { 0.0f, 50.0f, 0.0f }; 
-    if (map.nodeCount > 0) {
-        // Spawn at the first node in the map file to avoid falling through void
-        startPos.x = map.nodes[0].position.x;
-        startPos.z = map.nodes[0].position.y; 
-        startPos.y = 0.5f; // Slightly above ground
-    }
+    Vector3 startPos = { map.nodes[0].position.x, 0.5f , map.nodes[0].position.y };
 
     InitCamera();
 
@@ -91,12 +89,14 @@ int main(void)
             bool isClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
             // 2. Draw 2D UI (Phone)
             DrawPhone(&phone, &player, &map, mousePos, isClick);
-            
+
             // Tooltip
             if (!phone.isOpen) { 
-                DrawText("Press TAB to open Phone", GetScreenWidth() - 250, GetScreenHeight() - 30, 20, DARKGRAY);
+                DrawText("Press TAB to open Phone", GetScreenWidth() - 273, GetScreenHeight() - 30, 20, DARKGRAY);
             }
             
+            DrawHealthBar(&player);
+
             // Debug Stats
             DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
             DrawText(TextFormat("FPS: %d", GetFPS()), 10, 30, 20, DARKGRAY);

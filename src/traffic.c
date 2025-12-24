@@ -311,7 +311,7 @@ void DrawTraffic(TrafficManager *traffic) {
     }
 }
 
-bool TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius) {
+Vector3 TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPosz, float player_radius) {
     for (int i = 0; i < MAX_VEHICLES; i++) {
         Vehicle *v = &traffic->vehicles[i];
         if (!v->active) continue;
@@ -323,9 +323,12 @@ bool TrafficCollision(TrafficManager *traffic, float playerPosx, float playerPos
         float minDist = 0.4f + player_radius; 
         
         if (distSq < minDist * minDist) {
+            float speed = v->speed;
             v->speed = 0.0f;
-            return true;
+            Vector3 output = {v->forward.x,v->forward.z,speed};
+            return output;
         }
     }
-    return false;
+    Vector3 output = {0,0,-1};
+    return output;
 }
