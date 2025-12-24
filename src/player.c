@@ -61,7 +61,7 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
     float testZ = player->position.z;
 
     if (axis == 1) testX += moveAmount;
-    else                testZ += moveAmount;
+    else           testZ += moveAmount;
 
     // 2. Run Collision Checks
     bool hitMap = CheckMapCollision(map, testX, testZ, player->radius);
