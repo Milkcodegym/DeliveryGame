@@ -1,36 +1,74 @@
-Map features:
-  - Add sea
-  - Add landmark locations
-  - Add real map of section of city
-  - (decide on that section)
+PROJECT ROADMAP AND TODO LIST
 
-Graphics:
-  - Decide on art style (IMPORTANT)
+PHASE 0: CRITICAL DECISIONS (BLOCKERS)
+  These items must be decided before further development to avoid code rewrites.
 
-Camera:
-  - Decide on 1rst or 3rd person
+  Graphics
+    Decide on art style (URGENT/IMPORTANT)
 
-Delivery system:
-  - Add different types of products and deliveries
-  - Decide on scoring system, time etc
+  Camera
+    Decide on 1st person vs 3rd person perspective
 
-Shop:
-  - Decide on powerups, upgrades etc.
-  - Decide on wether there will be eshops from phone or only    physical stores, or both.
+  World Design
+    Decide on the specific section of thessaloniki to import
 
-Map editor:
-  - fix editability on poi's
+PHASE 1: CORE ENGINE & WORLD
+Building the physical simulation environment.
 
-work on scaling
+  Map Implementation:
+    Add final map data of the chosen city section
+    Add sea or boundary limits
+    Add landmark locations
+    Work on scaling and rendering optimization (important)
 
-Auto delivery/driver hire?
+  Traffic System
+    Implement traffic rules (lights, lanes)
+    Implement collision avoidance (traffic vs traffic)
+    Add interaction logic (traffic respecting delivery entrances)
 
-Phone:
-  - full screen?
-  - Apps:
-    - efood
-    - maps
+PHASE 2: PLAYER INTERFACE & CONTROLS
+The primary way the player interacts with the world.
 
-traffic follows rules avoids collision with itself, icons for places, entrances of places having delivery collisions
+  Phone UI
+    Decide on screen layout (Full screen vs Overlay)
+    Implement Maps App (Navigation, GPS)
+    Implement Efood App (Job listing and acceptance)
 
-traffic
+PHASE 3: DELIVERY MECHANICS (CORE LOOP)
+The logic defining how jobs are created and completed.
+
+  Delivery Logic
+    Define delivery collision boxes and entrance triggers
+    Add icons for pickup and drop-off locations
+    Implement scoring system (Time, Distance, Safety)
+    Add tip modifier logic (based on general time)
+
+  Job Classes & Modifiers
+    Hot Food (Fast Food): Very fast time constraints
+    Hot Food (Restaurant): Higher pay, high driving sensitivity constraint
+    Drinks (Cafe): Very fast time constraints
+    Drinks (Bar): Higher pay, extreme sensitivity (spill risk)
+    Cold Food (Market): No constraints
+    Cold Food (Supermarket): Extra weight physics (handling penalty)
+
+  Map Editor Tools
+    Fix editability of POIs
+    Add functionality to assign delivery kinds to specific shop nodes
+
+PHASE 4: ECONOMY & FRICTION
+Systems that cost money or add strategic depth.
+
+  Car Status
+    Implement Fuel system (Consumption + Gas Stations)
+    Implement Damage/Health system
+    Create Mechanic Screen (Repairs and Upgrades)
+    Implement "Death" penalty (Extra towing/medical fees)
+    Create upgradable MyCarMonitor app with G-force/Temp data and other car related stats
+
+  Shops & Upgrades
+    Decide on E-shops (Phone) vs Physical Stores (Drive-to)
+    Define power-ups and car upgrades
+    Define item inventory for each shop type
+
+  Law & Order
+    Implement Parking logic (Fees for illegal parking)

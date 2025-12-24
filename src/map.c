@@ -8,6 +8,8 @@
 #include <float.h> 
 
 const float MAP_SCALE = 0.4f; 
+const float RENDER_DISTANCE = 200.0f; // Load radius
+const float UNLOAD_DISTANCE = 300.0f; // Unload radius (buffer to prevent flickering)
 
 // --- SEARCH IMPLEMENTATION ---
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
@@ -34,7 +36,8 @@ void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
         
         float dist = Vector3Distance(playerPos, locPos);
         
-        if (dist < 4.0f) {
+        // Optimize: Only update effects if close
+        if (dist < 50.0f) {
             float pulse = (sinf(GetTime() * 5.0f) + 1.0f) * 0.5f; 
             float radius = 4.0f + pulse; 
             
@@ -54,8 +57,21 @@ Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     return (Vector3){ normal2D.x, 0.0f, normal2D.y };
 }
 
+// Calculate the center of a building for distance checking
+Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
+    Vector2 center = {0};
+    if (count == 0) return center;
+    for(int i = 0; i < count; i++) {
+        center = Vector2Add(center, footprint[i]);
+    }
+    center.x /= count;
+    center.y /= count;
+    return center;
+}
+
 void DrawRoadSegment(Vector3 start, Vector3 end, float width) {
     Vector3 diff = Vector3Subtract(end, start);
+    // Ignore segments that are essentially zero length
     if (Vector3Length(diff) < 0.001f) return;
 
     Vector3 right = Vector3CrossProduct((Vector3){0,1,0}, diff);
@@ -64,20 +80,24 @@ void DrawRoadSegment(Vector3 start, Vector3 end, float width) {
 
     float yLayer = 0.02f; 
 
+    // Calculate the 4 corners of the road rectangle
     Vector3 v1 = Vector3Subtract(start, right); v1.y = yLayer; 
     Vector3 v2 = Vector3Add(start, right);      v2.y = yLayer; 
     Vector3 v3 = Vector3Add(end, right);        v3.y = yLayer; 
     Vector3 v4 = Vector3Subtract(end, right);   v4.y = yLayer; 
 
-    // Draw Surface
+    // 1. Draw The Road Surface
     DrawTriangle3D(v1, v3, v2, DARKGRAY); 
     DrawTriangle3D(v1, v2, v3, DARKGRAY); 
     DrawTriangle3D(v1, v4, v3, DARKGRAY); 
     DrawTriangle3D(v1, v3, v4, DARKGRAY); 
 
-    // Draw Joints (16 slices for smoothness)
-    DrawCylinder((Vector3){start.x, yLayer, start.z}, width * 0.5f, width * 0.5f, 0.02f, 16, DARKGRAY);
-    DrawCylinder((Vector3){end.x, yLayer, end.z}, width * 0.5f, width * 0.5f, 0.02f, 16, DARKGRAY);
+    // 2. FIX: Draw Joints (The "Caps")
+    // We draw a flat cylinder at the start and end of the segment.
+    // This fills the wedge gap created by the turn.
+    // Optimization: '8' slices is enough for a small road joint. 16 is overkill.
+    DrawCylinder((Vector3){start.x, yLayer, start.z}, width * 0.5f, width * 0.5f, 0.02f, 8, DARKGRAY);
+    DrawCylinder((Vector3){end.x, yLayer, end.z}, width * 0.5f, width * 0.5f, 0.02f, 8, DARKGRAY);
 }
 
 Model GenerateBuildingMesh(Vector2 *footprint, int count, float height, Color color) {
@@ -171,7 +191,7 @@ GameMap LoadGameMap(const char *fileName) {
     map.edges = (Edge *)calloc(MAX_EDGES, sizeof(Edge));
     map.buildings = (Building *)calloc(MAX_BUILDINGS, sizeof(Building));
     map.locations = (MapLocation *)calloc(MAX_LOCATIONS, sizeof(MapLocation));
-    map.areas = (MapArea *)calloc(MAX_AREAS, sizeof(MapArea)); // New!
+    map.areas = (MapArea *)calloc(MAX_AREAS, sizeof(MapArea));
 
     char *text = LoadFileText(fileName);
     if (!text) {
@@ -205,21 +225,17 @@ GameMap LoadGameMap(const char *fileName) {
         else {
             if (mode == 1 && map.nodeCount < MAX_NODES) {
                 int id; float x, y; int flags;
-                // Parse Flags too!
                 if (sscanf(line, "%d: %f %f %d", &id, &x, &y, &flags) >= 3) {
                     map.nodes[map.nodeCount].id = id;
                     map.nodes[map.nodeCount].position = (Vector2){x * MAP_SCALE, y * MAP_SCALE};
-                    // Store flags if struct updated... for now ignored or stored
                     map.nodeCount++;
                 }
             } else if (mode == 2 && map.edgeCount < MAX_EDGES) {
                 int start, end, oneway, speed, lanes; float width;
-                // Updated format: Start End Width Oneway Speed Lanes
                 if (sscanf(line, "%d %d %f %d %d %d", &start, &end, &width, &oneway, &speed, &lanes) >= 3) {
                     map.edges[map.edgeCount].startNode = start;
                     map.edges[map.edgeCount].endNode = end;
                     map.edges[map.edgeCount].width = width * MAP_SCALE;
-                    // You could store speed/lanes here in struct
                     map.edgeCount++;
                 }
             } else if (mode == 3 && map.buildingCount < MAX_BUILDINGS) {
@@ -242,13 +258,16 @@ GameMap LoadGameMap(const char *fileName) {
                     build->footprint = (Vector2 *)malloc(sizeof(Vector2) * pCount);
                     memcpy(build->footprint, tempPoints, sizeof(Vector2) * pCount);
                     build->pointCount = pCount;
+                    
+                    // FIX: Set meshes to NULL to indicate "Unloaded"
+                    build->model.meshes = NULL; 
+                    build->model.meshCount = 0;
+                    
                     if (pCount >= 3) {
-                        build->model = GenerateBuildingMesh(build->footprint, build->pointCount, build->height, build->color);
                         map.buildingCount++;
                     }
                 }
             } else if (mode == 4 && map.areaCount < MAX_AREAS) {
-                // New Area Parsing
                 int type, r, g, b;
                 char *ptr = line;
                 int read = 0;
@@ -257,7 +276,7 @@ GameMap LoadGameMap(const char *fileName) {
                     area->type = type;
                     area->color = (Color){r, g, b, 255};
                     ptr += read;
-                    Vector2 tempPoints[MAX_BUILDING_POINTS]; // Reusing constant
+                    Vector2 tempPoints[MAX_BUILDING_POINTS];
                     int pCount = 0;
                     float px, py;
                     while (sscanf(ptr, "%f %f%n", &px, &py, &read) == 2 && pCount < MAX_BUILDING_POINTS) {
@@ -282,7 +301,10 @@ void UnloadGameMap(GameMap *map) {
     if (map->nodes) free(map->nodes);
     if (map->edges) free(map->edges);
     for (int i = 0; i < map->buildingCount; i++) {
-        UnloadModel(map->buildings[i].model);
+        // FIX: Check meshes pointer instead of vertexCount
+        if (map->buildings[i].model.meshes != NULL) {
+            UnloadModel(map->buildings[i].model);
+        }
         free(map->buildings[i].footprint);
     }
     for (int i = 0; i < map->areaCount; i++) {
@@ -297,15 +319,18 @@ void UnloadGameMap(GameMap *map) {
     }
 }
 
-void DrawGameMap(GameMap *map) {
+// UPDATE: Now takes Player Position to calculate distance for dynamic loading
+void DrawGameMap(GameMap *map, Vector3 playerPos) {
     rlDisableBackfaceCulling(); 
-    
+    Vector2 pPos2D = { playerPos.x, playerPos.z };
+
     // 1. Draw Areas (Ground Level)
     for(int i=0; i<map->areaCount; i++) {
-        // Draw flat polygon on ground (y=0.01)
-        // Raylib doesn't have a direct 3D poly fill, so we use TriangleFan logic
+        if (map->areas[i].pointCount > 0) {
+            if (Vector2Distance(pPos2D, map->areas[i].points[0]) > RENDER_DISTANCE) continue;
+        }
+
         Vector3 center = {0, 0.01f, 0};
-        // Simple Fan triangulation
         for(int j=0; j<map->areas[i].pointCount; j++) {
             center.x += map->areas[i].points[j].x;
             center.z += map->areas[i].points[j].y;
@@ -324,19 +349,50 @@ void DrawGameMap(GameMap *map) {
     for (int i = 0; i < map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
+        
         Vector2 s = map->nodes[e.startNode].position;
         Vector2 en = map->nodes[e.endNode].position;
+
+        if (Vector2Distance(pPos2D, s) > RENDER_DISTANCE && Vector2Distance(pPos2D, en) > RENDER_DISTANCE) {
+            continue; 
+        }
+
         DrawRoadSegment((Vector3){s.x, 0, s.y}, (Vector3){en.x, 0, en.y}, e.width);
     }
     
-    // 3. Draw Buildings
+    // 3. Draw Buildings - FIX: Use meshes pointer for check
     for (int i = 0; i < map->buildingCount; i++) {
-        DrawModel(map->buildings[i].model, (Vector3){0,0,0}, 1.0f, WHITE);
-        DrawModelWires(map->buildings[i].model, (Vector3){0,0,0}, 1.0f, BLACK); 
+        Building *b = &map->buildings[i];
+        
+        Vector2 center = GetBuildingCenter(b->footprint, b->pointCount);
+        float dist = Vector2Distance(pPos2D, center);
+
+        if (dist < RENDER_DISTANCE) {
+            // CASE A: WE ARE CLOSE
+            // If meshes is NULL, it's not loaded. Load it!
+            if (b->model.meshes == NULL) {
+                b->model = GenerateBuildingMesh(b->footprint, b->pointCount, b->height, b->color);
+            }
+            
+            DrawModel(b->model, (Vector3){0,0,0}, 1.0f, WHITE);
+            DrawModelWires(b->model, (Vector3){0,0,0}, 1.0f, BLACK); 
+        } 
+        else if (dist > UNLOAD_DISTANCE) {
+            // CASE B: WE ARE FAR
+            // If meshes is NOT NULL, it is loaded. Unload it!
+            if (b->model.meshes != NULL) {
+                UnloadModel(b->model);
+                b->model.meshes = NULL; // IMPORTANT: Manually mark as NULL after unloading
+                b->model.meshCount = 0;
+            }
+        }
     }
     
     // 4. Draw Locations (POIs)
     for (int i = 0; i < map->locationCount; i++) {
+        float dist = Vector2Distance(pPos2D, map->locations[i].position);
+        if (dist > RENDER_DISTANCE) continue;
+
         Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
         Color poiColor = RED;
         
@@ -348,12 +404,8 @@ void DrawGameMap(GameMap *map) {
         }
 
         DrawSphere(pos, 1.5f, Fade(poiColor, 0.8f));
-        
-        // Draw Text Label (Floating Billboard)
         Vector3 textPos = { pos.x, 4.0f, pos.z };
-        // Ideally use Billboard for text, but for now simple DrawLine to indicate
         DrawLine3D(pos, textPos, BLACK);
-        // DrawCube(textPos, 2.0f, 0.5f, 0.1f, WHITE); // Text Placeholder
     }
     
     rlEnableBackfaceCulling();
@@ -362,6 +414,13 @@ void DrawGameMap(GameMap *map) {
 bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
     Vector2 p = { x, z };
     for (int i = 0; i < map->buildingCount; i++) {
+        // Optimization: Simple Distance Check First
+        // Don't run expensive poly collision if the building is far away
+        Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
+        
+        // If player is further than (radius of building approx 20m + player radius), skip
+        if (Vector2Distance(p, center) > 25.0f) continue; 
+
         if (CheckCollisionPointPoly(p, map->buildings[i].footprint, map->buildings[i].pointCount)) {
             return true;
         }
@@ -400,17 +459,13 @@ void BuildMapGraph(GameMap *map) {
     }
 }
 
-// <--- FIX: Robust Node Finder --->
-// Skips isolated/orphan nodes to prevent "Graph Disconnected" errors
 int GetClosestNode(GameMap *map, Vector2 position) {
     int bestNode = -1;
     float minDst = FLT_MAX;
     
-    // Pass 1: Try to find a node WITH connections
+    // Pass 1: Prioritize connected nodes
     for (int i = 0; i < map->nodeCount; i++) {
-        // Skip unconnected nodes
         if (map->graph && map->graph[i].count == 0) continue; 
-
         float d = Vector2DistanceSqr(position, map->nodes[i].position);
         if (d < minDst) {
             minDst = d;
@@ -418,7 +473,7 @@ int GetClosestNode(GameMap *map, Vector2 position) {
         }
     }
     
-    // Pass 2: If we found nothing (unlikely), fall back to ANY node
+    // Pass 2: Fallback
     if (bestNode == -1) {
         minDst = FLT_MAX;
         for (int i = 0; i < map->nodeCount; i++) {
@@ -429,7 +484,6 @@ int GetClosestNode(GameMap *map, Vector2 position) {
             }
         }
     }
-    
     return bestNode;
 }
 

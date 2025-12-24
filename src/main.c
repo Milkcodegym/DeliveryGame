@@ -9,6 +9,8 @@
 #include "traffic.h"
 #include "phone.h" 
 #include "maps_app.h"
+#include "delivery_app.h" // <--- The new module
+
 
 int main(void)
 {
@@ -74,7 +76,7 @@ int main(void)
             // 1. Draw 3D World
             BeginMode3D(camera);
                 DrawGrid(100, 1.0f);
-                DrawGameMap(&map);
+                DrawGameMap(&map, player.position);
                 
                 // Draw Player
                 Vector3 drawPos = player.position;
@@ -82,9 +84,13 @@ int main(void)
                 
                 DrawTraffic(&traffic);
             EndMode3D();
+            // 1. Get the current mouse position
+            Vector2 mousePos = GetMousePosition();
 
+            // 2. Check if the left mouse button was pressed this frame
+            bool isClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
             // 2. Draw 2D UI (Phone)
-            DrawPhone(&phone, &player, &map);
+            DrawPhone(&phone, &player, &map, mousePos, isClick);
             
             // Tooltip
             if (!phone.isOpen) { 

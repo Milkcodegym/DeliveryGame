@@ -6,23 +6,26 @@
 #include "player.h" 
 #include "map.h"
 #include "maps_app.h" 
+#include "delivery_app.h" // <--- The new module
 
-// --- Helper Forward Declaration ---
-bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed);
+// --- Helper Functions ---
 
-// Helper to find a random location of a specific type
-int GetRandomLocationIndex(GameMap *map, bool isStore) {
-    if (map->locationCount == 0) return -1;
+// Shared UI Helper (Linked externally by delivery_app.c)
+bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed) {
+    bool hovered = CheckCollisionPointRec(localMouse, rect);
+    Color color = hovered ? Fade(baseColor, 0.8f) : baseColor;
+    if (hovered && isPressed) color = DARKGRAY;
+
+    DrawRectangleRec(rect, color);
+    DrawRectangleLinesEx(rect, 2, DARKGRAY);
     
-    for(int i=0; i<100; i++) {
-        int idx = GetRandomValue(0, map->locationCount - 1);
-        bool isHouse = (map->locations[idx].type == LOC_HOUSE);
-        
-        if (isStore && !isHouse) return idx; 
-        if (!isStore && isHouse) return idx; 
-    }
-    return -1; 
+    int textW = MeasureText(text, 20);
+    DrawText(text, rect.x + (rect.width - textW)/2, rect.y + (rect.height - 20)/2, 20, WHITE);
+
+    return (hovered && isPressed);
 }
+
+// --- Initialization ---
 
 void InitPhone(PhoneState *phone, GameMap *map) {
     phone->screenTexture = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -31,30 +34,7 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     phone->slideAnim = 1.0f;
     
     InitMapsApp(); 
-
-    // --- Generate Jobs ---
-    for(int i=0; i<5; i++) {
-        int storeIdx = GetRandomLocationIndex(map, true); 
-        int houseIdx = GetRandomLocationIndex(map, false); 
-        
-        if (storeIdx != -1 && houseIdx != -1) {
-            DeliveryTask *t = &phone->tasks[i];
-            
-            snprintf(t->restaurant, 32, "%s", map->locations[storeIdx].name);
-            t->restaurantPos = map->locations[storeIdx].position;
-            
-            snprintf(t->customer, 32, "House #%d", houseIdx); 
-            t->customerPos = map->locations[houseIdx].position;
-            
-            float dist = Vector2Distance(t->restaurantPos, t->customerPos);
-            t->distance = dist; 
-            t->pay = 15.0f + (dist * 0.2f); // Better pay formula
-            t->status = JOB_AVAILABLE;
-        } else {
-            snprintf(phone->tasks[i].restaurant, 32, "No Job");
-            phone->tasks[i].status = JOB_DELIVERED; 
-        }
-    }
+    InitDeliveryApp(phone, map); // <--- Clean 1-line init
 
     // Init Music
     phone->music.library[0] = (Song){"Banger beat", "Milk", "resources/music/song1.ogg", {0}, 0};
@@ -75,19 +55,7 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     phone->settings.mute = false;
 }
 
-bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed) {
-    bool hovered = CheckCollisionPointRec(localMouse, rect);
-    Color color = hovered ? Fade(baseColor, 0.8f) : baseColor;
-    if (hovered && isPressed) color = DARKGRAY;
-
-    DrawRectangleRec(rect, color);
-    DrawRectangleLinesEx(rect, 2, DARKGRAY);
-    
-    int textW = MeasureText(text, 20);
-    DrawText(text, rect.x + (rect.width - textW)/2, rect.y + (rect.height - 20)/2, 20, WHITE);
-
-    return (hovered && isPressed);
-}
+// --- App Draw Functions ---
 
 void DrawAppHome(PhoneState *phone, Vector2 mouse, bool click) {
     const char* icons[] = { "Jobs", "Maps", "Bank", "Music", "Settings", "Web" };
@@ -112,54 +80,6 @@ void DrawAppHome(PhoneState *phone, Vector2 mouse, bool click) {
             if (i == 4) phone->currentApp = APP_SETTINGS;
             if (i == 5) phone->currentApp = APP_BROWSER;
         }
-    }
-}
-
-void DrawAppDelivery(PhoneState *phone, GameMap *map, Vector2 mouse, bool click) {
-    DrawRectangle(0, 0, SCREEN_WIDTH, 60, ORANGE);
-    DrawText("DELIVERY JOBS", 20, 20, 20, WHITE);
-    
-    float y = 70;
-    for (int i = 0; i < 5; i++) {
-        DeliveryTask *t = &phone->tasks[i];
-        if (t->status == JOB_DELIVERED) continue; 
-
-        Rectangle rowRect = { 10, y, SCREEN_WIDTH - 20, 100 }; 
-        Color bg = (t->status == JOB_ACCEPTED || t->status == JOB_PICKED_UP) ? Fade(GREEN, 0.2f) : LIGHTGRAY;
-        DrawRectangleRec(rowRect, bg);
-        DrawRectangleLinesEx(rowRect, 1, DARKGRAY);
-        
-        // Dynamic Status Text
-        const char* statusTxt = "AVAILABLE";
-        if(t->status == JOB_ACCEPTED) statusTxt = "PICK UP";
-        if(t->status == JOB_PICKED_UP) statusTxt = "DELIVERING";
-
-        DrawText(t->restaurant, rowRect.x + 10, rowRect.y + 10, 20, BLACK);
-        DrawText(TextFormat("$%.2f", t->pay), rowRect.x + 180, rowRect.y + 10, 20, DARKGREEN);
-        DrawText(TextFormat("%s (%.0fm)", statusTxt, t->distance), rowRect.x + 10, rowRect.y + 35, 10, DARKGRAY);
-        
-        // BUTTONS
-        Rectangle btnMap = { rowRect.x + 10, rowRect.y + 60, 110, 30 };
-        if (GuiButton(btnMap, "Open Map", BLUE, mouse, click)) {
-            phone->currentApp = APP_MAP;
-            Vector2 target = (t->status == JOB_PICKED_UP) ? t->customerPos : t->restaurantPos;
-            SetMapDestination(map, target);
-        }
-
-        Rectangle btnAccept = { rowRect.x + 130, rowRect.y + 60, 110, 30 };
-        const char* btnText = (t->status == JOB_AVAILABLE) ? "ACCEPT" : "ACTIVE";
-        Color btnColor = (t->status == JOB_AVAILABLE) ? GREEN : GRAY;
-        
-        if (GuiButton(btnAccept, btnText, btnColor, mouse, click)) {
-            if (t->status == JOB_AVAILABLE) {
-                // Reset others so only 1 is active
-                for(int j=0; j<5; j++) {
-                    if (phone->tasks[j].status != JOB_DELIVERED) phone->tasks[j].status = JOB_AVAILABLE;
-                }
-                t->status = JOB_ACCEPTED;
-            }
-        }
-        y += 110;
     }
 }
 
@@ -273,43 +193,8 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         UpdateMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
     }
     
-    // --- 1. DELIVERY LOGIC (Detect Arrival) ---
-    // This runs every frame to check if player hit the target
-    for(int i=0; i<5; i++) {
-        DeliveryTask *t = &phone->tasks[i];
-        Vector2 playerPos2D = { player->position.x, player->position.z };
-
-        // Logic 1: Picking up Food
-        if (t->status == JOB_ACCEPTED) {
-            if (Vector2Distance(playerPos2D, t->restaurantPos) < 6.0f) {
-                // Arrived at Store!
-                t->status = JOB_PICKED_UP;
-                
-                // Auto-update GPS to customer
-                SetMapDestination(map, t->customerPos);
-                
-                // Optional: Play Sound
-                // PlaySound(fxPickup);
-                printf("ORDER PICKED UP!\n");
-            }
-        }
-        // Logic 2: Delivering Food
-        else if (t->status == JOB_PICKED_UP) {
-            if (Vector2Distance(playerPos2D, t->customerPos) < 6.0f) {
-                // Arrived at Customer!
-                t->status = JOB_DELIVERED;
-                
-                // Payment
-                AddMoney(player, "Delivery Payout", t->pay);
-                
-                // Clear GPS (handled in UpdateMapsApp proximity check, but force it here too)
-                // We don't have direct access to mapState here easily without extern, 
-                // but the MapsApp update loop handles clearing the line.
-                
-                printf("ORDER DELIVERED! +$%.2f\n", t->pay);
-            }
-        }
-    }
+    // --- 1. DELIVERY LOGIC ---
+    UpdateDeliveryApp(phone, player, map);
 
     // --- MOUSE CALC ---
     float screenW = (float)GetScreenWidth();
@@ -348,15 +233,15 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     }
 }
 
-void DrawPhone(PhoneState *phone, Player *player, GameMap *map) {
+void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMouse, bool click) {
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
     float phoneX = screenW - PHONE_WIDTH - 50;
     float phoneY = screenH - (PHONE_HEIGHT * phone->slideAnim) + 20;
 
     Vector2 globalMouse = GetMousePosition();
-    Vector2 localMouse = { -1, -1 };
-    bool click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+    //Vector2 localMouse = { -1, -1 };
+    //bool click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 
     Rectangle screenDest = { phoneX + SCREEN_OFFSET_X, phoneY + SCREEN_OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT };
 
@@ -372,7 +257,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map) {
         
         switch (phone->currentApp) {
             case APP_HOME: DrawAppHome(phone, localMouse, click); break;
-            case APP_DELIVERY: DrawAppDelivery(phone, map, localMouse, click); break; 
+            case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break; // <--- The new call
             case APP_BANK: DrawAppBank(phone, player); break; 
             case APP_MAP: DrawMapsApp(map); break;
             case APP_MUSIC: DrawAppMusic(phone, localMouse, click); break;

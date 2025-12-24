@@ -53,7 +53,7 @@ typedef struct {
     Color color;
     Vector2 *footprint;
     int pointCount;
-    Model model;
+    Model model;        // Note: Check mesh.vertexCount to see if loaded
 } Building;
 
 // New: For Parks, Water, etc.
@@ -106,7 +106,9 @@ typedef struct GameMap {
 // --- PROTOTYPES ---
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
-void DrawGameMap(GameMap *map);
+
+// UPDATED: Now requires player position for optimization logic
+void DrawGameMap(GameMap *map, Vector3 playerPos);
 
 // Collision
 bool CheckMapCollision(GameMap *map, float x, float z, float radius);

@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include <stdbool.h> 
+#include "player.h"
 
 // --- Forward Declarations ---
 typedef struct Player Player;
@@ -44,7 +45,14 @@ typedef struct DeliveryTask {
     
     float pay;
     float distance;        // Estimated distance
-    JobStatus status;      // Current state of the job
+    JobStatus status; 
+    int jobType;           // 0:FastFood, 1:Rest, 2:Cafe, 3:Bar, 4:Market, 5:Supermarket
+    float fragility;       // 0.0f (none) to 1.0f (glass)
+    bool isHeavy;          // Handling penalty
+    float timeLimit;       // Recommended time in seconds
+    double creationTime;   // GetTime() when created
+    double refreshTimer;   // Random time until this job disappears
+    char description[64];  // e.g. "Hot Food - Rush!"     // Current state of the job
 } DeliveryTask;
 
 // --- Music Data ---
@@ -88,7 +96,7 @@ typedef struct PhoneState {
 
 void InitPhone(PhoneState *phone, GameMap *map); // UPDATED: Needs Map to generate jobs
 void UpdatePhone(PhoneState *phone, Player *player, GameMap *map); 
-void DrawPhone(PhoneState *phone, Player *player, GameMap *map);
+void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 mouse, bool click);
 void UnloadPhone(PhoneState *phone);
 
 #endif

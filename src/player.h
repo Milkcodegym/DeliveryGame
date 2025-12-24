@@ -36,6 +36,8 @@ typedef struct Player {
     float money;
     Transaction history[MAX_TRANSACTIONS];
     int transactionCount; 
+    float totalEarnings;  // For "Money Made" stat
+    int totalDeliveries;  // For "Total Deliveries" stat
 
 } Player;
 
