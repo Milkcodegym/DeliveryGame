@@ -8,8 +8,7 @@
 #include <float.h> 
 
 const float MAP_SCALE = 0.4f; 
-const float RENDER_DISTANCE = 200.0f; // Load radius
-const float UNLOAD_DISTANCE = 300.0f; // Unload radius (buffer to prevent flickering)
+const float RENDER_DISTANCE = 200.0f; 
 
 // --- SEARCH IMPLEMENTATION ---
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
@@ -17,7 +16,6 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
     
     int count = 0;
     for (int i = 0; i < map->locationCount; i++) {
-        // Skip houses from search results
         if (map->locations[i].type == LOC_HOUSE) continue;
 
         if (strstr(map->locations[i].name, query) != NULL) {
@@ -33,10 +31,8 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
 void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
     for (int i = 0; i < map->locationCount; i++) {
         Vector3 locPos = { map->locations[i].position.x, 0.5f, map->locations[i].position.y };
-        
         float dist = Vector3Distance(playerPos, locPos);
         
-        // Optimize: Only update effects if close
         if (dist < 50.0f) {
             float pulse = (sinf(GetTime() * 5.0f) + 1.0f) * 0.5f; 
             float radius = 4.0f + pulse; 
@@ -57,7 +53,6 @@ Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     return (Vector3){ normal2D.x, 0.0f, normal2D.y };
 }
 
-// Calculate the center of a building for distance checking
 Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
     Vector2 center = {0};
     if (count == 0) return center;
@@ -71,7 +66,6 @@ Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
 
 void DrawRoadSegment(Vector3 start, Vector3 end, float width) {
     Vector3 diff = Vector3Subtract(end, start);
-    // Ignore segments that are essentially zero length
     if (Vector3Length(diff) < 0.001f) return;
 
     Vector3 right = Vector3CrossProduct((Vector3){0,1,0}, diff);
@@ -80,107 +74,117 @@ void DrawRoadSegment(Vector3 start, Vector3 end, float width) {
 
     float yLayer = 0.02f; 
 
-    // Calculate the 4 corners of the road rectangle
     Vector3 v1 = Vector3Subtract(start, right); v1.y = yLayer; 
     Vector3 v2 = Vector3Add(start, right);      v2.y = yLayer; 
     Vector3 v3 = Vector3Add(end, right);        v3.y = yLayer; 
     Vector3 v4 = Vector3Subtract(end, right);   v4.y = yLayer; 
 
-    // 1. Draw The Road Surface
     DrawTriangle3D(v1, v3, v2, DARKGRAY); 
     DrawTriangle3D(v1, v2, v3, DARKGRAY); 
     DrawTriangle3D(v1, v4, v3, DARKGRAY); 
     DrawTriangle3D(v1, v3, v4, DARKGRAY); 
 
-    // 2. FIX: Draw Joints (The "Caps")
-    // We draw a flat cylinder at the start and end of the segment.
-    // This fills the wedge gap created by the turn.
-    // Optimization: '8' slices is enough for a small road joint. 16 is overkill.
+    // Caps
     DrawCylinder((Vector3){start.x, yLayer, start.z}, width * 0.5f, width * 0.5f, 0.02f, 8, DARKGRAY);
     DrawCylinder((Vector3){end.x, yLayer, end.z}, width * 0.5f, width * 0.5f, 0.02f, 8, DARKGRAY);
 }
 
-Model GenerateBuildingMesh(Vector2 *footprint, int count, float height, Color color) {
-    Mesh mesh = { 0 };
-    if (count < 3) return LoadModelFromMesh(mesh); 
+// --- OPTIMIZED BATCH GENERATION ---
 
-    int wallVerts = count * 12; 
-    int roofVerts = (count - 2) * 3;
-    int floorVerts = (count - 2) * 3; 
+// Helper to push a single building's geometry into the master arrays
+void AppendBuildingToBatch(Building *b, float *verts, float *norms, unsigned char *colors, int *vIdx) {
+    int v = *vIdx;
+    Color c = b->color;
 
-    mesh.vertexCount = wallVerts + roofVerts + floorVerts;
-    mesh.triangleCount = mesh.vertexCount / 3;
-    
-    mesh.vertices = (float *)malloc(mesh.vertexCount * 3 * sizeof(float));
-    mesh.normals = (float *)malloc(mesh.vertexCount * 3 * sizeof(float));
-    mesh.texcoords = (float *)malloc(mesh.vertexCount * 2 * sizeof(float));
-    
-    int v = 0; 
-
-    for (int i = 0; i < count; i++) {
-        Vector2 p1 = footprint[i];
-        Vector2 p2 = footprint[(i + 1) % count];
+    // 1. WALLS
+    for (int i = 0; i < b->pointCount; i++) {
+        Vector2 p1 = b->footprint[i];
+        Vector2 p2 = b->footprint[(i + 1) % b->pointCount];
         Vector3 normal = CalculateWallNormal(p1, p2);
 
-        // A Side
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = normal.x; mesh.normals[v*3+1] = normal.y; mesh.normals[v*3+2] = normal.z; v++;
-
-        // B Side
-        Vector3 invNormal = Vector3Negate(normal);
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
+        // Quad (2 triangles) per wall segment
+        // We define the 6 vertices explicitly to control normals/colors per face
         
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = invNormal.x; mesh.normals[v*3+1] = invNormal.y; mesh.normals[v*3+2] = invNormal.z; v++;
+        // Triangle 1
+        verts[v*3+0] = p1.x; verts[v*3+1] = 0;         verts[v*3+2] = p1.y;
+        verts[v*3+3] = p1.x; verts[v*3+4] = b->height; verts[v*3+5] = p1.y;
+        verts[v*3+6] = p2.x; verts[v*3+7] = 0;         verts[v*3+8] = p2.y;
+        
+        // Triangle 2
+        verts[v*3+9]  = p1.x; verts[v*3+10] = b->height; verts[v*3+11] = p1.y;
+        verts[v*3+12] = p2.x; verts[v*3+13] = b->height; verts[v*3+14] = p2.y;
+        verts[v*3+15] = p2.x; verts[v*3+16] = 0;         verts[v*3+17] = p2.y;
+
+        // Normals & Colors for these 6 vertices
+        for(int k=0; k<6; k++) {
+            int idx = v + k;
+            norms[idx*3+0] = normal.x; norms[idx*3+1] = normal.y; norms[idx*3+2] = normal.z;
+            colors[idx*4+0] = c.r; colors[idx*4+1] = c.g; colors[idx*4+2] = c.b; colors[idx*4+3] = 255;
+        }
+        v += 6;
     }
 
-    // Roof & Floor
-    for (int i = 0; i < count - 2; i++) {
-        Vector2 p0 = footprint[0]; Vector2 p1 = footprint[i + 1]; Vector2 p2 = footprint[i + 2];
+    // 2. ROOF (Fan triangulation)
+    // Note: Assumes convex polygons. If buildings are concave, this is simple approximation.
+    for (int i = 0; i < b->pointCount - 2; i++) {
+        Vector2 p0 = b->footprint[0];
+        Vector2 p1 = b->footprint[i + 1];
+        Vector2 p2 = b->footprint[i + 2];
         Vector3 up = { 0.0f, 1.0f, 0.0f };
-        Vector3 down = { 0.0f, -1.0f, 0.0f };
         
-        // Roof
-        mesh.vertices[v*3+0] = p0.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p0.y;
-        mesh.normals[v*3+0] = up.x; mesh.normals[v*3+1] = up.y; mesh.normals[v*3+2] = up.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = up.x; mesh.normals[v*3+1] = up.y; mesh.normals[v*3+2] = up.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = height; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = up.x; mesh.normals[v*3+1] = up.y; mesh.normals[v*3+2] = up.z; v++;
-        
-        // Floor
-        mesh.vertices[v*3+0] = p0.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p0.y;
-        mesh.normals[v*3+0] = down.x; mesh.normals[v*3+1] = down.y; mesh.normals[v*3+2] = down.z; v++;
-        mesh.vertices[v*3+0] = p2.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p2.y;
-        mesh.normals[v*3+0] = down.x; mesh.normals[v*3+1] = down.y; mesh.normals[v*3+2] = down.z; v++;
-        mesh.vertices[v*3+0] = p1.x; mesh.vertices[v*3+1] = 0; mesh.vertices[v*3+2] = p1.y;
-        mesh.normals[v*3+0] = down.x; mesh.normals[v*3+1] = down.y; mesh.normals[v*3+2] = down.z; v++;
+        verts[v*3+0] = p0.x; verts[v*3+1] = b->height; verts[v*3+2] = p0.y;
+        verts[v*3+3] = p1.x; verts[v*3+4] = b->height; verts[v*3+5] = p1.y;
+        verts[v*3+6] = p2.x; verts[v*3+7] = b->height; verts[v*3+8] = p2.y;
+
+        for(int k=0; k<3; k++) {
+            int idx = v + k;
+            norms[idx*3+0] = up.x; norms[idx*3+1] = up.y; norms[idx*3+2] = up.z;
+            colors[idx*4+0] = c.r; colors[idx*4+1] = c.g; colors[idx*4+2] = c.b; colors[idx*4+3] = 255;
+        }
+        v += 3;
+    }
+    
+    *vIdx = v;
+}
+
+void GenerateMapBatch(GameMap *map) {
+    if (map->buildingCount == 0 || map->isBatchLoaded) return;
+    
+    printf("Optimizing Map: Batching %d buildings...\n", map->buildingCount);
+
+    // 1. Calculate size needed
+    int totalVerts = 0;
+    for(int i=0; i<map->buildingCount; i++) {
+        int walls = map->buildings[i].pointCount * 6; // 6 verts per wall segment
+        int roof = (map->buildings[i].pointCount - 2) * 3; // 3 verts per roof tri
+        totalVerts += (walls + roof);
     }
 
+    // 2. Allocate the BIG mesh
+    Mesh mesh = { 0 };
+    mesh.vertexCount = totalVerts;
+    mesh.triangleCount = totalVerts / 3;
+    
+    mesh.vertices = (float *)malloc(totalVerts * 3 * sizeof(float));
+    mesh.normals = (float *)malloc(totalVerts * 3 * sizeof(float));
+    mesh.colors = (unsigned char *)malloc(totalVerts * 4 * sizeof(unsigned char));
+    mesh.texcoords = (float *)calloc(totalVerts * 2, sizeof(float)); // Zeroed out, not using textures yet
+
+    // 3. Fill the mesh
+    int vIndex = 0;
+    for(int i=0; i<map->buildingCount; i++) {
+        AppendBuildingToBatch(&map->buildings[i], mesh.vertices, mesh.normals, mesh.colors, &vIndex);
+    }
+
+    // 4. Upload and create model
     UploadMesh(&mesh, false);
-    Model model = LoadModelFromMesh(mesh);
-    model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = color;
-    return model;
+    map->cityBatch = LoadModelFromMesh(mesh);
+    
+    // IMPORTANT: Set material to white so Vertex Colors (mesh.colors) show through correctly
+    map->cityBatch.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+    
+    map->isBatchLoaded = true;
+    printf("Map Optimized. Total Vertices: %d\n", totalVerts);
 }
 
 // --- CORE MAP FUNCTIONS ---
@@ -192,6 +196,7 @@ GameMap LoadGameMap(const char *fileName) {
     map.buildings = (Building *)calloc(MAX_BUILDINGS, sizeof(Building));
     map.locations = (MapLocation *)calloc(MAX_LOCATIONS, sizeof(MapLocation));
     map.areas = (MapArea *)calloc(MAX_AREAS, sizeof(MapArea));
+    map.isBatchLoaded = false;
 
     char *text = LoadFileText(fileName);
     if (!text) {
@@ -214,9 +219,7 @@ GameMap LoadGameMap(const char *fileName) {
                      map.locations[map.locationCount].position = (Vector2){ x * MAP_SCALE, y * MAP_SCALE };
                      map.locations[map.locationCount].type = (LocationType)type;
                      map.locations[map.locationCount].iconID = type;
-                     for(int k=0; name[k]; k++) {
-                         if(name[k] == '_') name[k] = ' ';
-                     }
+                     for(int k=0; name[k]; k++) if(name[k] == '_') name[k] = ' ';
                      strncpy(map.locations[map.locationCount].name, name, 64);
                      map.locationCount++;
                  }
@@ -259,9 +262,7 @@ GameMap LoadGameMap(const char *fileName) {
                     memcpy(build->footprint, tempPoints, sizeof(Vector2) * pCount);
                     build->pointCount = pCount;
                     
-                    // FIX: Set meshes to NULL to indicate "Unloaded"
-                    build->model.meshes = NULL; 
-                    build->model.meshCount = 0;
+                    // NOTE: We do NOT generate individual meshes here anymore.
                     
                     if (pCount >= 3) {
                         map.buildingCount++;
@@ -298,13 +299,17 @@ GameMap LoadGameMap(const char *fileName) {
 }
 
 void UnloadGameMap(GameMap *map) {
+    // Unload the batched city model
+    if (map->isBatchLoaded) {
+        UnloadModel(map->cityBatch);
+        map->isBatchLoaded = false;
+    }
+
     if (map->nodes) free(map->nodes);
     if (map->edges) free(map->edges);
+    
     for (int i = 0; i < map->buildingCount; i++) {
-        // FIX: Check meshes pointer instead of vertexCount
-        if (map->buildings[i].model.meshes != NULL) {
-            UnloadModel(map->buildings[i].model);
-        }
+        // Only free footprint, models are gone
         free(map->buildings[i].footprint);
     }
     for (int i = 0; i < map->areaCount; i++) {
@@ -319,14 +324,14 @@ void UnloadGameMap(GameMap *map) {
     }
 }
 
-// UPDATE: Now takes Player Position to calculate distance for dynamic loading
 void DrawGameMap(GameMap *map, Vector3 playerPos) {
     rlDisableBackfaceCulling(); 
     Vector2 pPos2D = { playerPos.x, playerPos.z };
 
-    // 1. Draw Areas (Ground Level)
+    // 1. Draw Areas (Ground)
     for(int i=0; i<map->areaCount; i++) {
         if (map->areas[i].pointCount > 0) {
+            // Simple distance check for areas is fine as they are low poly
             if (Vector2Distance(pPos2D, map->areas[i].points[0]) > RENDER_DISTANCE) continue;
         }
 
@@ -346,6 +351,7 @@ void DrawGameMap(GameMap *map, Vector3 playerPos) {
     }
 
     // 2. Draw Roads
+    // Note: Road drawing is still immediate mode, but less heavy than buildings.
     for (int i = 0; i < map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
@@ -360,33 +366,15 @@ void DrawGameMap(GameMap *map, Vector3 playerPos) {
         DrawRoadSegment((Vector3){s.x, 0, s.y}, (Vector3){en.x, 0, en.y}, e.width);
     }
     
-    // 3. Draw Buildings - FIX: Use meshes pointer for check
-    for (int i = 0; i < map->buildingCount; i++) {
-        Building *b = &map->buildings[i];
-        
-        Vector2 center = GetBuildingCenter(b->footprint, b->pointCount);
-        float dist = Vector2Distance(pPos2D, center);
-
-        if (dist < RENDER_DISTANCE) {
-            // CASE A: WE ARE CLOSE
-            // If meshes is NULL, it's not loaded. Load it!
-            if (b->model.meshes == NULL) {
-                b->model = GenerateBuildingMesh(b->footprint, b->pointCount, b->height, b->color);
-            }
-            
-            DrawModel(b->model, (Vector3){0,0,0}, 1.0f, WHITE);
-            DrawModelWires(b->model, (Vector3){0,0,0}, 1.0f, BLACK); 
-        } 
-        else if (dist > UNLOAD_DISTANCE) {
-            // CASE B: WE ARE FAR
-            // If meshes is NOT NULL, it is loaded. Unload it!
-            if (b->model.meshes != NULL) {
-                UnloadModel(b->model);
-                b->model.meshes = NULL; // IMPORTANT: Manually mark as NULL after unloading
-                b->model.meshCount = 0;
-            }
-        }
+    // 3. Draw Buildings (OPTIMIZED BATCH)
+    // Check if we need to generate the batch (Lazy Loading)
+    if (!map->isBatchLoaded) {
+        GenerateMapBatch(map);
     }
+    
+    // Draw the entire city in ONE draw call
+    // Note: We don't perform distance checks here because the GPU can cull faster than CPU
+    DrawModel(map->cityBatch, (Vector3){0,0,0}, 1.0f, WHITE);
     
     // 4. Draw Locations (POIs)
     for (int i = 0; i < map->locationCount; i++) {
@@ -414,11 +402,9 @@ void DrawGameMap(GameMap *map, Vector3 playerPos) {
 bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
     Vector2 p = { x, z };
     for (int i = 0; i < map->buildingCount; i++) {
-        // Optimization: Simple Distance Check First
-        // Don't run expensive poly collision if the building is far away
         Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
         
-        // If player is further than (radius of building approx 20m + player radius), skip
+        // Fast distance check (approx 25.0f covers most building sizes + player size)
         if (Vector2Distance(p, center) > 25.0f) continue; 
 
         if (CheckCollisionPointPoly(p, map->buildings[i].footprint, map->buildings[i].pointCount)) {
@@ -428,7 +414,7 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
     return false;
 }
 
-// --- GRAPH & PATHFINDING ---
+// --- GRAPH & PATHFINDING (UNCHANGED) ---
 
 void BuildMapGraph(GameMap *map) {
     printf("Building Navigation Graph...\n");

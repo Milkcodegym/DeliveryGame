@@ -99,6 +99,8 @@ typedef struct GameMap {
     
     MapLocation *locations;
     int locationCount;
+    Model cityBatch;      // One giant model for all buildings
+    bool isBatchLoaded;   // Flag to check if we generated it
 
     NodeGraph *graph; 
 } GameMap;
@@ -120,5 +122,5 @@ int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, i
 // Search & Logic
 int SearchLocations(GameMap *map, const char* query, MapLocation* results);
 void UpdateMapEffects(GameMap *map, Vector3 playerPos);
-
+void GenerateMapBatch(GameMap *map);
 #endif

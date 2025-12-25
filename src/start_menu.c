@@ -1,63 +1,88 @@
 #include "start_menu.h"
-#include <math.h> // Required for sin() function
+#include <math.h> 
+#include <stdio.h>
 
-void startmenu() {
-    // Basic animation variables
+// --- SHARED DRAWING FUNCTION ---
+void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, const char* status) {
+    // 1. Draw a dark background to cover whatever is behind (the frozen game)
+    DrawRectangle(0, 0, screenWidth, screenHeight, GetColor(0x202020FF)); 
+
+    // 2. Moving stripes (Visual feedback that it hasn't crashed)
+    float time = GetTime();
+    int scrollOffset = (int)(time * 100) % 80; 
+    for (int i = -1; i < screenHeight / 60 + 1; i++) {
+        DrawRectangle(screenWidth / 2 - 10, (i * 80) + scrollOffset, 20, 40, YELLOW);
+    }
+
+    // 3. The Bar
+    int barWidth = 400;
+    int barHeight = 30;
+    int barX = (screenWidth - barWidth) / 2;
+    int barY = screenHeight / 2;
+
+    DrawText("LOADING CITY...", barX, barY - 40, 20, WHITE);
+    DrawRectangleLines(barX, barY, barWidth, barHeight, WHITE);
+    
+    // Clamp progress for safety
+    if (progress > 1.0f) progress = 1.0f;
+    if (progress < 0.0f) progress = 0.0f;
+
+    DrawRectangle(barX + 5, barY + 5, (int)((barWidth - 10) * progress), barHeight - 10, GREEN);
+    DrawText(status, barX, barY + 40, 20, LIGHTGRAY);
+}
+
+// --- MAIN MENU LOOP ---
+GameMap RunStartMenu(const char* mapFileName) {
     float time = 0.0f;
     int screenWidth = GetScreenWidth();
     int screenHeight = GetScreenHeight();
+    int loadingState = 0; 
+    GameMap map = {0}; 
 
     while (!WindowShouldClose()) {
-        time += GetFrameTime(); // Update time for animations
-
-        // 1. INPUT
-        if (IsKeyPressed(KEY_ENTER)) {
-            break;
+        time += GetFrameTime();
+        
+        if (loadingState == 0 && IsKeyPressed(KEY_ENTER)) {
+            loadingState = 1;
         }
 
         BeginDrawing();
-            // --- A. DYNAMIC BACKGROUND (Moving Road Effect) ---
-            ClearBackground(GetColor(0x202020FF)); // Dark Asphalt Gray
-            
-            // Draw moving road stripes
-            int scrollOffset = (int)(time * 100) % 80; 
-            for (int i = -1; i < screenHeight / 60 + 1; i++) {
-                DrawRectangle(screenWidth / 2 - 10, (i * 80) + scrollOffset, 20, 40, YELLOW);
+            if (loadingState == 0) {
+                // ... [Keep your existing Main Menu Title/Car drawing code here] ...
+                 ClearBackground(GetColor(0x202020FF));
+                 DrawText("DELIVERY GAME", screenWidth/2 - 150, screenHeight/3, 40, RED);
+                 DrawText("PRESS ENTER", screenWidth/2 - 80, screenHeight/3 + 60, 20, GREEN);
             }
+            else {
+                // LOADING SCREEN
+                float progress = 0.0f;
+                const char* status = "Initializing...";
 
-            // --- B. THE TITLE (With Shadow) ---
-            const char* title = "DELIVERY GAME";
-            int titleSize = 60;
-            // Calculate center position
-            int titleWidth = MeasureText(title, titleSize); 
-            int titleX = (screenWidth - titleWidth) / 2;
-            int titleY = screenHeight / 3;
-
-            // Draw Shadow (Offset by 5 pixels)
-            DrawText(title, titleX + 5, titleY + 5, titleSize, BLACK);
-            // Draw Main Text
-            DrawText(title, titleX, titleY, titleSize, RED);
-
-            // --- C. PULSING SUBTITLE ---
-            const char* subtitle = "PRESS [ENTER] TO START";
-            int subSize = 20;
-            int subWidth = MeasureText(subtitle, subSize);
-            int subX = (screenWidth - subWidth) / 2;
-            int subY = titleY + 80;
-
-            // Math trick: sin() goes from -1 to 1. We map it to Alpha (transparency)
-            float alpha = (sinf(time * 3.0f) + 1.0f) / 2.0f; // Range 0.0 to 1.0
-            Color pulseColor = Fade(GREEN, alpha); // Raylib's Fade() handles transparency
-            
-            DrawText(subtitle, subX, subY, subSize, pulseColor);
-
-            // --- D. DECORATION ---
-            // Draw a simple car box below text
-            DrawRectangle(screenWidth/2 - 40, subY + 50, 80, 40, BLUE); // Car Body
-            DrawRectangle(screenWidth/2 - 30, subY + 40, 60, 10, SKYBLUE); // Windshield
-            DrawCircle(screenWidth/2 - 25, subY + 90, 10, BLACK); // Wheel
-            DrawCircle(screenWidth/2 + 25, subY + 90, 10, BLACK); // Wheel
-
+                if (loadingState == 1) { 
+                    progress = 0.1f; 
+                    status = "Parsing Map Data..."; 
+                }
+                else if (loadingState == 2) { 
+                    // CAP AT 95% - The final 5% happens in the main loop
+                    progress = 0.95f; 
+                    status = "Building 3D Geometry..."; 
+                }
+                
+                DrawLoadingInterface(screenWidth, screenHeight, progress, status);
+            }
         EndDrawing();
+
+        // LOGIC
+        if (loadingState == 1) {
+            map = LoadGameMap(mapFileName);
+            loadingState = 2;
+        }
+        else if (loadingState == 2) {
+            GenerateMapBatch(&map);
+            // Done! Break immediately. Do NOT wait.
+            // We want the game loop to start immediately.
+            break; 
+        }
     }
+    return map;
 }

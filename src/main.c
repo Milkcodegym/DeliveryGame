@@ -9,34 +9,34 @@
 #include "traffic.h"
 #include "phone.h" 
 #include "maps_app.h"
-#include "delivery_app.h" // <--- The new module
+#include "delivery_app.h" 
 #include "start_menu.h"
-
 
 int main(void)
 {
     // Initialize Window
-    InitWindow(1600, 900, "Delivery Game - v0.3");
+    // Note: 2600x1900 is very large. Ensure your monitor supports this or use GetScreenWidth()
+    InitWindow(2600, 1900, "Delivery Game - v0.3");
     
+    // Move Audio Init OUTSIDE the loop to prevent re-initialization crashes on restart
+    InitAudioDevice(); 
+
     while (!WindowShouldClose()){
-        startmenu();
         
+        // 1. Run the Start Menu (Handles loading up to 95%)
+        GameMap map = RunStartMenu("resources/maps/real_city.map");
     
-
-        // IMPORTANT: Init Audio Device for the Music App
-        InitAudioDevice(); 
-
-        // --- Load Game Resources ---
-        GameMap map = LoadGameMap("resources/maps/real_city.map");
-        
         // [CRITICAL] Build the navigation graph for the GPS App
-        if (map.nodeCount > 0) {BuildMapGraph(&map);}
+        if (map.nodeCount > 0) { BuildMapGraph(&map); }
 
         // Determine Safe Spawn Point
-        Vector3 startPos = { map.nodes[0].position.x, 0.5f , map.nodes[0].position.y };
+        Vector3 startPos = {0, 0, 0};
+        if (map.nodeCount > 0) {
+            startPos = (Vector3){ map.nodes[0].position.x, 0.5f , map.nodes[0].position.y };
+        }
 
-        InitCamera();
-
+        InitCamera(); // Ensure camera.h handles reset properly
+        
         Player player = InitPlayer(startPos);
         LoadPlayerContent(&player); 
 
@@ -44,35 +44,53 @@ int main(void)
         InitTraffic(&traffic);
 
         // Initialize Phone
-        // [FIX] Now passing &map so it can generate real delivery jobs
         PhoneState phone = {0};
         InitPhone(&phone, &map); 
 
         SetTargetFPS(60);
 
-    // --- Main Game Loop ---
-        while (player.health>0 && !WindowShouldClose()){
+        // --- TRANSITION VARIABLES ---
+        // We render the game for a few frames while hiding it behind the loading screen.
+        // This forces the GPU/Driver to compile shaders and upload geometry buffers 
+        // without the user seeing the initial "stutter".
+        int frameCounter = 0;
+        const int WARMUP_FRAMES = 10; 
+
+        // --- Main Game Loop ---
+        while (player.health > 0 && !WindowShouldClose()){
             float dt = GetFrameTime();
-
-            // Update Game Logic
-            UpdatePlayer(&player, &map, &traffic, dt);
-            UpdateTraffic(&traffic, player.position, &map, dt);
             
-            // [NEW] Update Map Visuals (Pulsing spheres at locations)
-            UpdateMapEffects(&map, player.position);
-            
-            // Update Phone (GPS, Music, etc.)
-            UpdatePhone(&phone, &player, &map); 
+            // 1. UPDATE PHASE
+            // We only run game logic if we are done warming up
+            if (frameCounter > WARMUP_FRAMES) {
+                
+                // Update Game Logic
+                UpdatePlayer(&player, &map, &traffic, dt);
+                UpdateTraffic(&traffic, player.position, &map, dt);
+                
+                // Update Map Visuals (Pulsing spheres at locations)
+                UpdateMapEffects(&map, player.position);
+                
+                // Update Phone (GPS, Music, etc.)
+                UpdatePhone(&phone, &player, &map); 
 
-            Update_Camera(player.position, &map, player.angle, dt);
+                Update_Camera(player.position, &map, player.angle, dt);
+            }
+            else {
+                // OPTIONAL: During warmup, force camera to player pos so it doesn't drift
+                // (Assuming Update_Camera handles initialization, otherwise set manually)
+                // camera.target = player.position; 
+            }
 
-            // --- Drawing ---
+            // 2. DRAW PHASE
             BeginDrawing();
                 ClearBackground(RAYWHITE);
 
-                // 1. Draw 3D World
+                // A. Draw 3D World (ALWAYS DRAW THIS to warm up GPU)
                 BeginMode3D(camera);
                     DrawGrid(100, 1.0f);
+                    
+                    // This is the heavy draw call we are hiding during warmup
                     DrawGameMap(&map, player.position);
                     
                     // Draw Player
@@ -81,43 +99,51 @@ int main(void)
                     
                     DrawTraffic(&traffic);
                 EndMode3D();
-                // 1. Get the current mouse position
-                Vector2 mousePos = GetMousePosition();
 
-                // 2. Check if the left mouse button was pressed this frame
-                bool isClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
-                // 2. Draw 2D UI (Phone)
-                DrawPhone(&phone, &player, &map, mousePos, isClick);
-
-                // Tooltip
-                if (!phone.isOpen) { 
-                    DrawText("Press TAB to open Phone", GetScreenWidth() - 273, GetScreenHeight() - 30, 20, DARKGRAY);
+                // B. UI & OVERLAY
+                if (frameCounter <= WARMUP_FRAMES) {
+                    // --- THE FAKE FRAME ---
+                    // Draw the loading screen at 100% to hide the game rendering underneath
+                    DrawLoadingInterface(GetScreenWidth(), GetScreenHeight(), 1.0f, "Finalizing...");
+                    frameCounter++;
                 }
-                
-                DrawHealthBar(&player);
+                else {
+                    // --- REAL GAME UI ---
+                    // 1. Get the current mouse position
+                    Vector2 mousePos = GetMousePosition();
+                    bool isClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
+                    
+                    // 2. Draw Phone
+                    DrawPhone(&phone, &player, &map, mousePos, isClick);
 
-                // Debug Stats
-                DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
-                DrawText(TextFormat("FPS: %d", GetFPS()), 10, 30, 20, DARKGRAY);
+                    // Tooltip
+                    if (!phone.isOpen) { 
+                        DrawText("Press TAB to open Phone", GetScreenWidth() - 273, GetScreenHeight() - 30, 20, DARKGRAY);
+                    }
+                    
+                    DrawHealthBar(&player);
 
-                if (map.nodeCount == 0) {
-                    DrawText("MAP FAILED TO LOAD", 10, 60, 20, RED);
+                    // Debug Stats
+                    DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
+                    DrawText(TextFormat("FPS: %d", GetFPS()), 10, 30, 20, DARKGRAY);
+
+                    if (map.nodeCount == 0) {
+                        DrawText("MAP FAILED TO LOAD", 10, 60, 20, RED);
+                    }
                 }
 
             EndDrawing();
         }
 
-        // --- Cleanup ---
+        // --- Cleanup Resources (Per session) ---
         UnloadModel(player.model);
         UnloadGameMap(&map);
-        
         UnloadPhone(&phone);
-        CloseAudioDevice(); 
-        
-        
-        
+        // Note: Traffic might need unloading if it allocates memory
     }
 
+    // --- Final Cleanup ---
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
