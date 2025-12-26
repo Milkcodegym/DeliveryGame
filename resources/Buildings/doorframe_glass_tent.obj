@@ -1,6 +1,6 @@
 # Blender 3.1.0
 # www.blender.org
-mtllib door-white-glass-tent.mtl
+mtllib doorframe_glass_tent.mtl
 o window-white-round-middle
 o building-door-window.001
 v -0.354167 0.500000 0.000000
