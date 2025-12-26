@@ -10,28 +10,67 @@
 // --- CONFIGURATION ---
 const float MAP_SCALE = 0.4f;
 const float RENDER_DISTANCE = 2000.0f;
-
-#define MODEL_SCALE 1.8f
-#define MODEL_Z_SQUISH 0.6f
+#define MODEL_SCALE 1.8f         // Matched to car
+#define MODEL_Z_SQUISH 0.4f      // Squished depth
 #define MAX_INSTANCES 50000 
-#define RING_HIGH_DETAIL 80.0f
-#define RING_LOW_DETAIL 250.0f
+#define BATCH_GROUPS 6 
+#define USE_INSTANCING 1         // Must be 1 for performance
 
-// [IMPORTANT] Set to 0 to force visible rendering via standard loops
-// Set to 1 to attempt GPU Instancing (Faster, but invisible on some setups)
-#define USE_INSTANCING 1
-
-// [DEBUG] Set to 1 to see red wireframes if needed
-#define DRAW_DEBUG_WIRES 0
+// Define Regions
+#define REGION_CENTER_RADIUS 600.0f // Buildings within 600m are "City Center"
 
 typedef enum {
-    ASSET_WINDOW = 0,
-    ASSET_WINDOW_TOP,
-    ASSET_DOOR,
+    // --- SPECIALS ---
+    ASSET_AC_A = 0,
+    ASSET_AC_B,
+    ASSET_BALCONY,
+    ASSET_BALCONY_WHITE,
+    
+    // --- DOORS (INNER) ---
+    ASSET_DOOR_BROWN,
+    ASSET_DOOR_BROWN_GLASS,
+    ASSET_DOOR_BROWN_WIN,
+    ASSET_DOOR_WHITE,
+    ASSET_DOOR_WHITE_GLASS,
+    ASSET_DOOR_WHITE_WIN,
+
+    // --- DOOR FRAMES (OUTER) ---
+    ASSET_FRAME_DOOR1,
+    ASSET_FRAME_SIMPLE,
+    ASSET_FRAME_TENT,
+    ASSET_FRAME_WIN,
+    ASSET_FRAME_WIN_WHITE,
+
+    // --- WINDOWS (REGULAR) ---
+    ASSET_WIN_SIMPLE,
+    ASSET_WIN_SIMPLE_W,
+    ASSET_WIN_DET,
+    ASSET_WIN_DET_W,
+    ASSET_WIN_TWIN_TENT,
+    ASSET_WIN_TWIN_TENT_W,
+
+    // --- WINDOWS (SKYSCRAPER) ---
+    ASSET_WIN_TALL,
+    ASSET_WIN_TALL_TOP,
+
+    // --- PROCEDURAL ---
     ASSET_WALL,
     ASSET_CORNER,
+    
     ASSET_COUNT
 } AssetType;
+
+// Style Definition used during generation
+typedef struct {
+    AssetType window;
+    AssetType windowTop; // Usually same as window, unless skyscraper
+    AssetType doorFrame;
+    AssetType doorInner;
+    AssetType balcony;
+    bool hasAC;
+    bool isSkyscraper;   // If true, no beams + continuous glass
+    bool isWhiteTheme;
+} BuildingStyle;
 
 typedef struct {
     Matrix *transforms; 
@@ -149,56 +188,84 @@ void LoadCityAssets() {
     if (cityRenderer.loaded) return;
     printf("--- INITIALIZING CITY RENDERER (Instancing: %s) ---\n", USE_INSTANCING ? "ON" : "OFF");
 
-    // 1. Load the Instancing Shader
     Shader instancingShader = LoadShaderFromMemory(INSTANCING_VSH, INSTANCING_FSH);
     instancingShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(instancingShader, "instanceTransform");
 
-    // 2. Create White Texture (Only for procedural walls now)
     Image whiteImg = GenImageColor(1, 1, WHITE);
     cityRenderer.whiteTex = LoadTextureFromImage(whiteImg);
     UnloadImage(whiteImg);
 
-    // 3. UPDATED MACRO: Preserves original textures
-    #define LOAD_ASSET(enumIdx, path) \
+    // UPDATED MACRO: Applies shader and texture settings to ALL materials in a model
+    #define LOAD_ASSET(enumIdx, filename) \
         { \
-            cityRenderer.models[enumIdx] = LoadModel(path); \
+            char fullPath[256]; \
+            sprintf(fullPath, "resources/Buildings/%s", filename); \
+            cityRenderer.models[enumIdx] = LoadModel(fullPath); \
             if (cityRenderer.models[enumIdx].meshCount == 0) { \
-                printf("[ERROR] Failed to load: %s\n", path); \
+                printf("[ERROR] MODEL MISSING: %s (Check filename/path!)\n", fullPath); \
                 cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f)); \
-            } \
-            /* --- FIX 1: TEXTURE FILTERING --- */ \
-            /* Get a pointer to the texture of the first material */ \
-            Texture2D *tex = &cityRenderer.models[enumIdx].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture; \
-            /* Generate smaller versions for distance rendering */ \
-            GenTextureMipmaps(tex); \
-            /* Set filter to Trilinear (smoothest) or Anisotropic (best for angles) */ \
-            SetTextureFilter(*tex, TEXTURE_FILTER_TRILINEAR); \
-            \
-            /* Apply Shader Loop */ \
-            for(int i = 0; i < cityRenderer.models[enumIdx].materialCount; i++) { \
-                 cityRenderer.models[enumIdx].materials[i].shader = instancingShader; \
+            } else { \
+                /* Iterate through all materials to apply settings */ \
+                for(int i = 0; i < cityRenderer.models[enumIdx].materialCount; i++) { \
+                     /* Apply Instancing Shader */ \
+                     cityRenderer.models[enumIdx].materials[i].shader = instancingShader; \
+                     \
+                     /* Apply Texture Filtering (if a texture exists) */ \
+                     if (cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture.id > 0) { \
+                        Texture2D *tex = &cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture; \
+                        GenTextureMipmaps(tex); \
+                        SetTextureFilter(*tex, TEXTURE_FILTER_TRILINEAR); \
+                     } \
+                } \
             } \
         }
 
-    // 4. Load Models (Textures will now appear)
-    LOAD_ASSET(ASSET_WINDOW, "resources/Buildings/Windows_simple.obj");
-    LOAD_ASSET(ASSET_WINDOW_TOP, "resources/Buildings/windows_tall_top.obj");
-    LOAD_ASSET(ASSET_DOOR, "resources/Buildings/balcony_white.obj");
+    // --- LOAD ALL ASSETS (List unchanged) ---
+    LOAD_ASSET(ASSET_AC_A, "detail-ac-a.obj");
+    LOAD_ASSET(ASSET_AC_B, "detail-ac-b.obj");
+    LOAD_ASSET(ASSET_BALCONY, "balcony.obj");
+    LOAD_ASSET(ASSET_BALCONY_WHITE, "balcony_white.obj");
 
-    // 5. Setup Procedural Assets (Walls/Corners need the white texture manually)
+    // Doors (Inner)
+    LOAD_ASSET(ASSET_DOOR_BROWN, "door-brown.obj");
+    LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "door-brown-glass.obj");
+    LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "door-brown-window.obj");
+    LOAD_ASSET(ASSET_DOOR_WHITE, "door-white.obj"); 
+    LOAD_ASSET(ASSET_DOOR_WHITE_GLASS, "door-white-glass.obj");
+    LOAD_ASSET(ASSET_DOOR_WHITE_WIN, "door-white-window.obj");
+
+    // Door Frames
+    LOAD_ASSET(ASSET_FRAME_DOOR1, "door1.obj");
+    LOAD_ASSET(ASSET_FRAME_SIMPLE, "simple_door.obj");
+    LOAD_ASSET(ASSET_FRAME_TENT, "doorframe_glass_tent.obj");
+    LOAD_ASSET(ASSET_FRAME_WIN, "window_door.obj");
+    LOAD_ASSET(ASSET_FRAME_WIN_WHITE, "window_door_white.obj");
+
+    // Windows
+    LOAD_ASSET(ASSET_WIN_SIMPLE, "Windows_simple.obj");
+    LOAD_ASSET(ASSET_WIN_SIMPLE_W, "Windows_simple_white.obj");
+    LOAD_ASSET(ASSET_WIN_DET, "Windows_detailed.obj");
+    LOAD_ASSET(ASSET_WIN_DET_W, "Windows_detailed_white.obj");
+    LOAD_ASSET(ASSET_WIN_TWIN_TENT, "Twin_window_tents.obj");
+    LOAD_ASSET(ASSET_WIN_TWIN_TENT_W, "Twin_window_tents_white.obj");
+
+    // Skyscraper
+    LOAD_ASSET(ASSET_WIN_TALL, "windows_tall.obj");
+    LOAD_ASSET(ASSET_WIN_TALL_TOP, "windows_tall_top.obj");
+
+    // Procedural Assets
     cityRenderer.models[ASSET_WALL] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
     cityRenderer.models[ASSET_CORNER] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
     
-    // Create a specific material for procedural shapes
     Material procMat = LoadMaterialDefault();
     procMat.shader = instancingShader; 
-    procMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex; // Manual white texture
+    procMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex; 
     procMat.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
     
     cityRenderer.models[ASSET_WALL].materials[0] = procMat;
     cityRenderer.models[ASSET_CORNER].materials[0] = procMat;
 
-    // 6. Initialize Buffers
+    // Buffers
     for (int i = 0; i < 5; i++) {
         for (int m = 0; m < ASSET_COUNT; m++) InitRenderBatch(&cityRenderer.batches[i][m], cityPalette[i]);
     }
@@ -207,21 +274,96 @@ void LoadCityAssets() {
     cityRenderer.loaded = true;
 }
 
+BuildingStyle GetBuildingStyle(Vector2 pos) {
+    BuildingStyle style = {0};
+    
+    // Check Region
+    float distToCenter = Vector2Length(pos);
+    bool isCenter = (distToCenter < REGION_CENTER_RADIUS);
+    
+    int roll = GetRandomValue(0, 100);
+
+    if (isCenter && roll < 60) {
+        // --- STYLE: MODERN SKYSCRAPER ---
+        // High chance in city center
+        style.isSkyscraper = true;
+        style.window = ASSET_WIN_TALL;
+        style.windowTop = ASSET_WIN_TALL_TOP;
+        style.doorFrame = ASSET_FRAME_DOOR1;
+        style.doorInner = ASSET_DOOR_BROWN_GLASS;
+        style.balcony = ASSET_BALCONY; // Less likely to have balconies, but possible
+        style.hasAC = false; // Skyscrapers usually have central air (hidden)
+        style.isWhiteTheme = false;
+    } 
+    else if (roll < 30) {
+        // --- STYLE: VINTAGE / DETAILED ---
+        style.isSkyscraper = false;
+        style.isWhiteTheme = false;
+        style.window = ASSET_WIN_DET;
+        style.windowTop = ASSET_WIN_DET;
+        style.doorFrame = ASSET_FRAME_TENT;
+        style.doorInner = ASSET_DOOR_BROWN;
+        style.balcony = ASSET_BALCONY;
+        style.hasAC = true;
+    }
+    else if (roll < 70) {
+        // --- STYLE: WHITE MODERN RESIDENTIAL ---
+        style.isSkyscraper = false;
+        style.isWhiteTheme = true;
+        style.window = ASSET_WIN_TWIN_TENT_W;
+        style.windowTop = ASSET_WIN_TWIN_TENT_W;
+        style.doorFrame = ASSET_FRAME_WIN_WHITE;
+        style.doorInner = ASSET_DOOR_WHITE_WIN;
+        style.balcony = ASSET_BALCONY_WHITE;
+        style.hasAC = true;
+    }
+    else {
+        // --- STYLE: BASIC APARTMENT ---
+        style.isSkyscraper = false;
+        style.isWhiteTheme = false;
+        style.window = ASSET_WIN_SIMPLE;
+        style.windowTop = ASSET_WIN_SIMPLE;
+        style.doorFrame = ASSET_FRAME_SIMPLE;
+        style.doorInner = ASSET_DOOR_BROWN_WIN;
+        style.balcony = ASSET_BALCONY;
+        style.hasAC = true;
+    }
+    
+    return style;
+}
+
 // --- BAKING ---
 void BakeBuildingGeometry(Building *b) {
     float floorHeight = 3.0f * (MODEL_SCALE / 4.0f); 
     
-    // Height Snapping
+    // 1. Determine Style
+    Vector2 bCenter = GetBuildingCenter(b->footprint, b->pointCount);
+    BuildingStyle style = GetBuildingStyle(bCenter);
+
+    // 2. Skyscraper Compression
+    // Squeeze floors closer for skyscrapers (no horizontal beams)
+    if (style.isSkyscraper) {
+        floorHeight *= 0.85f; 
+    }
+
+    // 3. Calculate Floor Count
     int rawFloors = (int)(b->height / floorHeight);
+    
+    if (style.isSkyscraper) {
+        if (rawFloors < 6) rawFloors = 6; 
+    } else {
+        if (rawFloors < 2) rawFloors = 2;
+        if (rawFloors > 5) rawFloors = 5;
+    }
+    
     int floors = rawFloors;
-    if (floors < 2) floors = 2;
-    if (floors > 4) floors = 4;
     float visualHeight = floors * floorHeight;
     b->height = visualHeight; 
-
+    
     int colorIdx = (abs((int)b->footprint[0].x) + abs((int)b->footprint[0].y)) % 5;
+    if (style.isWhiteTheme) colorIdx = 5; 
 
-    // --- DIMENSIONS ---
+    // Dimensions
     float structuralDepth = MODEL_SCALE * MODEL_Z_SQUISH; 
     float cornerThick = structuralDepth * 0.85f; 
 
@@ -233,8 +375,6 @@ void BakeBuildingGeometry(Building *b) {
             Matrix final = MatrixMultiply(MatrixMultiply(matScale, matRot), matTrans); \
             cityRenderer.batches[group][assetType].transforms[cityRenderer.batches[group][assetType].count++] = final; \
         }
-
-    Vector2 bCenter = GetBuildingCenter(b->footprint, b->pointCount);
 
     for (int i = 0; i < b->pointCount; i++) {
         Vector2 p1 = b->footprint[i];
@@ -254,7 +394,7 @@ void BakeBuildingGeometry(Building *b) {
             modelRotation += 180.0f;                
         }
 
-        // --- DRAW CORNER ---
+        // --- CORNER ---
         Vector2 cornerInset = Vector2Scale(Vector2Normalize(Vector2Subtract(bCenter, p1)), 0.05f);
         Vector3 cornerPos = { p1.x + cornerInset.x, visualHeight/2.0f, p1.y + cornerInset.y };
         ADD_INSTANCE(colorIdx, ASSET_CORNER, cornerPos, -angle, ((Vector3){cornerThick, visualHeight, cornerThick}));
@@ -264,51 +404,86 @@ void BakeBuildingGeometry(Building *b) {
         int modulesCount = (int)(dist / moduleWidth);
         float remainingSpace = dist - (modulesCount * moduleWidth);
         float startOffset = (remainingSpace / 2.0f) + (moduleWidth / 2.0f);
-        
         Vector2 currentPos2D = Vector2Add(p1, Vector2Scale(dir, startOffset)); 
         float outwardOffset = 0.35f; 
 
-        // Beam Configuration
+        // Beams
         float beamHeight = 0.3f;
-        float beamDepth = structuralDepth * 0.25f; // Thin beams between floors
+        float beamDepth = structuralDepth * 0.25f; 
         Vector3 floorBeamScale = { moduleWidth * 1.05f, beamHeight, beamDepth };
 
         for (int m = 0; m < modulesCount; m++) {
             for (int f = 0; f < floors; f++) {
                 float yPos = (f * floorHeight) + 0.1f;
+                Vector3 pos = { currentPos2D.x + (wallNormal.x * outwardOffset), yPos, currentPos2D.y + (wallNormal.y * outwardOffset) };
+
+                // Define Bools for Logic Clarity
+                bool isDoor = (f == 0 && m == modulesCount / 2);
                 
-                Vector3 pos = {
-                    currentPos2D.x + (wallNormal.x * outwardOffset), 
-                    yPos, 
-                    currentPos2D.y + (wallNormal.y * outwardOffset)
-                };
+                // --- LOGIC TREE: DOOR vs EVERYTHING ELSE ---
+                
+                if (isDoor) {
+                    // 1. RENDER DOOR (Exclusive)
+                    // Frame
+                    Vector3 frameScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
+                    ADD_INSTANCE(colorIdx, style.doorFrame, pos, modelRotation, frameScale);
+                    
+                    // Inner Door
+                    Vector3 doorScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth * 0.8f };
+                    ADD_INSTANCE(colorIdx, style.doorInner, pos, modelRotation, doorScale);
+                } 
+                else {
+                    // 2. RENDER WINDOW OR BALCONY
+                    
+                    // Determine if Balcony
+                    bool wantsBalcony = false;
+                    
+                    // Balcony Rules:
+                    // 1. Not a skyscraper
+                    // 2. Not ground, not roof
+                    // 3. Random chance (40%)
+                    // 4. SPACING RULE: (m % 2 != 0) -> Only allow on odd modules to prevent horizontal clipping
+                    if (!style.isSkyscraper && f > 0 && f < floors-1) {
+                         if ((m % 2 != 0) && GetRandomValue(0, 100) < 40) {
+                             wantsBalcony = true;
+                         }
+                    }
 
-                AssetType type = ASSET_WINDOW;
-                if (f == 0 && m == modulesCount / 2) type = ASSET_DOOR; 
-                else if (f == floors - 1) type = ASSET_WINDOW_TOP;
+                    Vector3 winScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
 
-                Vector3 winScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
-                ADD_INSTANCE(5, type, pos, modelRotation, winScale);
-
-                // --- 1. FLOOR SEAMS ---
-                if (f > 0) {
-                    Vector3 beamPos = { pos.x, (f * floorHeight), pos.z };
-                    ADD_INSTANCE(colorIdx, ASSET_WALL, beamPos, modelRotation, floorBeamScale);
+                    if (wantsBalcony) {
+                        // --- BALCONY ---
+                        ADD_INSTANCE(colorIdx, style.balcony, pos, modelRotation, winScale);
+                    } 
+                    else {
+                        // --- WINDOW ---
+                        AssetType winType = (f == floors - 1) ? style.windowTop : style.window;
+                        ADD_INSTANCE(colorIdx, winType, pos, modelRotation, winScale);
+                        
+                        // --- EXTRAS: AC UNITS (Only attached to windows) ---
+                        if (style.hasAC && f < floors-1 && GetRandomValue(0, 100) < 15) {
+                            AssetType acType = (GetRandomValue(0, 1) == 0) ? ASSET_AC_A : ASSET_AC_B;
+                            Vector3 acPos = { pos.x, pos.y - 0.4f, pos.z }; 
+                            Vector3 acScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
+                            ADD_INSTANCE(colorIdx, acType, acPos, modelRotation, acScale);
+                        }
+                    }
                 }
 
-                // --- 2. [FIX] ROOF CORNICE ---
+                // --- STRUCTURAL BEAMS ---
+                // No beams on skyscrapers (glass curtain look)
+                if (!style.isSkyscraper) {
+                    if (f > 0) {
+                        Vector3 beamPos = { pos.x, (f * floorHeight), pos.z };
+                        ADD_INSTANCE(colorIdx, ASSET_WALL, beamPos, modelRotation, floorBeamScale);
+                    }
+                }
+
+                // ROOF CORNICE
                 if (f == floors - 1) {
-                    // Position: Shift closer to center (0.15 vs 0.35) so it overlaps the roof
-                    float corniceOffset = 0.05f; 
-                    Vector3 cornicePos = { 
-                        currentPos2D.x + (wallNormal.x * corniceOffset), 
-                        visualHeight, 
-                        currentPos2D.y + (wallNormal.y * corniceOffset) 
-                    };
-                    
-                    // Scale: Use FULL structuralDepth (thick) to bridge the gap to the roof
-                    Vector3 corniceScale = { moduleWidth * 1.05f, beamHeight, structuralDepth * 0.7 };
-                    
+                    float corniceOffset = 0.15f; 
+                    Vector3 cornicePos = { currentPos2D.x + (wallNormal.x * corniceOffset), visualHeight, currentPos2D.y + (wallNormal.y * corniceOffset) };
+                    Vector3 corniceScale = { moduleWidth * 1.05f, beamHeight, structuralDepth };
                     ADD_INSTANCE(colorIdx, ASSET_WALL, cornicePos, modelRotation, corniceScale);
                 }
             }
