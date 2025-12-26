@@ -11,8 +11,8 @@ void InitCamera(){
 
 void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
     // 1. Calculate the Ideal "Perfect" Position (Max Distance)
-    float camDist = 3.0f;
-    float camHeight = 1.0f;
+    float camDist = 8.0f;
+    float camHeight = 6.0f;
 
     // Where we WANT the camera to be
     Vector3 desiredPos;

@@ -4,10 +4,10 @@
 
 // --- SHARED DRAWING FUNCTION ---
 void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, const char* status) {
-    // 1. Draw a dark background to cover whatever is behind (the frozen game)
+    // 1. Draw a dark background to cover whatever is behind
     DrawRectangle(0, 0, screenWidth, screenHeight, GetColor(0x202020FF)); 
 
-    // 2. Moving stripes (Visual feedback that it hasn't crashed)
+    // 2. Moving stripes (Visual feedback)
     float time = GetTime();
     int scrollOffset = (int)(time * 100) % 80; 
     for (int i = -1; i < screenHeight / 60 + 1; i++) {
@@ -23,7 +23,7 @@ void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, con
     DrawText("LOADING CITY...", barX, barY - 40, 20, WHITE);
     DrawRectangleLines(barX, barY, barWidth, barHeight, WHITE);
     
-    // Clamp progress for safety
+    // Clamp progress
     if (progress > 1.0f) progress = 1.0f;
     if (progress < 0.0f) progress = 0.0f;
 
@@ -42,45 +42,31 @@ GameMap RunStartMenu(const char* mapFileName) {
     while (!WindowShouldClose()) {
         time += GetFrameTime();
         
+        // Input to start game
         if (loadingState == 0 && IsKeyPressed(KEY_ENTER)) {
             loadingState = 1;
         }
 
         BeginDrawing();
             if (loadingState == 0) {
-                // ... [Keep your existing Main Menu Title/Car drawing code here] ...
-                 ClearBackground(GetColor(0x202020FF));
-                 DrawText("DELIVERY GAME", screenWidth/2 - 150, screenHeight/3, 40, RED);
-                 DrawText("PRESS ENTER", screenWidth/2 - 80, screenHeight/3 + 60, 20, GREEN);
+                // Main Menu
+                ClearBackground(GetColor(0x202020FF));
+                DrawText("DELIVERY GAME", screenWidth/2 - 150, screenHeight/3, 40, RED);
+                DrawText("PRESS ENTER", screenWidth/2 - 80, screenHeight/3 + 60, 20, GREEN);
             }
             else {
                 // LOADING SCREEN
-                float progress = 0.0f;
-                const char* status = "Initializing...";
-
-                if (loadingState == 1) { 
-                    progress = 0.1f; 
-                    status = "Parsing Map Data..."; 
-                }
-                else if (loadingState == 2) { 
-                    // CAP AT 95% - The final 5% happens in the main loop
-                    progress = 0.95f; 
-                    status = "Building 3D Geometry..."; 
-                }
-                
-                DrawLoadingInterface(screenWidth, screenHeight, progress, status);
+                // Since "Batch Generation" is gone, we just show "Loading Map..."
+                DrawLoadingInterface(screenWidth, screenHeight, 0.5f, "Loading Assets & Map Data...");
             }
         EndDrawing();
 
         // LOGIC
         if (loadingState == 1) {
+            // This function now handles everything (Models, Textures, Map Data)
             map = LoadGameMap(mapFileName);
-            loadingState = 2;
-        }
-        else if (loadingState == 2) {
-            GenerateMapBatch(&map);
-            // Done! Break immediately. Do NOT wait.
-            // We want the game loop to start immediately.
+            
+            // Loading is done, break the loop to start the game
             break; 
         }
     }

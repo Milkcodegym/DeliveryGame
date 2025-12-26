@@ -7,7 +7,9 @@
 
 // --- Forward Declarations ---
 typedef struct Player Player;
-typedef struct GameMap GameMap;
+
+// [CRITICAL FIX] Forward declaration without typedef conflict
+struct GameMap; 
 
 // --- Constants ---
 #define PHONE_WIDTH 320
@@ -38,21 +40,21 @@ typedef enum {
 
 typedef struct DeliveryTask {
     char restaurant[32];
-    Vector2 restaurantPos; // Coordinates of the store
+    Vector2 restaurantPos; 
     
     char customer[32];
-    Vector2 customerPos;   // Coordinates of the house
+    Vector2 customerPos;   
     
     float pay;
-    float distance;        // Estimated distance
+    float distance;        
     JobStatus status; 
-    int jobType;           // 0:FastFood, 1:Rest, 2:Cafe, 3:Bar, 4:Market, 5:Supermarket
-    float fragility;       // 0.0f (none) to 1.0f (glass)
-    bool isHeavy;          // Handling penalty
-    float timeLimit;       // Recommended time in seconds
-    double creationTime;   // GetTime() when created
-    double refreshTimer;   // Random time until this job disappears
-    char description[64];  // e.g. "Hot Food - Rush!"     // Current state of the job
+    int jobType;           
+    float fragility;       
+    bool isHeavy;          
+    float timeLimit;       
+    double creationTime;   
+    double refreshTimer;   
+    char description[64];  
 } DeliveryTask;
 
 // --- Music Data ---
@@ -94,9 +96,10 @@ typedef struct PhoneState {
     SettingsState settings;
 } PhoneState;
 
-void InitPhone(PhoneState *phone, GameMap *map); // UPDATED: Needs Map to generate jobs
-void UpdatePhone(PhoneState *phone, Player *player, GameMap *map); 
-void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 mouse, bool click);
+// [CRITICAL FIX] Use 'struct GameMap*' in prototypes
+void InitPhone(PhoneState *phone, struct GameMap *map); 
+void UpdatePhone(PhoneState *phone, Player *player, struct GameMap *map); 
+void DrawPhone(PhoneState *phone, Player *player, struct GameMap *map, Vector2 mouse, bool click);
 void UnloadPhone(PhoneState *phone);
 
 #endif

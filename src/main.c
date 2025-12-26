@@ -23,7 +23,8 @@ int main(void)
 
     while (!WindowShouldClose()){
         
-        // 1. Run the Start Menu (Handles loading up to 95%)
+        // 1. Run the Start Menu (Handles loading up to 100% of assets)
+        // This function now returns a fully populated GameMap with assets loaded.
         GameMap map = RunStartMenu("resources/maps/real_city.map");
     
         // [CRITICAL] Build the navigation graph for the GPS App

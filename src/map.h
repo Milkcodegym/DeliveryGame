@@ -3,38 +3,22 @@
 
 #include "raylib.h"
 
-// --- CONFIG ---
-#define MAX_NODES 50000
-#define MAX_EDGES 50000
-#define MAX_BUILDINGS 10000
-#define MAX_BUILDING_POINTS 100
-#define MAX_LOCATIONS 200 
-#define MAX_AREAS 1000       // New: Limit for Parks/Water
-#define MAX_PATH_NODES 2048
+// --- CONFIGURATION ---
+#define MAX_NODES 2000
+#define MAX_EDGES 2000
+#define MAX_BUILDINGS 1000
+#define MAX_LOCATIONS 100
+#define MAX_AREAS 50
+#define MAX_BUILDING_POINTS 20
 #define MAX_SEARCH_RESULTS 10
+#define MAX_PATH_NODES 2048
 
-// --- ENUMS ---
-// Must match the "get_poi_type" mapping in your Python script
-typedef enum {
-    LOC_NONE = 0,
-    LOC_FUEL = 1,
-    LOC_FOOD = 2,       // Fast Food
-    LOC_CAFE = 3,
-    LOC_BAR = 4,
-    LOC_MARKET = 5,     // Mini Market
-    LOC_SUPERMARKET = 6,
-    LOC_RESTAURANT = 7,
-    LOC_HOUSE = 8,      // Was Entrance/House in Python
-    LOC_PARK = 9,       
-    LOC_WATER = 10
-} LocationType;
-
-// --- STRUCTS ---
+// --- DATA STRUCTURES ---
 
 typedef struct {
     int id;
     Vector2 position;
-    int flags;          // New: 0=None, 1=Traffic Light, 2=Stop Sign
+    int flags; 
 } Node;
 
 typedef struct {
@@ -42,47 +26,56 @@ typedef struct {
     int endNode;
     float width;
     
-    // New Traffic Data
-    bool oneway;    // true = can only drive Start->End
-    int maxSpeed;   // Speed limit in km/h
-    int lanes;      // Visual lane count
+    // [FIX] Added missing fields for Traffic Logic
+    int oneway;   // 1 = True, 0 = False
+    int maxSpeed; // Speed limit for this road
 } Edge;
 
 typedef struct {
-    float height;
-    Color color;
     Vector2 *footprint;
     int pointCount;
-    Model model;        // Note: Check mesh.vertexCount to see if loaded
+    float height;
+    Color color;
 } Building;
 
-// New: For Parks, Water, etc.
-typedef struct {
-    int type;           // 0 = Park, 1 = Water
-    Color color;
-    Vector2 *points;    // Polygon vertices
-    int pointCount;
-} MapArea;
+typedef enum {
+    LOC_HOUSE = 0,
+    LOC_MARKET,
+    LOC_FUEL,
+    LOC_FOOD,
+    LOC_UNKNOWN,
+    LOC_CAFE,
+    LOC_BAR,
+    LOC_SUPERMARKET,
+    LOC_RESTAURANT
+} LocationType;
 
 typedef struct {
-    char name[64];
     Vector2 position;
-    LocationType type; 
-    int iconID; 
+    char name[64];
+    LocationType type;
+    int iconID;
 } MapLocation;
 
-// --- GRAPH STRUCTS ---
+typedef struct {
+    Vector2 *points;
+    int pointCount;
+    int type;
+    Color color;
+} MapArea;
+
 typedef struct {
     int targetNodeIndex;
     float distance;
 } GraphConnection;
 
 typedef struct {
-    GraphConnection* connections;
+    GraphConnection *connections;
     int count;
     int capacity;
 } NodeGraph;
 
+// Tagged struct for forward declaration
 typedef struct GameMap {
     Node *nodes;
     int nodeCount;
@@ -93,34 +86,26 @@ typedef struct GameMap {
     Building *buildings;
     int buildingCount;
     
-    // New: Environment Areas
+    MapLocation *locations;
+    int locationCount;
+    
     MapArea *areas;
     int areaCount;
     
-    MapLocation *locations;
-    int locationCount;
-    Model cityBatch;      // One giant model for all buildings
-    bool isBatchLoaded;   // Flag to check if we generated it
-
-    NodeGraph *graph; 
+    bool isBatchLoaded;
+    NodeGraph *graph;
 } GameMap;
 
-// --- PROTOTYPES ---
+// --- FUNCTION PROTOTYPES ---
+
 GameMap LoadGameMap(const char *fileName);
 void UnloadGameMap(GameMap *map);
-
-// UPDATED: Now requires player position for optimization logic
 void DrawGameMap(GameMap *map, Vector3 playerPos);
-
-// Collision
 bool CheckMapCollision(GameMap *map, float x, float z, float radius);
-
-// Pathfinding
-void BuildMapGraph(GameMap *map); 
-int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen);
-
-// Search & Logic
-int SearchLocations(GameMap *map, const char* query, MapLocation* results);
 void UpdateMapEffects(GameMap *map, Vector3 playerPos);
-void GenerateMapBatch(GameMap *map);
+void BuildMapGraph(GameMap *map);
+int GetClosestNode(GameMap *map, Vector2 position);
+int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen);
+int SearchLocations(GameMap *map, const char* query, MapLocation* results);
+
 #endif
