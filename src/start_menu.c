@@ -32,10 +32,8 @@ void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, con
 }
 
 // --- MAIN MENU LOOP ---
-GameMap RunStartMenu(const char* mapFileName) {
+GameMap RunStartMenu(const char* mapFileName,int screenWidth,int screenHeight) {
     float time = 0.0f;
-    int screenWidth = GetScreenWidth();
-    int screenHeight = GetScreenHeight();
     int loadingState = 0; 
     GameMap map = {0}; 
 

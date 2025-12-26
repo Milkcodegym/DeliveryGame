@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#define MAP_SCALE 0.4f        
 #define SPAWN_RATE 0.1f       
 #define SPAWN_RADIUS_MIN 40.0f
 #define SPAWN_RADIUS_MAX 200.0f
@@ -122,9 +123,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
                         v->endNodeID = e.startNode;
                     }
 
-                    // Look ahead immediately!
                     v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
-
                     v->progress = GetRandomValue(10, 90) / 100.0f;
                     
                     float maxSpeed = (float)e.maxSpeed * 0.15f; 
@@ -154,7 +153,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         
         float targetSpeed = maxEdgeSpeed;
 
-        // A. Intersection Check (Traffic Lights/Stops)
+        // A. Intersection Check
         if (v->progress > 0.85f) {
             Node endNode = map->nodes[v->endNodeID];
             if (endNode.flags == 1 || endNode.flags == 2) { 
@@ -162,19 +161,15 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             }
         }
 
-        // B. CORNER BRAKING (New Feature)
-        // Check if we are approaching a turn
+        // B. Corner Braking
         if (v->progress > 0.7f && v->nextEdgeIndex != -1) {
-            // Get Current Direction
             Vector2 pStart = map->nodes[v->startNodeID].position;
             Vector2 pEnd   = map->nodes[v->endNodeID].position;
             Vector2 dirCurrent = Vector2Normalize(Vector2Subtract(pEnd, pStart));
 
-            // Get Next Direction
             Edge nextEdge = map->edges[v->nextEdgeIndex];
             Vector2 nStart = map->nodes[nextEdge.startNode].position;
             Vector2 nEnd   = map->nodes[nextEdge.endNode].position;
-            // Determine orientation of next edge
             Vector2 dirNext;
             if (nextEdge.startNode == v->endNodeID) {
                 dirNext = Vector2Normalize(Vector2Subtract(nEnd, nStart));
@@ -182,20 +177,13 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
                 dirNext = Vector2Normalize(Vector2Subtract(nStart, nEnd));
             }
 
-            // Calculate Turn Sharpness using Dot Product
-            // 1.0 = Straight, 0.0 = 90 degree turn, -1.0 = U-turn
             float dot = Vector2DotProduct(dirCurrent, dirNext);
-            
-            // Map dot product to speed factor
-            // If dot > 0.9 (straight), factor = 1.0
-            // If dot < 0.2 (sharp), factor = 0.4
             float turnFactor = 1.0f;
             if (dot < 0.9f) {
                 turnFactor = 0.3f + (0.7f * ((dot + 1.0f) / 2.0f)); 
-                if (turnFactor < 0.3f) turnFactor = 0.3f; // Min corner speed
+                if (turnFactor < 0.3f) turnFactor = 0.3f; 
             }
             
-            // Apply braking
             if (targetSpeed > maxEdgeSpeed * turnFactor) {
                 targetSpeed = maxEdgeSpeed * turnFactor;
             }
@@ -213,26 +201,26 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
                 targetSpeed = maxEdgeSpeed * factor;
             }
         }
-        //Player collision check
+        
+        // Player Avoidance
         float distToPlayer = Vector3Distance(v->position, player_position);
         if (distToPlayer < DETECTION_DIST) {
             Vector3 toPlayer = Vector3Subtract(player_position, v->position);
             float pDot = Vector3DotProduct(Vector3Normalize(toPlayer), v->forward);
             
-            // If player is in front and close
             if (pDot > 0.6f) { 
                 if (distToPlayer < STOP_DISTANCE + 1.0f) {
-                   targetSpeed = 0.0f; // HARD STOP
+                   targetSpeed = 0.0f; 
                 } else {
-                   targetSpeed *= 0.2f; // CRAWL
+                   targetSpeed *= 0.2f; 
                 }
             }
         }
+
         // D. Apply Speed
         float rate = (v->speed > targetSpeed) ? BRAKE_RATE : ACCEL_RATE;
         v->speed = Lerp(v->speed, targetSpeed, rate * dt);
 
-        // --- ANTI-GRIDLOCK ---
         if (v->speed < 0.5f) {
             v->stuckTimer += dt;
             if (v->stuckTimer > STUCK_THRESHOLD) {
@@ -248,7 +236,6 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         v->progress += moveStep;
 
         if (v->progress >= 1.0f) {
-            // We use the pre-calculated next edge
             int nextEdgeIdx = v->nextEdgeIndex;
             
             if (nextEdgeIdx != -1) {
@@ -265,7 +252,6 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
                 Vector3 pEnd = { map->nodes[v->endNodeID].position.x, 0, map->nodes[v->endNodeID].position.y };
                 v->edgeLength = Vector3Distance(pStart, pEnd);
 
-                // PRE-CALCULATE THE *NEXT* NEXT EDGE IMMEDIATELY
                 v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
 
             } else {
@@ -273,7 +259,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             }
         }
 
-        // --- POSITION CALCULATION ---
+        // --- POSITION CALCULATION (FIXED) ---
         Vector2 startNode2D = map->nodes[v->startNodeID].position;
         Vector2 endNode2D = map->nodes[v->endNodeID].position;
 
@@ -281,15 +267,32 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         Vector3 endPos = { endNode2D.x, 0.0f, endNode2D.y };
 
         Vector3 currentPos = Vector3Lerp(startPos, endPos, v->progress);
-
         Vector3 dir = Vector3Normalize(Vector3Subtract(endPos, startPos));
         v->forward = dir; 
 
-        Vector3 right = Vector3CrossProduct((Vector3){0,1,0}, dir);
-        float laneOffset = map->edges[v->currentEdgeIndex].width * 0.25f;
+        // [FIX] Correct Lane Offset Logic
+        // 1. Calculate the same rendered width as the Draw function (Raw * Scale * 2.0)
+        float renderWidth = (map->edges[v->currentEdgeIndex].width * MAP_SCALE) * 2.0f;
         
-        v->position = Vector3Subtract(currentPos, Vector3Scale(right, laneOffset)); 
-        v->position.y = 0.2f; 
+        // 2. Determine offset amount
+        float laneOffset = 0.0f;
+        
+        if (map->edges[v->currentEdgeIndex].oneway) {
+            // One-way: Drive in the geometric center (offset 0)
+            // Optional: If you want 2 lanes, add randomness here later
+            laneOffset = 0.0f; 
+        } else {
+            // Two-way: Drive on the RIGHT side.
+            // Center of the right lane is at (TotalWidth / 4)
+            laneOffset = renderWidth * 0.25f;
+        }
+
+        // 3. Apply Offset using Vector3Add (Right) instead of Subtract (Left)
+        Vector3 right = Vector3CrossProduct((Vector3){0,1,0}, dir);
+        v->position = Vector3Add(currentPos, Vector3Scale(right, laneOffset)); 
+        
+        // [FIX] Lock Height to just above the road/markings
+        v->position.y = 0.05f; 
     }
 }
 

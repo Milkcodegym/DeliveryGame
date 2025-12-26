@@ -350,19 +350,54 @@ void DrawGameMap(GameMap *map, Vector3 playerPos) {
     for (int i = 0; i < map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
-        Vector2 s = map->nodes[e.startNode].position; Vector2 en = map->nodes[e.endNode].position;
+        
+        Vector2 s = map->nodes[e.startNode].position; 
+        Vector2 en = map->nodes[e.endNode].position;
+        
+        // Distance Culling
         if (Vector2Distance(pPos2D, s) > RENDER_DISTANCE) continue; 
         
-        Vector3 start = {s.x, 0, s.y}; Vector3 end = {en.x, 0, en.y};
+        Vector3 start = {s.x, 0.02f, s.y}; 
+        Vector3 end = {en.x, 0.02f, en.y};
         Vector3 diff = Vector3Subtract(end, start);
+        
         if (Vector3Length(diff) < 0.001f) continue;
+
+        // --- SIMPLIFIED WIDTH LOGIC ---
+        // Just double the width from the map file as requested
+        float finalWidth = (e.width * MAP_SCALE) * 2.0f;
+
         Vector3 right = Vector3Normalize(Vector3CrossProduct((Vector3){0,1,0}, diff));
-        right = Vector3Scale(right, e.width * MAP_SCALE * 0.5f);
-        Vector3 v1 = Vector3Subtract(start, right); v1.y = 0.02f; 
-        Vector3 v2 = Vector3Add(start, right);      v2.y = 0.02f; 
-        Vector3 v3 = Vector3Add(end, right);        v3.y = 0.02f; 
-        Vector3 v4 = Vector3Subtract(end, right);   v4.y = 0.02f; 
-        DrawTriangle3D(v1, v3, v2, DARKGRAY); DrawTriangle3D(v1, v4, v3, DARKGRAY); 
+        Vector3 halfWidthVec = Vector3Scale(right, finalWidth * 0.5f);
+        
+        // --- DRAW ASPHALT ---
+        Vector3 v1 = Vector3Subtract(start, halfWidthVec); 
+        Vector3 v2 = Vector3Add(start, halfWidthVec);      
+        Vector3 v3 = Vector3Add(end, halfWidthVec);        
+        Vector3 v4 = Vector3Subtract(end, halfWidthVec);   
+        
+        DrawTriangle3D(v1, v3, v2, DARKGRAY); 
+        DrawTriangle3D(v1, v4, v3, DARKGRAY); 
+
+        // --- DRAW LANE MARKINGS ---
+        // Only for two-way roads (separate directions of traffic)
+        if (!e.oneway) {
+            // Yellow Center Line
+            float lineWidth = finalWidth * 0.05f; // Line is 5% of road width
+            Vector3 lineOffset = Vector3Scale(right, lineWidth * 0.5f);
+            
+            // Lift markings slightly (0.035f) to sit ON TOP of asphalt (0.02f)
+            Vector3 mStart = { start.x, 0.035f, start.z };
+            Vector3 mEnd = { end.x, 0.035f, end.z };
+
+            Vector3 l1 = Vector3Subtract(mStart, lineOffset);
+            Vector3 l2 = Vector3Add(mStart, lineOffset);
+            Vector3 l3 = Vector3Add(mEnd, lineOffset);
+            Vector3 l4 = Vector3Subtract(mEnd, lineOffset);
+
+            DrawTriangle3D(l1, l3, l2, GOLD); 
+            DrawTriangle3D(l1, l4, l3, GOLD);
+        }
     }
 
     for (int i = 0; i < map->buildingCount; i++) {

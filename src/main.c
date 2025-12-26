@@ -16,8 +16,18 @@ int main(void)
 {
     // Initialize Window
     // Note: 2600x1900 is very large. Ensure your monitor supports this or use GetScreenWidth()
-    InitWindow(2600, 1900, "Delivery Game - v0.3");
-    
+    InitWindow(1280, 720, "Delivery Game - v0.3");
+
+    int monitorWidth = GetMonitorWidth(0);
+    int monitorHeight = GetMonitorHeight(0);
+    float screen_percent = 0.8;
+    int screenWidth = screen_percent*monitorWidth;
+    int screenHeight = screen_percent*monitorHeight;
+
+    // Resize and Center the window
+    SetWindowSize(screenWidth, screenHeight);
+    // Optional: Center the window on the screen
+    SetWindowPosition((monitorWidth - screenWidth) / 2,(monitorHeight - screenHeight) / 2);
     // Move Audio Init OUTSIDE the loop to prevent re-initialization crashes on restart
     InitAudioDevice(); 
 
@@ -25,7 +35,7 @@ int main(void)
         
         // 1. Run the Start Menu (Handles loading up to 100% of assets)
         // This function now returns a fully populated GameMap with assets loaded.
-        GameMap map = RunStartMenu("resources/maps/real_city.map");
+        GameMap map = RunStartMenu("resources/maps/real_city.map",screenWidth,screenHeight);
     
         // [CRITICAL] Build the navigation graph for the GPS App
         if (map.nodeCount > 0) { BuildMapGraph(&map); }
