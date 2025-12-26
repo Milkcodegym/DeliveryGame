@@ -19,7 +19,6 @@ POI_TYPE_BAR = 4
 POI_TYPE_MARKET = 5 
 POI_TYPE_SUPERMARKET = 6
 POI_TYPE_RESTAURANT = 7
-# Note: Type 8 (HOUSE), 9 (PARK), 10 (WATER) are intentionally excluded from POI checks
 
 def gps_to_local(lat, lon, origin_lat, origin_lon):
     x = (lon - origin_lon) * SCALE * math.cos(math.radians(origin_lat))
@@ -28,38 +27,24 @@ def gps_to_local(lat, lon, origin_lat, origin_lon):
 
 def clean_name(name):
     if not name: return ""
-    # Remove weird characters and replace spaces
     clean = name.replace(" ", "_").encode('ascii', 'ignore').decode('ascii')
     return clean
 
 def get_name_from_tags(tags):
-    # 1. Try explicit name
     if 'name' in tags: return clean_name(tags['name'])
-    
-    # 2. Try Brand (common for gas/food)
     if 'brand' in tags: return clean_name(tags['brand'])
-    
-    # We NO LONGER generate fake names like "House" or addresses
     return None
 
 def get_poi_type(tags):
     amenity = tags.get('amenity', '')
     shop = tags.get('shop', '')
-
-    # Food & Drink
     if amenity == 'fast_food': return POI_TYPE_FAST_FOOD
     if amenity == 'cafe': return POI_TYPE_CAFE
-    if amenity == 'bar' or amenity == 'pub': return POI_TYPE_BAR
+    if amenity in ['bar', 'pub']: return POI_TYPE_BAR
     if amenity == 'restaurant': return POI_TYPE_RESTAURANT
-    
-    # Shops
     if amenity == 'fuel': return POI_TYPE_FUEL
     if shop == 'convenience': return POI_TYPE_MARKET
     if shop == 'supermarket': return POI_TYPE_SUPERMARKET
-    
-    # NOTE: Houses, Parks, and Water are intentionally ignored here.
-    # They are treated as Geometry (Buildings/Areas) not interactive POIs.
-    
     return POI_TYPE_NONE
 
 def parse_speed(speed_str):
@@ -67,6 +52,14 @@ def parse_speed(speed_str):
     clean_str = ''.join(filter(str.isdigit, speed_str))
     if clean_str: return int(clean_str)
     return 50
+
+def parse_width_tag(width_str):
+    if not width_str: return None
+    try:
+        clean_str = width_str.replace('m', '').replace(' ', '').replace(',', '.')
+        return float(clean_str)
+    except ValueError:
+        return None
 
 def convert_osm():
     if not os.path.exists(INPUT_FILE):
@@ -106,16 +99,13 @@ def convert_osm():
     buildings_export = [] 
     areas_export = []     
     pois_export = []      
-    
     poi_coords = [] 
 
     def add_poi(p_type, x, z, name):
-        # FILTER: Strict Quality Control
         if p_type == POI_TYPE_NONE: return
-        if name is None or len(name) < 2: return # Skip unnamed
-        if "Unknown" in name: return # Skip explicit unknowns
+        if name is None or len(name) < 2: return 
+        if "Unknown" in name: return 
         
-        # Duplicate check
         for px, pz in poi_coords:
             dist = math.sqrt((x-px)**2 + (z-pz)**2)
             if dist < 5.0: return 
@@ -147,11 +137,34 @@ def convert_osm():
         # A. ROADS
         if 'highway' in tags:
             road_type = tags['highway']
-            if road_type in ['footway', 'path', 'steps']: continue 
+            if road_type in ['footway', 'path', 'steps', 'pedestrian']: continue 
 
-            width = 3.5 
-            if road_type in ['primary', 'secondary']: width = 7.0
-            
+            # --- 1. SET DEFAULTS BY TYPE FIRST (Fallback) ---
+            est_width = 3.5 
+            if road_type == 'motorway': est_width = 15.0  
+            elif road_type == 'trunk': est_width = 10.0
+            elif road_type in ['primary', 'primary_link']: est_width = 8.0
+            elif road_type in ['secondary', 'secondary_link']: est_width = 7.0
+            elif road_type == 'tertiary': est_width = 6.0
+            elif road_type in ['residential', 'living_street']: est_width = 5.0
+            elif road_type == 'service': est_width = 4.0
+
+            # --- 2. TRY 'lanes' TAG (Better Accuracy) ---
+            lanes_count = tags.get('lanes')
+            if lanes_count:
+                try:
+                    l = int(lanes_count)
+                    # Use 3.25m per lane if lane count is known
+                    est_width = l * 3.25 
+                except ValueError:
+                    pass 
+
+            # --- 3. TRY 'width' TAG (Best Accuracy) ---
+            explicit_width = parse_width_tag(tags.get('width'))
+            if explicit_width:
+                est_width = explicit_width
+
+            # --- 4. EXPORT ---
             oneway = 1 if tags.get('oneway') == 'yes' else 0
             maxspeed = parse_speed(tags.get('maxspeed'))
             lanes = int(tags.get('lanes', 1))
@@ -160,7 +173,7 @@ def convert_osm():
                 u = register_node(refs[i])
                 v = register_node(refs[i+1])
                 if u != -1 and v != -1:
-                    edges_export.append((u, v, width, oneway, maxspeed, lanes))
+                    edges_export.append((u, v, est_width, oneway, maxspeed, lanes))
 
         # B. BUILDINGS
         elif 'building' in tags:
@@ -170,6 +183,8 @@ def convert_osm():
                 if idx != -1:
                     points.append((nodes_export[idx][1], nodes_export[idx][2]))
             
+            if len(points) < 3: continue
+
             height = 8.0 + random.random() * 5.0
             if 'building:levels' in tags:
                 try: height = float(tags['building:levels']) * 3.5
@@ -190,7 +205,7 @@ def convert_osm():
                 name = get_name_from_tags(tags)
                 add_poi(poi_type, avg_x, avg_z, name)
 
-        # C. AREAS (Parks & Water) - Treated as Geometry, NOT POIs
+        # C. AREAS (Parks & Water)
         elif 'leisure' in tags or 'natural' in tags or 'landuse' in tags:
             area_type = -1 
             color = (0, 0, 0)
