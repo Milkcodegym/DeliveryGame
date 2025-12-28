@@ -31,7 +31,7 @@ Player InitPlayer(Vector3 startPos) {
     p.current_speed = 0.0f;
     p.friction = 1.5f;    
     p.acceleration = 1.3f;
-    p.max_speed = 12.0f;
+    p.max_speed = 14.0f;
     p.brake_power = 6.0f; 
     p.rotationSpeed = 90.0f;
     p.radius = 0.3f; 

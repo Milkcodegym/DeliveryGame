@@ -11,6 +11,7 @@
 #include "maps_app.h"
 #include "delivery_app.h" 
 #include "start_menu.h"
+#include "screen_visuals.h"
 
 int main(void)
 {
@@ -109,7 +110,9 @@ int main(void)
                     DrawModelEx(player.model, drawPos, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
                     
                     DrawTraffic(&traffic);
+                    
                 EndMode3D();
+                DrawVisuals(player.current_speed, player.max_speed);
 
                 // B. UI & OVERLAY
                 if (frameCounter <= WARMUP_FRAMES) {
