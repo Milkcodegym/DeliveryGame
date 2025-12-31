@@ -7,8 +7,6 @@
 
 // --- Forward Declarations ---
 typedef struct Player Player;
-
-// [CRITICAL FIX] Forward declaration without typedef conflict
 struct GameMap; 
 
 // --- Constants ---
@@ -27,7 +25,8 @@ typedef enum {
     APP_BANK,
     APP_MUSIC,
     APP_SETTINGS,
-    APP_BROWSER
+    APP_BROWSER,
+    APP_CAR_MONITOR // [NEW] Added Car Monitor App State
 } AppState;
 
 // --- Delivery Data ---
@@ -96,7 +95,6 @@ typedef struct PhoneState {
     SettingsState settings;
 } PhoneState;
 
-// [CRITICAL FIX] Use 'struct GameMap*' in prototypes
 void InitPhone(PhoneState *phone, struct GameMap *map); 
 void UpdatePhone(PhoneState *phone, Player *player, struct GameMap *map); 
 void DrawPhone(PhoneState *phone, Player *player, struct GameMap *map, Vector2 mouse, bool click);

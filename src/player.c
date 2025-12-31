@@ -42,6 +42,7 @@ Player InitPlayer(Vector3 startPos) {
     p.money = 0.0f;
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
+    AddMoney(&p, "DEVELOPER MONEY", 450.00f);
 
     // [NEW] Init Fuel
     p.maxFuel = MAX_FUEL;

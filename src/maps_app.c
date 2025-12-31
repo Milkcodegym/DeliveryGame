@@ -4,7 +4,6 @@
 #include <string.h>
 #include <float.h> 
 
-
 // --- MAPS APP STATE ---
 typedef struct {
     Camera2D camera;
@@ -19,12 +18,20 @@ typedef struct {
     int pathLen;
     bool hasDestination;
     Vector2 destination;
+    
+    // Search State
     bool isSearching;
     char searchQuery[64];
     int searchCharCount;
     MapLocation searchResults[MAX_SEARCH_RESULTS];
     int resultCount;
+    
+    // Icons
     Texture2D icons[20]; 
+    
+    // Filtering
+    int filterType;       // -1 = All, else LOC_TYPE
+    bool isFilterMenuOpen; // [NEW] Toggle for dropdown
 } MapsAppState;
 
 MapsAppState mapsState = {0};
@@ -42,10 +49,14 @@ void LoadMapIcons() {
     mapsState.icons[LOC_SUPERMARKET] = LoadTexture("resources/icons/icon_supermarket.png");
     mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/icons/icon_restaurant.png");
     mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/icons/icon_house.png");
-    for(int i=1; i<=8; i++) SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
+    mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/icons/icon_fuel.png"); // Re-using fuel icon for now
+    
+    for(int i=0; i<20; i++) {
+        if(mapsState.icons[i].id != 0) SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
+    }
 }
 
-// ... Math Helpers & Init (Same as before) ...
+// --- Math Helpers ---
 Vector2 GetClosestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
     Vector2 ap = Vector2Subtract(p, a);
     Vector2 ab = Vector2Subtract(b, a);
@@ -63,11 +74,14 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     for (int i = 0; i < map->edgeCount; i++) {
         Vector2 start = map->nodes[map->edges[i].startNode].position;
         Vector2 end = map->nodes[map->edges[i].endNode].position;
+        
+        // Bounding box check for optimization
         float minX = (start.x < end.x ? start.x : end.x) - threshold;
         float maxX = (start.x > end.x ? start.x : end.x) + threshold;
         float minY = (start.y < end.y ? start.y : end.y) - threshold;
         float maxY = (start.y > end.y ? start.y : end.y) + threshold;
         if (clickPos.x < minX || clickPos.x > maxX || clickPos.y < minY || clickPos.y > maxY) continue; 
+        
         Vector2 closest = GetClosestPointOnSegment(clickPos, start, end);
         float dSq = Vector2DistanceSqr(clickPos, closest);
         if (dSq < minDistSq) { minDistSq = dSq; bestPoint = closest; }
@@ -75,8 +89,23 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     return bestPoint;
 }
 
+// [UPDATED] Recommendations now respect the filter
 void ShowRecommendedPlaces(GameMap *map) {
-    mapsState.resultCount = SearchLocations(map, "a", mapsState.searchResults);
+    mapsState.resultCount = 0;
+    
+    for (int i = 0; i < map->locationCount; i++) {
+        // Skip houses (usually hidden from search)
+        if (map->locations[i].type == LOC_HOUSE) continue;
+        
+        // Apply Filter if active
+        if (mapsState.filterType != -1) {
+            if (map->locations[i].type != mapsState.filterType) continue;
+        }
+        
+        mapsState.searchResults[mapsState.resultCount] = map->locations[i];
+        mapsState.resultCount++;
+        if (mapsState.resultCount >= MAX_SEARCH_RESULTS) break;
+    }
 }
 
 void InitMapsApp() {
@@ -88,13 +117,9 @@ void InitMapsApp() {
     mapsState.isFollowingPlayer = true; 
     mapsState.isHeadingUp = true; 
     mapsState.lastClickTime = 0.0f;
+    mapsState.filterType = -1; // -1 = Show All
+    mapsState.isFilterMenuOpen = false;
     LoadMapIcons(); 
-}
-
-void UnloadMapsApp() {
-    for(int i=0; i<20; i++) {
-        if (mapsState.icons[i].id != 0) UnloadTexture(mapsState.icons[i]);
-    }
 }
 
 void ResetMapCamera(Vector2 playerPos) {
@@ -104,6 +129,7 @@ void ResetMapCamera(Vector2 playerPos) {
     mapsState.camera.zoom = 4.0f; 
     mapsState.isSearching = false;
     mapsState.isDragging = false;
+    mapsState.isFilterMenuOpen = false;
 }
 
 void SetMapDestination(GameMap *map, Vector2 dest) {
@@ -128,6 +154,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     mapsState.playerPos = currentPlayerPos; 
     mapsState.playerAngle = playerAngle;
 
+    // Arrival Check
     if (mapsState.hasDestination) {
         if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
             mapsState.hasDestination = false;
@@ -135,6 +162,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
 
+    // Camera Follow Logic
     if (mapsState.isFollowingPlayer && !mapsState.isDragging && !mapsState.isSearching) {
         Vector2 diff = Vector2Subtract(mapsState.playerPos, mapsState.camera.target);
         if (Vector2Length(diff) > 0.1f) {
@@ -142,7 +170,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
 
         if (mapsState.isHeadingUp) {
-            // Restore 180 rotation preference
             float targetRot = playerAngle + 180.0f; 
             float currentRot = mapsState.camera.rotation;
             float rotDiff = targetRot - currentRot;
@@ -154,6 +181,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
 
+    // Input Bounds
     if (localMouse.x < 0 || localMouse.x > 280 || localMouse.y < 0 || localMouse.y > 600) {
         mapsState.isDragging = false;
         return; 
@@ -161,9 +189,46 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
 
     if (isClicking) {
         bool handled = false;
-        if (mapsState.isSearching) {
+        
+        // 1. Check Filter Menu Interaction (if open)
+        if (mapsState.isFilterMenuOpen) {
+            Rectangle menuRect = {190, 75, 80, 100}; // Menu area
+            if (CheckCollisionPointRec(localMouse, menuRect)) {
+                // Determine which option clicked
+                float relY = localMouse.y - 75;
+                int idx = (int)(relY / 25);
+                
+                if (idx == 0) mapsState.filterType = -1;           // All
+                else if (idx == 1) mapsState.filterType = LOC_FUEL;     // Gas
+                else if (idx == 2) mapsState.filterType = LOC_MECHANIC; // Mech
+                else if (idx == 3) mapsState.filterType = LOC_FOOD;     // Food
+                
+                mapsState.isFilterMenuOpen = false;
+                // Refresh recommendations if search is active but empty
+                if (mapsState.isSearching && mapsState.searchCharCount == 0) {
+                    ShowRecommendedPlaces(map);
+                }
+                handled = true;
+            } else {
+                // Clicked outside menu -> close it
+                mapsState.isFilterMenuOpen = false;
+                handled = true; // Consume click
+            }
+        }
+
+        // 2. Check Filter Button (Toggle)
+        if (!handled) {
+            Rectangle filterBtn = {190, 40, 30, 30};
+            if (CheckCollisionPointRec(localMouse, filterBtn)) {
+                mapsState.isFilterMenuOpen = !mapsState.isFilterMenuOpen;
+                handled = true;
+            }
+        }
+
+        // 3. Check Search Results
+        if (!handled && mapsState.isSearching) {
             for(int i=0; i<mapsState.resultCount; i++) {
-                Rectangle resRect = {10, 85 + i*45, 260, 40};
+                Rectangle resRect = {10, 80 + i*45, 260, 40};
                 if (CheckCollisionPointRec(localMouse, resRect)) {
                     SetMapDestination(map, mapsState.searchResults[i].position);
                     mapsState.isSearching = false;
@@ -173,18 +238,23 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
             }
         }
 
+        // 4. Main UI Interactions
         if (!handled) {
-            if (localMouse.y <= 80) {
-                 if (localMouse.x < 200 && localMouse.y > 30) {
+            // Search Bar & Close Button Area
+            if (localMouse.y >= 40 && localMouse.y <= 70) {
+                 // Search Bar (Width reduced to 170 to fit filter btn)
+                 if (localMouse.x >= 10 && localMouse.x <= 180) {
                       mapsState.isSearching = true;
                       if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
                  }
-                 else if (localMouse.x >= 200 && localMouse.y > 30) {
+                 // Close Button (X)
+                 else if (localMouse.x >= 230 && localMouse.x <= 260) {
                       ResetMapCamera(mapsState.playerPos);
                  }
                  handled = true; 
             }
             else {
+                // Re-center buttons
                 if (CheckCollisionPointCircle(localMouse, (Vector2){240, 450}, 20)) {
                     mapsState.isHeadingUp = false; 
                     handled = true;
@@ -197,6 +267,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 }
             }
 
+            // 5. Map Drag / Click
             if (!handled) {
                 float currentTime = GetTime();
                 if ((currentTime - mapsState.lastClickTime) < 0.3f) { 
@@ -209,10 +280,12 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.dragStart = GetScreenToWorld2D(localMouse, mapsState.camera);
                 mapsState.isSearching = false;    
                 mapsState.isFollowingPlayer = false; 
+                mapsState.isFilterMenuOpen = false; // Close menu on map click
             }
         }
     }
     
+    // Drag Logic
     if (mapsState.isDragging) {
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
             Vector2 mouseWorldPos = GetScreenToWorld2D(localMouse, mapsState.camera);
@@ -223,6 +296,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
     
+    // Zoom Logic
     float wheel = GetMouseWheelMove();
     if (wheel != 0) {
         Vector2 mouseWorldBeforeZoom = GetScreenToWorld2D(localMouse, mapsState.camera);
@@ -234,6 +308,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         mapsState.camera.target = Vector2Add(mapsState.camera.target, zoomDelta);
     }
 
+    // Typing Logic
     if (mapsState.isSearching) {
         int key = GetCharPressed();
         while (key > 0) {
@@ -241,6 +316,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.searchQuery[mapsState.searchCharCount] = (char)key;
                 mapsState.searchQuery[mapsState.searchCharCount + 1] = '\0';
                 mapsState.searchCharCount++;
+                // If typing, standard search (ignores filter as requested)
                 mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
             }
             key = GetCharPressed();
@@ -249,6 +325,8 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
             if (mapsState.searchCharCount > 0) {
                 mapsState.searchCharCount--;
                 mapsState.searchQuery[mapsState.searchCharCount] = '\0';
+                
+                // If empty, show filtered recommendations
                 if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
                 else mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
             }
@@ -265,6 +343,8 @@ void DrawMapsApp(GameMap *map) {
     BeginMode2D(mapsState.camera);
     float scale = 1.0f / mapsState.camera.zoom;
 
+    // --- MAP RENDER ---
+    
     // Areas
     for (int i = 0; i < map->areaCount; i++) {
         if(map->areas[i].pointCount < 3) continue;
@@ -306,10 +386,13 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // POIs
+    // POIs (with Filter Logic applied to Map View)
     for(int i=0; i<map->locationCount; i++) {
         if (map->locations[i].type == LOC_HOUSE) continue; 
         
+        // Apply Filter to Map Pins
+        if (mapsState.filterType != -1 && map->locations[i].type != mapsState.filterType) continue;
+
         int type = map->locations[i].type;
         Texture2D icon = mapsState.icons[type];
         Vector2 pos = map->locations[i].position;
@@ -325,6 +408,7 @@ void DrawMapsApp(GameMap *map) {
             Color c = GRAY;
             switch(map->locations[i].type) {
                 case LOC_FUEL: c = ORANGE; break;
+                case LOC_MECHANIC: c = BLACK; break;
                 case LOC_FOOD: c = RED; break;
                 case LOC_MARKET: c = BLUE; break;
                 case LOC_RESTAURANT: c = MAROON; break;
@@ -342,7 +426,7 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // Player & Path (Same as before)
+    // Player & Path
     DrawCircleV(mapsState.playerPos, 10.0f * scale, GREEN);
     Vector2 tip = {
         mapsState.playerPos.x + sinf(mapsState.playerAngle*DEG2RAD)*8.0f*scale,
@@ -361,10 +445,14 @@ void DrawMapsApp(GameMap *map) {
 
     EndMode2D();
 
-    // UI Overlay (Same)
+    // --- UI OVERLAY ---
+    
+    // Header
     DrawRectangle(0, 0, 280, 80, WHITE);
     DrawText("Maps", 10, 10, 20, BLACK);
-    DrawRectangle(10, 40, 200, 30, LIGHTGRAY);
+    
+    // Search Bar
+    DrawRectangle(10, 40, 180, 30, LIGHTGRAY);
     if (mapsState.isSearching) {
         DrawText(mapsState.searchQuery, 15, 48, 10, BLACK);
         if ((GetTime() * 2.0f) - (int)(GetTime() * 2.0f) < 0.5f) {
@@ -373,23 +461,71 @@ void DrawMapsApp(GameMap *map) {
     } else {
         DrawText("Search...", 15, 48, 10, GRAY);
     }
-    DrawRectangle(220, 40, 50, 30, BLACK);
-    DrawText("X", 240, 50, 10, WHITE);
+    
+    // Filter Button (Icon)
+    Color filterCol = (mapsState.filterType != -1) ? BLUE : LIGHTGRAY;
+    DrawRectangle(200, 40, 30, 30, filterCol);
+    DrawRectangleLines(200, 40, 30, 30, DARKGRAY);
+    // Draw simple funnel icon
+    DrawLine(205, 48, 225, 48, BLACK);
+    DrawLine(208, 54, 222, 54, BLACK);
+    DrawLine(212, 60, 218, 60, BLACK);
 
+    // Close Button
+    DrawRectangle(240, 40, 30, 30, BLACK);
+    DrawText("X", 250, 48, 10, WHITE);
+
+    // Filter Dropdown Menu
+    if (mapsState.isFilterMenuOpen) {
+        Rectangle menuRect = {190, 75, 80, 100};
+        DrawRectangleRec(menuRect, WHITE);
+        DrawRectangleLinesEx(menuRect, 1, DARKGRAY);
+        
+        // Items
+        const char* opts[] = {"All", "Gas", "Mech", "Food"};
+        for(int i=0; i<4; i++) {
+            bool selected = false;
+            if(i==0 && mapsState.filterType == -1) selected = true;
+            if(i==1 && mapsState.filterType == LOC_FUEL) selected = true;
+            if(i==2 && mapsState.filterType == LOC_MECHANIC) selected = true;
+            if(i==3 && mapsState.filterType == LOC_FOOD) selected = true;
+            
+            Color itemColor = selected ? SKYBLUE : WHITE;
+            if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){190, 75 + i*25, 80, 25})) itemColor = LIGHTGRAY;
+            
+            DrawRectangle(190, 75 + i*25, 80, 25, itemColor);
+            DrawText(opts[i], 195, 80 + i*25, 10, BLACK);
+            DrawLine(190, 100 + i*25, 270, 100 + i*25, LIGHTGRAY);
+        }
+    }
+
+    // Search Results List
     if (mapsState.isSearching && mapsState.resultCount > 0) {
         DrawRectangle(10, 80, 260, mapsState.resultCount * 45, WHITE);
+        // Shadow for list
+        DrawRectangleLines(10, 80, 260, mapsState.resultCount * 45, LIGHTGRAY);
+        
         for(int i=0; i<mapsState.resultCount; i++) {
             float yPos = 85 + i*45;
             Rectangle itemRect = {10, 80 + i*45, 260, 45};
+            
             if (CheckCollisionPointRec(GetMousePosition(), itemRect)) { 
                 DrawRectangleRec(itemRect, Fade(SKYBLUE, 0.3f));
             }
+            
             DrawText(mapsState.searchResults[i].name, 20, yPos, 20, BLACK);
-            DrawText("Location", 20, yPos + 20, 10, GRAY);
+            
+            // Subtext based on type
+            const char* typeStr = "Location";
+            if (mapsState.searchResults[i].type == LOC_FUEL) typeStr = "Gas Station";
+            if (mapsState.searchResults[i].type == LOC_MECHANIC) typeStr = "Mechanic";
+            
+            DrawText(typeStr, 20, yPos + 20, 10, GRAY);
             DrawLine(10, yPos + 40, 250, yPos + 40, LIGHTGRAY);
         }
     }
 
+    // Compass
     DrawCircle(240, 450, 20, WHITE);
     DrawCircleLines(240, 450, 20, DARKGRAY);
     float needleRot = -mapsState.camera.rotation * DEG2RAD;
@@ -399,6 +535,7 @@ void DrawMapsApp(GameMap *map) {
     DrawLineEx(cCenter, northTip, 3.0f, RED);   
     DrawLineEx(cCenter, southTip, 3.0f, DARKGRAY); 
 
+    // Re-center button
     if (!mapsState.isFollowingPlayer) {
         DrawCircle(240, 510, 25, BLACK);
         DrawCircleLines(240, 510, 25, WHITE);

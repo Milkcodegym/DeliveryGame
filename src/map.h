@@ -31,6 +31,7 @@ typedef enum {
     LOC_SUPERMARKET,
     LOC_RESTAURANT,
     LOC_HOUSE,
+    LOC_MECHANIC, // [NEW] Added Mechanic Location Type
     LOC_COUNT
 } LocationType;
 

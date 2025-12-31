@@ -13,6 +13,7 @@
 #include "delivery_app.h" 
 #include "start_menu.h"
 #include "screen_visuals.h"
+#include "mechanic.h" 
 
 // Forward declaration if not in map.h
 void DrawZoneMarker(Vector3 pos, Color color);
@@ -60,8 +61,9 @@ int main(void)
         int frameCounter = 0;
         const int WARMUP_FRAMES = 10; 
         
-        // [NEW] Refueling State
+        // Interaction States
         bool isRefueling = false;
+        bool isMechanicOpen = false;
 
         while (player.health > 0 && !WindowShouldClose()){
             float dt = GetFrameTime();
@@ -70,6 +72,7 @@ int main(void)
             if (frameCounter > WARMUP_FRAMES) {
                 
                 UpdatePlayer(&player, &map, &traffic, dt);
+                UpdateVisuals(dt); 
                 
                 Vector3 playerFwd = { -sinf(player.angle * DEG2RAD), 0.0f, -cosf(player.angle * DEG2RAD) };
                 UpdateDevControls(&map, player.position, playerFwd);
@@ -79,16 +82,31 @@ int main(void)
                 UpdatePhone(&phone, &player, &map); 
                 Update_Camera(player.position, &map, player.angle, dt);
                 
-                // [NEW] Check for Gas Stations
-                // If nearby a LOC_FUEL and stopped, allow opening refuel menu
-                if (!isRefueling && fabs(player.current_speed) < 1.0f) {
+                // Debug Trigger
+                if (IsKeyPressed(KEY_F3)) {
+                    isMechanicOpen = true;
+                }
+
+                // Check for Interactions
+                if (!isRefueling && !isMechanicOpen && !phone.isOpen && fabs(player.current_speed) < 1.0f) {
+                    
+                    Vector2 playerP2 = { player.position.x, player.position.z };
+
                     for(int i=0; i<map.locationCount; i++) {
+                        // Check Fuel
                         if (map.locations[i].type == LOC_FUEL) {
-                            Vector3 pumpPos = { map.locations[i].position.x + 2.0f, 0, map.locations[i].position.y + 2.0f };
-                            if (Vector3Distance(player.position, pumpPos) < 5.0f) {
-                                // Close logic handled inside DrawRefuelWindow
-                                isRefueling = true; 
-                                break;
+                            Vector2 pumpPos2 = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
+                            // [CHANGED] Increased Radius to 12.0f
+                            if (Vector2Distance(playerP2, pumpPos2) < 12.0f) { 
+                                if (IsKeyPressed(KEY_E)) isRefueling = true;
+                            }
+                        }
+                        // Check Mechanic
+                        else if (map.locations[i].type == LOC_MECHANIC) {
+                            Vector2 mechPos2 = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
+                            // [CHANGED] Increased Radius to 12.0f
+                            if (Vector2Distance(playerP2, mechPos2) < 12.0f) { 
+                                if (IsKeyPressed(KEY_E)) isMechanicOpen = true;
                             }
                         }
                     }
@@ -121,8 +139,7 @@ int main(void)
                     
                 EndMode3D();
                 
-                DrawVisuals(player.current_speed, player.max_speed);
-                // [NEW] Draw Fuel Overlay
+                DrawVisualsWithPinned(&player); 
                 DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
 
                 if (frameCounter <= WARMUP_FRAMES) {
@@ -133,12 +150,13 @@ int main(void)
                     Vector2 mousePos = GetMousePosition();
                     bool isClick = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
                     
-                    // [NEW] Refuel Window Logic
+                    // UI STATE MACHINE
                     if (isRefueling) {
-                        // If it returns false, user closed it
                         isRefueling = DrawRefuelWindow(&player, isRefueling, GetScreenWidth(), GetScreenHeight());
                     } 
-                    // Only draw phone if NOT refueling (prevent overlap issues)
+                    else if (isMechanicOpen) {
+                        isMechanicOpen = DrawMechanicWindow(&player, isMechanicOpen, GetScreenWidth(), GetScreenHeight());
+                    }
                     else {
                         DrawPhone(&phone, &player, &map, mousePos, isClick);
                         
@@ -151,7 +169,7 @@ int main(void)
 
                     DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
                     DrawText(TextFormat("FPS: %d", GetFPS()), 10, 30, 50, DARKGRAY);
-                    DrawText("F1: Crash | F2: Roadwork | F3: Clear", 10, 80, 20, DARKGRAY);
+                    DrawText("F1: Crash | F2: Roadwork | F3: Mechanic (Debug) | F4: Clear", 10, 80, 20, DARKGRAY);
 
                     if (map.nodeCount == 0) {
                         DrawText("MAP FAILED TO LOAD", 10, 60, 20, RED);

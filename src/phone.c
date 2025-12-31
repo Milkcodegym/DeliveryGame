@@ -7,11 +7,10 @@
 #include "map.h"
 #include "maps_app.h" 
 #include "delivery_app.h"
+#include "car_monitor.h" // [NEW]
 
 // --- CONSTANTS ---
-// Base resolution for scaling reference (e.g. designed for 720p)
 #define BASE_SCREEN_H 720.0f
-// NEW: Scale factor to shrink phone (20% smaller)
 #define PHONE_SCALE_MOD 0.8f
 
 // --- NOTIFICATION STATE ---
@@ -51,7 +50,7 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     InitMapsApp(); 
     InitDeliveryApp(phone, map);
 
-    // Init Music (Placeholder logic)
+    // Init Music
     phone->music.library[0] = (Song){"Banger beat", "Milk", "resources/music/song1.ogg", {0}, 0};
     phone->music.library[1] = (Song){"Fire track", "Coolartist", "resources/music/song2.ogg", {0}, 0};
     phone->music.library[2] = (Song){"Melodic tune", "Litsolou19", "resources/music/song3.ogg", {0}, 0};
@@ -69,19 +68,22 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     phone->settings.mute = false;
 }
 
-// --- App Draw Functions (Unchanged logic, kept for completeness) ---
+// --- App Draw Functions ---
 
-void DrawAppHome(PhoneState *phone, Vector2 mouse, bool click) {
-    const char* icons[] = { "Jobs", "Maps", "Bank", "Music", "Settings", "Web" };
-    Color colors[] = { ORANGE, BLUE, GREEN, PURPLE, GRAY, SKYBLUE };
+void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
+    const char* icons[] = { "Jobs", "Maps", "Bank", "Music", "Settings", "Web", "CarMon" };
+    Color colors[] = { ORANGE, BLUE, GREEN, PURPLE, GRAY, SKYBLUE, BLACK };
     
+    // Only show CarMon if bought
+    int totalApps = player->hasCarMonitorApp ? 7 : 6;
+
     int cols = 2;
     float iconSize = 90;
     float gap = 20;
     float startX = (SCREEN_WIDTH - (cols*iconSize + (cols-1)*gap)) / 2;
     float startY = 80;
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < totalApps; i++) {
         int col = i % cols;
         int row = i / cols;
         Rectangle btn = { startX + col*(iconSize+gap), startY + row*(iconSize+gap), iconSize, iconSize };
@@ -93,6 +95,7 @@ void DrawAppHome(PhoneState *phone, Vector2 mouse, bool click) {
             if (i == 3) phone->currentApp = APP_MUSIC;
             if (i == 4) phone->currentApp = APP_SETTINGS;
             if (i == 5) phone->currentApp = APP_BROWSER;
+            if (i == 6) phone->currentApp = APP_CAR_MONITOR;
         }
     }
 }
@@ -211,7 +214,6 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
     
-    // Scale factor + additional shrink
     float scale = (screenH / BASE_SCREEN_H) * PHONE_SCALE_MOD;
     
     float currentPhoneW = PHONE_WIDTH * scale;
@@ -238,11 +240,9 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         float relX = globalMouse.x - renderDest.x;
         float relY = globalMouse.y - renderDest.y;
         
-        // Normalize (0..1)
         float normX = relX / renderDest.width;
         float normY = relY / renderDest.height;
         
-        // Map to Texture Space
         localMouse.x = normX * SCREEN_WIDTH;
         localMouse.y = normY * SCREEN_HEIGHT;
     }
@@ -274,7 +274,6 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
     
-    // Scale factor + 20% shrink
     float scale = (screenH / BASE_SCREEN_H) * PHONE_SCALE_MOD;
     
     float currentPhoneW = PHONE_WIDTH * scale;
@@ -302,13 +301,14 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
         DrawText("12:00", SCREEN_WIDTH - 40, 2, 10, WHITE);
         
         switch (phone->currentApp) {
-            case APP_HOME: DrawAppHome(phone, localMouse, click); break;
+            case APP_HOME: DrawAppHome(phone, player, localMouse, click); break;
             case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break;
             case APP_BANK: DrawAppBank(phone, player); break; 
             case APP_MAP: DrawMapsApp(map); break;
             case APP_MUSIC: DrawAppMusic(phone, localMouse, click); break;
             case APP_SETTINGS: DrawAppSettings(phone, localMouse, click); break;
             case APP_BROWSER: DrawText("404 Error", 80, 250, 20, RED); break;
+            case APP_CAR_MONITOR: DrawCarMonitorApp(player, localMouse, click); break; // [NEW]
             default: break;
         }
 
@@ -325,7 +325,6 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             float alpha = (notifTimer > 0.5f) ? 1.0f : (notifTimer * 2.0f);
             Rectangle notifRect = { 10, 30, SCREEN_WIDTH - 20, 50 };
             DrawRectangleRounded(notifRect, 0.2f, 4, Fade(DARKGRAY, 0.95f * alpha));
-            // FIXED: Removed invalid Thickness parameter for DrawRectangleRoundedLines
             DrawRectangleRoundedLines(notifRect, 0.2f, 4, Fade(notifColor, alpha));
             DrawCircle(35, 55, 15, Fade(notifColor, alpha));
             DrawText("NOTIFICATION", 60, 35, 10, Fade(GRAY, alpha));

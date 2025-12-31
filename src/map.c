@@ -9,8 +9,6 @@
 
 // --- CONFIGURATION ---
 const float MAP_SCALE = 0.4f;
-
-// PERFORMANCE: Directional LOD Settings
 const float RENDER_DIST_BASE = 500.0f;  
 const float RENDER_DIST_FWD  = 1600.0f; 
 
@@ -18,7 +16,6 @@ const float RENDER_DIST_FWD  = 1600.0f;
 #define MODEL_Z_SQUISH 0.4f      
 #define MAX_INSTANCES 40000 
 #define USE_INSTANCING 1         
-
 #define REGION_CENTER_RADIUS 600.0f 
 
 typedef enum {
@@ -53,8 +50,6 @@ typedef struct {
     RenderBatch batches[BATCH_GROUPS][ASSET_COUNT]; 
     bool loaded;
     Texture2D whiteTex;
-    
-    // BAKED GEOMETRY
     Model roadModel;
     Model markingsModel;
     Model areaModel;
@@ -69,7 +64,6 @@ Color cityPalette[] = {
     {255, 200, 150, 255}, {200, 200, 200, 255}  
 };
 
-// --- HELPER FUNCTIONS ---
 Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     Vector2 dir = Vector2Subtract(p2, p1);
     Vector2 normal2D = { -dir.y, dir.x };
@@ -85,14 +79,12 @@ Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
     return center;
 }
 
-// --- INIT ---
 void InitRenderBatch(RenderBatch *batch, Color color) {
     batch->transforms = (Matrix *)malloc(MAX_INSTANCES * sizeof(Matrix));
     batch->count = 0;
     batch->tint = color;
 }
 
-// SHADERS
 static const char* INSTANCING_VSH = 
     "#version 330\n"
     "in vec3 vertexPosition; in vec2 vertexTexCoord; in vec3 vertexNormal; in mat4 instanceTransform;\n"
@@ -117,7 +109,6 @@ static const char* INSTANCING_FSH =
     "    finalColor = texelColor * colDiffuse * fragColor * vec4(light, light, light, 1.0);\n"
     "}\n";
 
-// --- STATIC BAKE ---
 Model BakeStaticGeometry(float *vertices, float *colors, int triangleCount) {
     Mesh mesh = { 0 };
     mesh.triangleCount = triangleCount;
@@ -151,7 +142,6 @@ Model BakeStaticGeometry(float *vertices, float *colors, int triangleCount) {
     return LoadModelFromMesh(mesh);
 }
 
-// Macro helper
 #define ADD_INSTANCE(group, assetType, pos, rotation, scaleVec) \
     if (cityRenderer.batches[group][assetType].count < MAX_INSTANCES) { \
         Matrix matScale = MatrixScale(scaleVec.x, scaleVec.y, scaleVec.z); \
@@ -174,7 +164,6 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
     
     float areaW = maxX - minX;
     float areaH = maxY - minY;
-    // Tree Density
     int treeCount = (int)((areaW * areaH) / 150.0f);
     if(treeCount > 30) treeCount = 30; 
     
@@ -186,12 +175,8 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
         if (CheckCollisionPointPoly(tPos, area->points, area->pointCount)) {
             Vector3 pos = {tPos.x, 0.0f, tPos.y};
             float rot = GetRandomValue(0, 360);
-            
-            // Trunk
             Vector3 scale = { 1.5f, 4.0f, 1.5f }; 
             ADD_INSTANCE(5, ASSET_PROP_PARK_TREE, pos, rot, scale);
-            
-            // Foliage Cube
             Vector3 lPos = {tPos.x, 3.5f, tPos.y};
             Vector3 lScale = { 3.5f, 3.0f, 3.5f };
             ADD_INSTANCE(5, ASSET_PROP_PARK_TREE, lPos, rot, lScale);
@@ -203,7 +188,6 @@ void BakeMapElements(GameMap *map) {
     if (cityRenderer.mapBaked) return;
     printf("Baking Map Geometry...\n");
 
-    // 1. ROADS
     int maxRoadTris = map->edgeCount * 2 + 1000;
     int maxMarkTris = map->edgeCount * 2 + 1000;
     float *roadVerts = (float*)malloc(maxRoadTris * 3 * 3 * sizeof(float));
@@ -259,7 +243,6 @@ void BakeMapElements(GameMap *map) {
 
     cityRenderer.roadModel = BakeStaticGeometry(roadVerts, NULL, rVCount / 3);
     
-    // Use COLOR_ROAD from map.h
     for(int i=0; i<cityRenderer.roadModel.meshCount; i++) {
         for(int j=0; j<cityRenderer.roadModel.meshes[i].vertexCount*4; j+=4) {
             cityRenderer.roadModel.meshes[i].colors[j] = COLOR_ROAD.r;
@@ -271,8 +254,6 @@ void BakeMapElements(GameMap *map) {
     UploadMesh(&cityRenderer.roadModel.meshes[0], false);
 
     cityRenderer.markingsModel = BakeStaticGeometry(markVerts, NULL, mVCount / 3);
-    
-    // Use COLOR_ROAD_MARKING from map.h
     Color mk = COLOR_ROAD_MARKING;
     for(int i=0; i<cityRenderer.markingsModel.meshCount; i++) {
         for(int j=0; j<cityRenderer.markingsModel.meshes[i].vertexCount; j++) {
@@ -287,7 +268,6 @@ void BakeMapElements(GameMap *map) {
     free(roadVerts);
     free(markVerts);
 
-    // 2. AREAS
     int maxAreaVerts = map->areaCount * 50 * 3; 
     float *areaVerts = (float*)malloc(maxAreaVerts * 3 * sizeof(float));
     float *areaColors = (float*)malloc(maxAreaVerts * 4 * sizeof(float));
@@ -295,10 +275,7 @@ void BakeMapElements(GameMap *map) {
 
     for (int i = 0; i < map->areaCount; i++) {
         if(map->areas[i].pointCount < 3) continue;
-        
         Color col = map->areas[i].color;
-        // Check if Park (Greenish) -> make it nicer Green
-        // Use COLOR_PARK from map.h
         if (col.g > col.r && col.g > col.b) {
             col = COLOR_PARK; 
             GenerateParkFoliage(map, &map->areas[i]);
@@ -327,7 +304,6 @@ void BakeMapElements(GameMap *map) {
     free(areaVerts);
     free(areaColors);
 
-    // 3. BAKED ROOFS
     int maxRoofVerts = map->buildingCount * 12 * 3; 
     float *roofVerts = (float*)malloc(maxRoofVerts * 3 * sizeof(float));
     float *roofColors = (float*)malloc(maxRoofVerts * 4 * sizeof(float)); 
@@ -777,14 +753,14 @@ void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
         TriggerSpecificEvent(map, EVENT_ROADWORK, playerPos, playerFwd);
         TraceLog(LOG_INFO, "DEV: Spawned Roadwork");
     }
-    if (IsKeyPressed(KEY_F3)) {
+    // [MODIFIED] Changed from F3 to F4 to allow F3 for Mechanic Menu debug
+    if (IsKeyPressed(KEY_F4)) {
         ClearEvents(map);
         TraceLog(LOG_INFO, "DEV: Cleared Events");
     }
 }
 
 // [HELPER] Draws a label centered on a 3D position
-// [UPDATED] Uses black background for visibility
 static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text, Color color) {
     Vector2 screenPos = GetWorldToScreen(position, camera);
     if (screenPos.x > 0 && screenPos.x < GetScreenWidth() && 
@@ -847,14 +823,23 @@ void DrawGameMap(GameMap *map, Camera camera) {
         Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
         Color poiColor = RED;
         
-        // [NEW] Draw Gas Pumps at LOC_FUEL
+        // [UPDATED] Draw Gas Pumps at LOC_FUEL
         if(map->locations[i].type == LOC_FUEL) {
             poiColor = ORANGE;
-            // Draw a simple pump shape (Yellow Box with Black Screen)
-            Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f }; // Slight offset from center
+            Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f };
             DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
             DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
-            DrawCube((Vector3){pumpPos.x + 0.51f, pumpPos.y + 0.5f, pumpPos.z}, 0.1f, 0.5f, 0.6f, BLACK); // Screen
+            DrawCube((Vector3){pumpPos.x + 0.51f, pumpPos.y + 0.5f, pumpPos.z}, 0.1f, 0.5f, 0.6f, BLACK); 
+        }
+        // [NEW] Draw Mechanic Stand at LOC_MECHANIC
+        else if(map->locations[i].type == LOC_MECHANIC) {
+            poiColor = DARKBLUE;
+            Vector3 mechPos = { pos.x + 2.0f, 0.5f, pos.z + 2.0f }; // Corrected Y to 0.5f so it sits on ground
+            // Stacked cubes prop
+            DrawCube(mechPos, 1.5f, 1.0f, 1.5f, BLUE); // Brighter blue
+            DrawCubeWires(mechPos, 1.5f, 1.0f, 1.5f, BLACK);
+            DrawCube((Vector3){mechPos.x, 1.5f, mechPos.z}, 1.0f, 1.0f, 1.0f, SKYBLUE); // Brighter top
+            DrawCubeWires((Vector3){mechPos.x, 1.5f, mechPos.z}, 1.0f, 1.0f, 1.0f, WHITE);
         }
         else if(map->locations[i].type == LOC_FOOD) poiColor = GREEN;
         else if(map->locations[i].type == LOC_MARKET) poiColor = BLUE;
@@ -904,13 +889,22 @@ void DrawGameMap(GameMap *map, Camera camera) {
             else if (m == ASSET_PROP_PARK_TREE) label = "PARK TREE";
 
             for(int i=0; i<batch->count; i++) {
-                // Extract position from transform matrix (m12, m13, m14)
                 Vector3 pos = { batch->transforms[i].m12, batch->transforms[i].m13 + 1.0f, batch->transforms[i].m14 };
-                
-                // Only draw if close
                 if (Vector3DistanceSqr(pos, playerPos) < renderLabelDistSq) {
                     DrawCenteredLabel(camera, pos, label, BLACK);
                 }
+            }
+        }
+    }
+    
+    // [NEW] Draw Interaction Prompts for Fuel/Mechanic
+    for (int i = 0; i < map->locationCount; i++) {
+        if (map->locations[i].type == LOC_FUEL || map->locations[i].type == LOC_MECHANIC) {
+            Vector3 targetPos = { map->locations[i].position.x + 2.0f, 1.5f, map->locations[i].position.y + 2.0f };
+            // [UPDATED] Check radius to match main.c interaction (12.0f -> 144.0f squared)
+            if (Vector3DistanceSqr(targetPos, playerPos) < 144.0f) { 
+                const char* txt = (map->locations[i].type == LOC_FUEL) ? "Refuel [E]" : "Mechanic [E]";
+                DrawCenteredLabel(camera, targetPos, txt, YELLOW);
             }
         }
     }
@@ -989,10 +983,7 @@ void UnloadGameMap(GameMap *map) {
             for (int m = 0; m < ASSET_COUNT; m++) if(cityRenderer.batches[i][m].transforms) free(cityRenderer.batches[i][m].transforms);
         }
         
-        // --- FIX SEGFAULT IN UNLOAD ---
-        // 1. Unload unique loaded models
         for (int m = 0; m < ASSET_WALL; m++) UnloadModel(cityRenderer.models[m]);
-        // 2. Unload the shared procedural model ONCE
         UnloadModel(cityRenderer.models[ASSET_WALL]);
         
         if(cityRenderer.mapBaked) {

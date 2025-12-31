@@ -6,7 +6,7 @@
 #include "traffic.h"
 
 #define MAX_TRANSACTIONS 10
-// [NEW] Fuel Constants
+// Fuel Constants
 #define MAX_FUEL 100.0f
 #define FUEL_CONSUMPTION_RATE 0.005f // Fuel lost per unit moved
 
@@ -49,9 +49,23 @@ typedef struct Player {
     float totalEarnings;
     int totalDeliveries;
 
-    // [NEW] FUEL SYSTEM
+    // FUEL SYSTEM
     float fuel;
     float maxFuel;
+
+    // [NEW] APP & UPGRADES
+    bool hasCarMonitorApp;
+    
+    // Unlocks
+    bool unlockGForce;
+    bool unlockThermometer;
+    
+    // Pinned Stats (Visuals)
+    bool pinSpeed;
+    bool pinFuel;
+    bool pinAccel;
+    bool pinGForce;
+    bool pinThermometer;
 
 } Player;
 
