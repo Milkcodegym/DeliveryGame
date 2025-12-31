@@ -6,11 +6,20 @@
 #include "player.h" 
 #include "map.h"
 #include "maps_app.h" 
-#include "delivery_app.h" // <--- The new module
+#include "delivery_app.h"
+
+// --- CONSTANTS ---
+// Base resolution for scaling reference (e.g. designed for 720p)
+#define BASE_SCREEN_H 720.0f
+// NEW: Scale factor to shrink phone (20% smaller)
+#define PHONE_SCALE_MOD 0.8f
+
+// --- NOTIFICATION STATE ---
+static char notifText[64] = "";
+static float notifTimer = 0.0f;
+static Color notifColor = WHITE;
 
 // --- Helper Functions ---
-
-// Shared UI Helper (Linked externally by delivery_app.c)
 bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed) {
     bool hovered = CheckCollisionPointRec(localMouse, rect);
     Color color = hovered ? Fade(baseColor, 0.8f) : baseColor;
@@ -25,18 +34,24 @@ bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localM
     return (hovered && isPressed);
 }
 
-// --- Initialization ---
+// --- PUBLIC: NOTIFICATIONS ---
+void ShowPhoneNotification(const char *text, Color color) {
+    snprintf(notifText, 64, "%s", text);
+    notifColor = color;
+    notifTimer = 4.0f; 
+}
 
+// --- Initialization ---
 void InitPhone(PhoneState *phone, GameMap *map) {
     phone->screenTexture = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     phone->currentApp = APP_HOME;
     phone->isOpen = false;
-    phone->slideAnim = 1.0f;
+    phone->slideAnim = 0.0f;
     
     InitMapsApp(); 
-    InitDeliveryApp(phone, map); // <--- Clean 1-line init
+    InitDeliveryApp(phone, map);
 
-    // Init Music
+    // Init Music (Placeholder logic)
     phone->music.library[0] = (Song){"Banger beat", "Milk", "resources/music/song1.ogg", {0}, 0};
     phone->music.library[1] = (Song){"Fire track", "Coolartist", "resources/music/song2.ogg", {0}, 0};
     phone->music.library[2] = (Song){"Melodic tune", "Litsolou19", "resources/music/song3.ogg", {0}, 0};
@@ -49,13 +64,12 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     phone->music.currentSongIdx = 0;
     phone->music.isPlaying = false;
 
-    // Init Settings
     phone->settings.masterVolume = 0.8f;
     phone->settings.sfxVolume = 1.0f;
     phone->settings.mute = false;
 }
 
-// --- App Draw Functions ---
+// --- App Draw Functions (Unchanged logic, kept for completeness) ---
 
 void DrawAppHome(PhoneState *phone, Vector2 mouse, bool click) {
     const char* icons[] = { "Jobs", "Maps", "Bank", "Music", "Settings", "Web" };
@@ -111,7 +125,6 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
 
     DrawRectangle(40, 60, 200, 200, DARKPURPLE);
     DrawText("ALBUM", 100, 150, 20, WHITE);
-
     DrawText(s->title, 20, 300, 24, WHITE);
     DrawText(s->artist, 20, 330, 18, GRAY);
 
@@ -121,7 +134,6 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
     float barWidth = SCREEN_WIDTH - 40;
     DrawRectangle(20, 380, barWidth, 4, GRAY);
     DrawRectangle(20, 380, barWidth * progress, 4, GREEN);
-    
     DrawText(TextFormat("%02d:%02d", (int)timePlayed/60, (int)timePlayed%60), 20, 390, 10, LIGHTGRAY);
 
     Rectangle btnPrev = { 30, 420, 60, 60 };
@@ -157,7 +169,6 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
 void DrawAppSettings(PhoneState *phone, Vector2 mouse, bool click) {
     DrawRectangle(0, 0, SCREEN_WIDTH, 60, GRAY);
     DrawText("SETTINGS", 20, 20, 20, WHITE);
-
     DrawText("Master Volume", 20, 80, 20, DARKGRAY);
     DrawRectangle(20, 110, 200, 10, LIGHTGRAY);
     DrawRectangle(20, 110, 200 * phone->settings.masterVolume, 10, BLUE);
@@ -193,22 +204,47 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         UpdateMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
     }
     
-    // --- 1. DELIVERY LOGIC ---
+    if (notifTimer > 0) notifTimer -= GetFrameTime();
     UpdateDeliveryApp(phone, player, map);
 
-    // --- MOUSE CALC ---
+    // --- SCALED MOUSE CALCULATION ---
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
-    float phoneX = screenW - PHONE_WIDTH - 50;
-    float phoneY = screenH - (PHONE_HEIGHT * phone->slideAnim) + 20;
+    
+    // Scale factor + additional shrink
+    float scale = (screenH / BASE_SCREEN_H) * PHONE_SCALE_MOD;
+    
+    float currentPhoneW = PHONE_WIDTH * scale;
+    float currentPhoneH = PHONE_HEIGHT * scale;
+    float currentOffX = SCREEN_OFFSET_X * scale;
+    float currentOffY = SCREEN_OFFSET_Y * scale;
 
+    float phoneX = screenW - currentPhoneW - (50 * scale);
+    float phoneY = screenH - (currentPhoneH * phone->slideAnim) + (20 * scale);
+
+    // Render Destination Logic
+    Rectangle renderDest = { 
+        phoneX + currentOffX, 
+        phoneY + currentOffY, 
+        (float)SCREEN_WIDTH * scale,  
+        (float)SCREEN_HEIGHT * scale 
+    };
+    
+    // Mouse Mapping
     Vector2 globalMouse = GetMousePosition();
     Vector2 localMouse = { -1, -1 };
-    Rectangle screenDest = { phoneX + SCREEN_OFFSET_X, phoneY + SCREEN_OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT };
-
-    if (CheckCollisionPointRec(globalMouse, screenDest)) {
-        localMouse.x = globalMouse.x - screenDest.x;
-        localMouse.y = globalMouse.y - screenDest.y;
+    
+    if (CheckCollisionPointRec(globalMouse, renderDest)) {
+        float relX = globalMouse.x - renderDest.x;
+        float relY = globalMouse.y - renderDest.y;
+        
+        // Normalize (0..1)
+        float normX = relX / renderDest.width;
+        float normY = relY / renderDest.height;
+        
+        // Map to Texture Space
+        localMouse.x = normX * SCREEN_WIDTH;
+        localMouse.y = normY * SCREEN_HEIGHT;
     }
     
     bool isClicking = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
@@ -234,20 +270,30 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
 }
 
 void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMouse, bool click) {
+    // --- SCALING CALCULATIONS ---
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
-    float phoneX = screenW - PHONE_WIDTH - 50;
-    float phoneY = screenH - (PHONE_HEIGHT * phone->slideAnim) + 20;
+    
+    // Scale factor + 20% shrink
+    float scale = (screenH / BASE_SCREEN_H) * PHONE_SCALE_MOD;
+    
+    float currentPhoneW = PHONE_WIDTH * scale;
+    float currentPhoneH = PHONE_HEIGHT * scale;
+    
+    float phoneX = screenW - currentPhoneW - (50 * scale);
+    float phoneY = screenH - (currentPhoneH * phone->slideAnim) + (20 * scale);
+    
+    Rectangle screenDest = { 
+        phoneX + (SCREEN_OFFSET_X * scale), 
+        phoneY + (SCREEN_OFFSET_Y * scale), 
+        (float)SCREEN_WIDTH * scale, 
+        (float)SCREEN_HEIGHT * scale 
+    };
 
     Vector2 globalMouse = GetMousePosition();
-    //Vector2 localMouse = { -1, -1 };
-    //bool click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
-
-    Rectangle screenDest = { phoneX + SCREEN_OFFSET_X, phoneY + SCREEN_OFFSET_Y, SCREEN_WIDTH, SCREEN_HEIGHT };
-
     if (CheckCollisionPointRec(globalMouse, screenDest)) {
-        localMouse.x = globalMouse.x - screenDest.x;
-        localMouse.y = globalMouse.y - screenDest.y;
+         localMouse.x = (globalMouse.x - screenDest.x) * (SCREEN_WIDTH / screenDest.width);
+         localMouse.y = (globalMouse.y - screenDest.y) * (SCREEN_HEIGHT / screenDest.height);
     }
 
     BeginTextureMode(phone->screenTexture);
@@ -257,14 +303,12 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
         
         switch (phone->currentApp) {
             case APP_HOME: DrawAppHome(phone, localMouse, click); break;
-            case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break; // <--- The new call
+            case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break;
             case APP_BANK: DrawAppBank(phone, player); break; 
             case APP_MAP: DrawMapsApp(map); break;
             case APP_MUSIC: DrawAppMusic(phone, localMouse, click); break;
             case APP_SETTINGS: DrawAppSettings(phone, localMouse, click); break;
-            case APP_BROWSER: 
-                DrawText("404 Error", 80, 250, 20, RED); 
-                break;
+            case APP_BROWSER: DrawText("404 Error", 80, 250, 20, RED); break;
             default: break;
         }
 
@@ -276,11 +320,23 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             phone->currentApp = APP_HOME;
         }
         
+        // --- DRAW NOTIFICATION BANNER ---
+        if (notifTimer > 0) {
+            float alpha = (notifTimer > 0.5f) ? 1.0f : (notifTimer * 2.0f);
+            Rectangle notifRect = { 10, 30, SCREEN_WIDTH - 20, 50 };
+            DrawRectangleRounded(notifRect, 0.2f, 4, Fade(DARKGRAY, 0.95f * alpha));
+            // FIXED: Removed invalid Thickness parameter for DrawRectangleRoundedLines
+            DrawRectangleRoundedLines(notifRect, 0.2f, 4, Fade(notifColor, alpha));
+            DrawCircle(35, 55, 15, Fade(notifColor, alpha));
+            DrawText("NOTIFICATION", 60, 35, 10, Fade(GRAY, alpha));
+            DrawText(notifText, 60, 48, 18, Fade(WHITE, alpha));
+        }
+        
     EndTextureMode();
 
-    DrawRectangle(phoneX + 10, phoneY + 10, PHONE_WIDTH, PHONE_HEIGHT, Fade(BLACK, 0.5f));
-    DrawRectangleRounded((Rectangle){phoneX, phoneY, PHONE_WIDTH, PHONE_HEIGHT}, 0.1f, 10, (Color){30, 30, 30, 255});
-    DrawRectangleLinesEx((Rectangle){phoneX, phoneY, PHONE_WIDTH, PHONE_HEIGHT}, 4, DARKGRAY);
+    DrawRectangle(phoneX + (10*scale), phoneY + (10*scale), currentPhoneW, currentPhoneH, Fade(BLACK, 0.5f)); 
+    DrawRectangleRounded((Rectangle){phoneX, phoneY, currentPhoneW, currentPhoneH}, 0.1f, 10, (Color){30, 30, 30, 255});
+    DrawRectangleLinesEx((Rectangle){phoneX, phoneY, currentPhoneW, currentPhoneH}, 4 * scale, DARKGRAY);
     
     Rectangle src = { 0, 0, (float)SCREEN_WIDTH, -(float)SCREEN_HEIGHT };
     DrawTexturePro(phone->screenTexture.texture, src, screenDest, (Vector2){0,0}, 0.0f, WHITE);

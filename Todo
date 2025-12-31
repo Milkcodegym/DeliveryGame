@@ -75,3 +75,9 @@ Systems that cost money or add strategic depth.
 
 
   //note on optimisation: add music files in midi format?? (να δουμε αν αξίζει γτ θελει εξτρά libraryw)
+
+  add icons on map, replace placeholders with models: random events, sidewalk items.
+  handle map edges, add shops and service centers, and gas stations.
+  decide on pickup and delivery options: interactable on shop doors or pickup areas.
+  save player data on exit, dev reset button.
+  unlock mycarstats and speedometer, fuelometer after finishing it.

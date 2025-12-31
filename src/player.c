@@ -43,6 +43,10 @@ Player InitPlayer(Vector3 startPos) {
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
 
+    // [NEW] Init Fuel
+    p.maxFuel = MAX_FUEL;
+    p.fuel = MAX_FUEL * 0.45f; // Start with ~45% to demonstrate refueling
+
     return p;
 }
 
@@ -51,8 +55,6 @@ void LoadPlayerContent(Player *player) {
 }
 
 bool checkcamera_collision=false;
-
-
 
 void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, float moveAmount, int axis) {
     
@@ -138,7 +140,8 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     // --- 2. Determine Target Speed ---
     float target_speed = 0.0f;
 
-    if (!inputBlocked) {
+    // [NEW] Check fuel before allowing acceleration
+    if (!inputBlocked && player->fuel > 0) {
         if (IsKeyDown(KEY_W)) {
             target_speed = player->max_speed;
             checkcamera_collision = true;
@@ -170,8 +173,15 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     }
 
     // --- 3. Apply Movement ---
-    move.x += sinf(player->angle * DEG2RAD) * player->current_speed * dt;
-    move.z += cosf(player->angle * DEG2RAD) * player->current_speed * dt;
+    float moveDist = player->current_speed * dt;
+    move.x += sinf(player->angle * DEG2RAD) * moveDist;
+    move.z += cosf(player->angle * DEG2RAD) * moveDist;
+
+    // [NEW] Fuel Consumption
+    if (fabs(moveDist) > 0.001f) {
+        player->fuel -= fabs(moveDist) * FUEL_CONSUMPTION_RATE;
+        if (player->fuel < 0) player->fuel = 0;
+    }
 
     // --- 4. Gravity ---
     player->yVelocity -= 20.0f * dt;
@@ -192,53 +202,38 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     }
 
     // --- 5 & 6. UNIFIED COLLISION DETECTION ---
-    // Attempt to move along X Axis
     ResolveMovement(player, map, traffic, move.x, 1);
-    // Attempt to move along Z Axis
     ResolveMovement(player, map, traffic, move.z, 0);
-
 }
 
 void DrawHealthBar(Player *player) {
     int screenWidth = GetScreenWidth();
     
     // 1. Calculate Positions
-    // Bar coordinates
     float barX = (float)(screenWidth - BAR_WIDTH - BAR_MARGIN_X);
     float barY = (float)BAR_MARGIN_Y;
     
     // 2. Define Rectangles
-    // Background Rectangle (Full width)
     Rectangle bgRect = { barX, barY, BAR_WIDTH, BAR_HEIGHT };
     
-    // Health Rectangle (Calculated width)
     float healthPercent = (float)player->health / 100.0f;
     if (healthPercent < 0.0f) healthPercent = 0.0f;
     if (healthPercent > 1.0f) healthPercent = 1.0f;
     
     Rectangle healthRect = { barX, barY, BAR_WIDTH * healthPercent, BAR_HEIGHT };
 
-    // 3. Draw Background (Gray/Black, Transparent, Rounded)
-    // roundness: 0.5f makes it pill-shaped
-    // segments: 10 makes the curves smooth
+    // 3. Draw
     DrawRectangleRounded(bgRect, 0.5f, 10, Fade(BLACK, 0.5f));
 
-    // 4. Draw Health Fill (Red, Transparent, Rounded)
-    // Only draw if health > 0 to avoid visual glitches with rounded corners at 0 width
     if (player->health > 0) {
         DrawRectangleRounded(healthRect, 0.5f, 10, Fade(RED, 0.8f));
     }
 
-    // 5. Draw Border (White Outline)
     DrawRectangleRoundedLines(bgRect, 0.5f, 10, Fade(WHITE, 0.5f));
 
-    // 6. Draw Text Underneath
-    // "HEALTH POINTS = x/100"
     const char *text;
     if (player->health == 100){text = "HEALTH POINTS : 100";}
     else {text = TextFormat("HEALTH POINTS : %3.1f", player->health);}
     
-    // We measure the text size so we can align it nicely if you want (optional)
-    // Here I just align it to the start of the bar
     DrawText(text, (int)barX-3, (int)(barY + BAR_HEIGHT + 5), 20, RED);
 }

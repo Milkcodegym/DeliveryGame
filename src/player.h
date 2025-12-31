@@ -6,6 +6,9 @@
 #include "traffic.h"
 
 #define MAX_TRANSACTIONS 10
+// [NEW] Fuel Constants
+#define MAX_FUEL 100.0f
+#define FUEL_CONSUMPTION_RATE 0.005f // Fuel lost per unit moved
 
 // Constants for the Health Bar
 #define BAR_WIDTH 220
@@ -39,12 +42,16 @@ typedef struct Player {
     // Rendering
     Model model;
 
-    // ECONOMY (New)
+    // ECONOMY
     float money;
     Transaction history[MAX_TRANSACTIONS];
     int transactionCount; 
-    float totalEarnings;  // For "Money Made" stat
-    int totalDeliveries;  // For "Total Deliveries" stat
+    float totalEarnings;
+    int totalDeliveries;
+
+    // [NEW] FUEL SYSTEM
+    float fuel;
+    float maxFuel;
 
 } Player;
 

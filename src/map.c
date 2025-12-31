@@ -9,73 +9,41 @@
 
 // --- CONFIGURATION ---
 const float MAP_SCALE = 0.4f;
-const float RENDER_DISTANCE = 2000.0f;
-#define MODEL_SCALE 1.8f         // Matched to car
-#define MODEL_Z_SQUISH 0.4f      // Squished depth
-#define MAX_INSTANCES 50000 
-#define BATCH_GROUPS 6 
-#define USE_INSTANCING 1         // Must be 1 for performance
 
-// Define Regions
-#define REGION_CENTER_RADIUS 600.0f // Buildings within 600m are "City Center"
+// PERFORMANCE: Directional LOD Settings
+const float RENDER_DIST_BASE = 500.0f;  
+const float RENDER_DIST_FWD  = 1600.0f; 
+
+#define MODEL_SCALE 1.8f         
+#define MODEL_Z_SQUISH 0.4f      
+#define MAX_INSTANCES 40000 
+#define USE_INSTANCING 1         
+
+#define REGION_CENTER_RADIUS 600.0f 
 
 typedef enum {
-    // --- SPECIALS ---
-    ASSET_AC_A = 0,
-    ASSET_AC_B,
-    ASSET_BALCONY,
-    ASSET_BALCONY_WHITE,
-    
-    // --- DOORS (INNER) ---
-    ASSET_DOOR_BROWN,
-    ASSET_DOOR_BROWN_GLASS,
-    ASSET_DOOR_BROWN_WIN,
-    ASSET_DOOR_WHITE,
-    ASSET_DOOR_WHITE_GLASS,
-    ASSET_DOOR_WHITE_WIN,
-
-    // --- DOOR FRAMES (OUTER) ---
-    ASSET_FRAME_DOOR1,
-    ASSET_FRAME_SIMPLE,
-    ASSET_FRAME_TENT,
-    ASSET_FRAME_WIN,
-    ASSET_FRAME_WIN_WHITE,
-
-    // --- WINDOWS (REGULAR) ---
-    ASSET_WIN_SIMPLE,
-    ASSET_WIN_SIMPLE_W,
-    ASSET_WIN_DET,
-    ASSET_WIN_DET_W,
-    ASSET_WIN_TWIN_TENT,
-    ASSET_WIN_TWIN_TENT_W,
-
-    // --- WINDOWS (SKYSCRAPER) ---
-    ASSET_WIN_TALL,
-    ASSET_WIN_TALL_TOP,
-
-    // --- PROCEDURAL ---
-    ASSET_WALL,
-    ASSET_CORNER,
-    
+    ASSET_AC_A = 0, ASSET_AC_B, ASSET_BALCONY, ASSET_BALCONY_WHITE,
+    ASSET_DOOR_BROWN, ASSET_DOOR_BROWN_GLASS, ASSET_DOOR_BROWN_WIN,
+    ASSET_DOOR_WHITE, ASSET_DOOR_WHITE_GLASS, ASSET_DOOR_WHITE_WIN,
+    ASSET_FRAME_DOOR1, ASSET_FRAME_SIMPLE, ASSET_FRAME_TENT,
+    ASSET_FRAME_WIN, ASSET_FRAME_WIN_WHITE,
+    ASSET_WIN_SIMPLE, ASSET_WIN_SIMPLE_W, ASSET_WIN_DET, ASSET_WIN_DET_W,
+    ASSET_WIN_TWIN_TENT, ASSET_WIN_TWIN_TENT_W,
+    ASSET_WIN_TALL, ASSET_WIN_TALL_TOP,
+    ASSET_WALL, ASSET_CORNER,
+    ASSET_SIDEWALK,
+    ASSET_PROP_TREE, ASSET_PROP_BENCH, ASSET_PROP_HYDRANT, ASSET_PROP_LIGHT,
+    ASSET_PROP_PARK_TREE, 
     ASSET_COUNT
 } AssetType;
 
-// Style Definition used during generation
 typedef struct {
-    AssetType window;
-    AssetType windowTop; // Usually same as window, unless skyscraper
-    AssetType doorFrame;
-    AssetType doorInner;
-    AssetType balcony;
-    bool hasAC;
-    bool isSkyscraper;   // If true, no beams + continuous glass
-    bool isWhiteTheme;
+    AssetType window; AssetType windowTop; AssetType doorFrame; AssetType doorInner;
+    AssetType balcony; bool hasAC; bool isSkyscraper; bool isWhiteTheme;
 } BuildingStyle;
 
 typedef struct {
-    Matrix *transforms; 
-    int count;          
-    Color tint;         
+    Matrix *transforms; int count; Color tint;
 } RenderBatch;
 
 #define BATCH_GROUPS 6 
@@ -85,16 +53,20 @@ typedef struct {
     RenderBatch batches[BATCH_GROUPS][ASSET_COUNT]; 
     bool loaded;
     Texture2D whiteTex;
+    
+    // BAKED GEOMETRY
+    Model roadModel;
+    Model markingsModel;
+    Model areaModel;
+    Model roofModel;
+    bool mapBaked;
 } CityRenderSystem;
 
 static CityRenderSystem cityRenderer = {0};
 
 Color cityPalette[] = {
-    {152, 251, 152, 255}, 
-    {255, 182, 193, 255}, 
-    {255, 105, 97, 255},  
-    {255, 200, 150, 255}, 
-    {200, 200, 200, 255}  
+    {152, 251, 152, 255}, {255, 182, 193, 255}, {255, 105, 97, 255},  
+    {255, 200, 150, 255}, {200, 200, 200, 255}  
 };
 
 // --- HELPER FUNCTIONS ---
@@ -120,74 +92,279 @@ void InitRenderBatch(RenderBatch *batch, Color color) {
     batch->tint = color;
 }
 
-// --- EMBEDDED SHADER FOR INSTANCING ---
+// SHADERS
 static const char* INSTANCING_VSH = 
     "#version 330\n"
-    "in vec3 vertexPosition;\n"
-    "in vec2 vertexTexCoord;\n"
-    "in vec3 vertexNormal;\n"
-    "in mat4 instanceTransform;\n"
-    "out vec2 fragTexCoord;\n"
-    "out vec4 fragColor;\n"
-    "out vec3 fragNormal;\n" // <--- Pass this to Fragment Shader
+    "in vec3 vertexPosition; in vec2 vertexTexCoord; in vec3 vertexNormal; in mat4 instanceTransform;\n"
+    "out vec2 fragTexCoord; out vec4 fragColor; out vec3 fragNormal;\n"
     "uniform mat4 mvp;\n"
     "void main() {\n"
-    "    fragTexCoord = vertexTexCoord;\n"
-    "    fragColor = vec4(1.0);\n"
-    
-    // We rotate the normal using the instance matrix (casting to mat3 removes translation)
+    "    fragTexCoord = vertexTexCoord; fragColor = vec4(1.0);\n"
     "    fragNormal = mat3(instanceTransform) * vertexNormal;\n"
-    
     "    gl_Position = mvp * instanceTransform * vec4(vertexPosition, 1.0);\n"
     "}\n";
 
 static const char* INSTANCING_FSH = 
     "#version 330\n"
-    "in vec2 fragTexCoord;\n"
-    "in vec4 fragColor;\n"
-    "in vec3 fragNormal;\n" // <--- We need the normal from Vertex Shader
+    "in vec2 fragTexCoord; in vec4 fragColor; in vec3 fragNormal;\n"
     "out vec4 finalColor;\n"
-    "uniform sampler2D texture0;\n"
-    "uniform vec4 colDiffuse;\n"
-    
-    // Hardcoded "Sun" direction (coming from top-right)
+    "uniform sampler2D texture0; uniform vec4 colDiffuse;\n"
     "const vec3 lightDir = normalize(vec3(0.5, 0.8, 0.3));\n" 
-
     "void main() {\n"
     "    vec4 texelColor = texture(texture0, fragTexCoord);\n"
-    "    // Calculate simplified diffuse lighting (0.4 ambient + 0.6 directional)\n"
     "    float lightDot = max(dot(normalize(fragNormal), lightDir), 0.0);\n"
     "    float light = 0.4 + (0.6 * lightDot);\n" 
-    "    \n"
     "    finalColor = texelColor * colDiffuse * fragColor * vec4(light, light, light, 1.0);\n"
     "}\n";
 
-void DrawBuildingRoof(Building *b) {
-    if (b->pointCount < 3) return;
+// --- STATIC BAKE ---
+Model BakeStaticGeometry(float *vertices, float *colors, int triangleCount) {
+    Mesh mesh = { 0 };
+    mesh.triangleCount = triangleCount;
+    mesh.vertexCount = triangleCount * 3;
+    mesh.vertices = (float *)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
+    mesh.colors = (unsigned char *)MemAlloc(mesh.vertexCount * 4 * sizeof(unsigned char));
+    mesh.normals = (float *)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
+    mesh.texcoords = (float *)MemAlloc(mesh.vertexCount * 2 * sizeof(float));
+
+    memcpy(mesh.vertices, vertices, mesh.vertexCount * 3 * sizeof(float));
     
-    Vector2 center = GetBuildingCenter(b->footprint, b->pointCount);
-    
-    // [FIX 3] Lift roof slightly to avoid Z-fighting with wall tops
-    float y = b->height + 0.1f; 
-
-    rlBegin(RL_TRIANGLES);
-        rlColor4ub(80, 80, 90, 255); 
-
-        for (int i = 0; i < b->pointCount; i++) {
-            Vector2 p1 = b->footprint[i];
-            Vector2 p2 = b->footprint[(i + 1) % b->pointCount];
-
-            rlVertex3f(center.x, y, center.y);
-            rlVertex3f(p1.x, y, p1.y);
-            rlVertex3f(p2.x, y, p2.y);
+    if (colors) {
+        for (int i = 0; i < mesh.vertexCount; i++) {
+            mesh.colors[i*4 + 0] = (unsigned char)(colors[i*4 + 0] * 255);
+            mesh.colors[i*4 + 1] = (unsigned char)(colors[i*4 + 1] * 255);
+            mesh.colors[i*4 + 2] = (unsigned char)(colors[i*4 + 2] * 255);
+            mesh.colors[i*4 + 3] = (unsigned char)(colors[i*4 + 3] * 255);
         }
-    rlEnd();
+    } else {
+        for (int i = 0; i < mesh.vertexCount; i++) {
+            mesh.colors[i*4] = 255; mesh.colors[i*4+1] = 255; mesh.colors[i*4+2] = 255; mesh.colors[i*4+3] = 255;
+        }
+    }
+    for (int i = 0; i < mesh.vertexCount; i++) {
+        mesh.normals[i*3 + 0] = 0.0f;
+        mesh.normals[i*3 + 1] = 1.0f;
+        mesh.normals[i*3 + 2] = 0.0f;
+        mesh.texcoords[i*2] = 0.0f; mesh.texcoords[i*2+1] = 0.0f;
+    }
+    UploadMesh(&mesh, false);
+    return LoadModelFromMesh(mesh);
+}
+
+// Macro helper
+#define ADD_INSTANCE(group, assetType, pos, rotation, scaleVec) \
+    if (cityRenderer.batches[group][assetType].count < MAX_INSTANCES) { \
+        Matrix matScale = MatrixScale(scaleVec.x, scaleVec.y, scaleVec.z); \
+        Matrix matRot = MatrixRotateY(rotation * DEG2RAD); \
+        Matrix matTrans = MatrixTranslate(pos.x, pos.y, pos.z); \
+        Matrix final = MatrixMultiply(MatrixMultiply(matScale, matRot), matTrans); \
+        cityRenderer.batches[group][assetType].transforms[cityRenderer.batches[group][assetType].count++] = final; \
+    }
+
+void GenerateParkFoliage(GameMap *map, MapArea *area) {
+    if (area->pointCount < 3) return;
+    
+    float minX = FLT_MAX, maxX = -FLT_MAX, minY = FLT_MAX, maxY = -FLT_MAX;
+    for(int i=0; i<area->pointCount; i++) {
+        if(area->points[i].x < minX) minX = area->points[i].x;
+        if(area->points[i].x > maxX) maxX = area->points[i].x;
+        if(area->points[i].y < minY) minY = area->points[i].y;
+        if(area->points[i].y > maxY) maxY = area->points[i].y;
+    }
+    
+    float areaW = maxX - minX;
+    float areaH = maxY - minY;
+    // Tree Density
+    int treeCount = (int)((areaW * areaH) / 150.0f);
+    if(treeCount > 30) treeCount = 30; 
+    
+    for(int k=0; k<treeCount; k++) {
+        float tx = GetRandomValue((int)minX, (int)maxX);
+        float ty = GetRandomValue((int)minY, (int)maxY);
+        Vector2 tPos = {tx, ty};
+        
+        if (CheckCollisionPointPoly(tPos, area->points, area->pointCount)) {
+            Vector3 pos = {tPos.x, 0.0f, tPos.y};
+            float rot = GetRandomValue(0, 360);
+            
+            // Trunk
+            Vector3 scale = { 1.5f, 4.0f, 1.5f }; 
+            ADD_INSTANCE(5, ASSET_PROP_PARK_TREE, pos, rot, scale);
+            
+            // Foliage Cube
+            Vector3 lPos = {tPos.x, 3.5f, tPos.y};
+            Vector3 lScale = { 3.5f, 3.0f, 3.5f };
+            ADD_INSTANCE(5, ASSET_PROP_PARK_TREE, lPos, rot, lScale);
+        }
+    }
+}
+
+void BakeMapElements(GameMap *map) {
+    if (cityRenderer.mapBaked) return;
+    printf("Baking Map Geometry...\n");
+
+    // 1. ROADS
+    int maxRoadTris = map->edgeCount * 2 + 1000;
+    int maxMarkTris = map->edgeCount * 2 + 1000;
+    float *roadVerts = (float*)malloc(maxRoadTris * 3 * 3 * sizeof(float));
+    float *markVerts = (float*)malloc(maxMarkTris * 3 * 3 * sizeof(float));
+    int rVCount = 0;
+    int mVCount = 0;
+
+    for (int i = 0; i < map->edgeCount; i++) {
+        Edge e = map->edges[i];
+        if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
+        
+        Vector2 s = map->nodes[e.startNode].position;
+        Vector2 en = map->nodes[e.endNode].position;
+        float finalWidth = (e.width * MAP_SCALE) * 2.0f;
+        Vector3 start = {s.x, 0.02f, s.y}; 
+        Vector3 end = {en.x, 0.02f, en.y};
+        Vector3 diff = Vector3Subtract(end, start);
+        if (Vector3Length(diff) < 0.001f) continue;
+
+        Vector3 right = Vector3Normalize(Vector3CrossProduct((Vector3){0,1,0}, diff));
+        Vector3 halfWidthVec = Vector3Scale(right, finalWidth * 0.5f);
+        
+        Vector3 v1 = Vector3Subtract(start, halfWidthVec); 
+        Vector3 v2 = Vector3Add(start, halfWidthVec);      
+        Vector3 v3 = Vector3Add(end, halfWidthVec);        
+        Vector3 v4 = Vector3Subtract(end, halfWidthVec);   
+        
+        roadVerts[rVCount++] = v1.x; roadVerts[rVCount++] = v1.y; roadVerts[rVCount++] = v1.z;
+        roadVerts[rVCount++] = v3.x; roadVerts[rVCount++] = v3.y; roadVerts[rVCount++] = v3.z;
+        roadVerts[rVCount++] = v2.x; roadVerts[rVCount++] = v2.y; roadVerts[rVCount++] = v2.z;
+        roadVerts[rVCount++] = v1.x; roadVerts[rVCount++] = v1.y; roadVerts[rVCount++] = v1.z;
+        roadVerts[rVCount++] = v4.x; roadVerts[rVCount++] = v4.y; roadVerts[rVCount++] = v4.z;
+        roadVerts[rVCount++] = v3.x; roadVerts[rVCount++] = v3.y; roadVerts[rVCount++] = v3.z;
+
+        if (!e.oneway) {
+            float lineWidth = finalWidth * 0.05f; 
+            Vector3 lineOffset = Vector3Scale(right, lineWidth * 0.5f);
+            Vector3 mStart = { start.x, 0.035f, start.z }; 
+            Vector3 mEnd = { end.x, 0.035f, end.z };
+            Vector3 l1 = Vector3Subtract(mStart, lineOffset);
+            Vector3 l2 = Vector3Add(mStart, lineOffset);
+            Vector3 l3 = Vector3Add(mEnd, lineOffset);
+            Vector3 l4 = Vector3Subtract(mEnd, lineOffset);
+            
+            markVerts[mVCount++] = l1.x; markVerts[mVCount++] = l1.y; markVerts[mVCount++] = l1.z;
+            markVerts[mVCount++] = l3.x; markVerts[mVCount++] = l3.y; markVerts[mVCount++] = l3.z;
+            markVerts[mVCount++] = l2.x; markVerts[mVCount++] = l2.y; markVerts[mVCount++] = l2.z;
+            markVerts[mVCount++] = l1.x; markVerts[mVCount++] = l1.y; markVerts[mVCount++] = l1.z;
+            markVerts[mVCount++] = l4.x; markVerts[mVCount++] = l4.y; markVerts[mVCount++] = l4.z;
+            markVerts[mVCount++] = l3.x; markVerts[mVCount++] = l3.y; markVerts[mVCount++] = l3.z;
+        }
+    }
+
+    cityRenderer.roadModel = BakeStaticGeometry(roadVerts, NULL, rVCount / 3);
+    
+    // Use COLOR_ROAD from map.h
+    for(int i=0; i<cityRenderer.roadModel.meshCount; i++) {
+        for(int j=0; j<cityRenderer.roadModel.meshes[i].vertexCount*4; j+=4) {
+            cityRenderer.roadModel.meshes[i].colors[j] = COLOR_ROAD.r;
+            cityRenderer.roadModel.meshes[i].colors[j+1] = COLOR_ROAD.g;
+            cityRenderer.roadModel.meshes[i].colors[j+2] = COLOR_ROAD.b;
+            cityRenderer.roadModel.meshes[i].colors[j+3] = COLOR_ROAD.a;
+        }
+    }
+    UploadMesh(&cityRenderer.roadModel.meshes[0], false);
+
+    cityRenderer.markingsModel = BakeStaticGeometry(markVerts, NULL, mVCount / 3);
+    
+    // Use COLOR_ROAD_MARKING from map.h
+    Color mk = COLOR_ROAD_MARKING;
+    for(int i=0; i<cityRenderer.markingsModel.meshCount; i++) {
+        for(int j=0; j<cityRenderer.markingsModel.meshes[i].vertexCount; j++) {
+            cityRenderer.markingsModel.meshes[i].colors[j*4+0] = mk.r;
+            cityRenderer.markingsModel.meshes[i].colors[j*4+1] = mk.g;
+            cityRenderer.markingsModel.meshes[i].colors[j*4+2] = mk.b;
+            cityRenderer.markingsModel.meshes[i].colors[j*4+3] = mk.a;
+        }
+    }
+    UploadMesh(&cityRenderer.markingsModel.meshes[0], false);
+
+    free(roadVerts);
+    free(markVerts);
+
+    // 2. AREAS
+    int maxAreaVerts = map->areaCount * 50 * 3; 
+    float *areaVerts = (float*)malloc(maxAreaVerts * 3 * sizeof(float));
+    float *areaColors = (float*)malloc(maxAreaVerts * 4 * sizeof(float));
+    int aVCount = 0;
+
+    for (int i = 0; i < map->areaCount; i++) {
+        if(map->areas[i].pointCount < 3) continue;
+        
+        Color col = map->areas[i].color;
+        // Check if Park (Greenish) -> make it nicer Green
+        // Use COLOR_PARK from map.h
+        if (col.g > col.r && col.g > col.b) {
+            col = COLOR_PARK; 
+            GenerateParkFoliage(map, &map->areas[i]);
+        }
+
+        float r = col.r/255.0f; float g = col.g/255.0f; float b = col.b/255.0f;
+        Vector3 center = {0, 0.01f, 0};
+        for(int j=0; j<map->areas[i].pointCount; j++) { center.x += map->areas[i].points[j].x; center.z += map->areas[i].points[j].y; }
+        center.x /= map->areas[i].pointCount; center.z /= map->areas[i].pointCount;
+
+        for(int j=0; j<map->areas[i].pointCount; j++) {
+            Vector2 p1 = map->areas[i].points[j]; 
+            Vector2 p2 = map->areas[i].points[(j+1)%map->areas[i].pointCount];
+            areaVerts[aVCount*3+0] = center.x; areaVerts[aVCount*3+1] = 0.01f; areaVerts[aVCount*3+2] = center.z;
+            areaColors[aVCount*4+0] = r; areaColors[aVCount*4+1] = g; areaColors[aVCount*4+2] = b; areaColors[aVCount*4+3] = 1.0f;
+            aVCount++;
+            areaVerts[aVCount*3+0] = p2.x; areaVerts[aVCount*3+1] = 0.01f; areaVerts[aVCount*3+2] = p2.y;
+            areaColors[aVCount*4+0] = r; areaColors[aVCount*4+1] = g; areaColors[aVCount*4+2] = b; areaColors[aVCount*4+3] = 1.0f;
+            aVCount++;
+            areaVerts[aVCount*3+0] = p1.x; areaVerts[aVCount*3+1] = 0.01f; areaVerts[aVCount*3+2] = p1.y;
+            areaColors[aVCount*4+0] = r; areaColors[aVCount*4+1] = g; areaColors[aVCount*4+2] = b; areaColors[aVCount*4+3] = 1.0f;
+            aVCount++;
+        }
+    }
+    cityRenderer.areaModel = BakeStaticGeometry(areaVerts, areaColors, aVCount / 3);
+    free(areaVerts);
+    free(areaColors);
+
+    // 3. BAKED ROOFS
+    int maxRoofVerts = map->buildingCount * 12 * 3; 
+    float *roofVerts = (float*)malloc(maxRoofVerts * 3 * sizeof(float));
+    float *roofColors = (float*)malloc(maxRoofVerts * 4 * sizeof(float)); 
+    int rfVCount = 0;
+
+    for (int i = 0; i < map->buildingCount; i++) {
+        Building *b = &map->buildings[i];
+        if (b->pointCount < 3) continue;
+        float y = b->height + 0.1f; 
+        Vector2 center = GetBuildingCenter(b->footprint, b->pointCount);
+        float rr = 80.0f/255.0f; float rg = 80.0f/255.0f; float rb = 90.0f/255.0f; 
+
+        for (int k = 0; k < b->pointCount; k++) {
+            Vector2 p1 = b->footprint[k];
+            Vector2 p2 = b->footprint[(k + 1) % b->pointCount];
+            roofVerts[rfVCount*3+0] = center.x; roofVerts[rfVCount*3+1] = y; roofVerts[rfVCount*3+2] = center.y;
+            roofColors[rfVCount*4+0] = rr; roofColors[rfVCount*4+1] = rg; roofColors[rfVCount*4+2] = rb; roofColors[rfVCount*4+3] = 1.0f;
+            rfVCount++;
+            roofVerts[rfVCount*3+0] = p1.x; roofVerts[rfVCount*3+1] = y; roofVerts[rfVCount*3+2] = p1.y;
+            roofColors[rfVCount*4+0] = rr; roofColors[rfVCount*4+1] = rg; roofColors[rfVCount*4+2] = rb; roofColors[rfVCount*4+3] = 1.0f;
+            rfVCount++;
+            roofVerts[rfVCount*3+0] = p2.x; roofVerts[rfVCount*3+1] = y; roofVerts[rfVCount*3+2] = p2.y;
+            roofColors[rfVCount*4+0] = rr; roofColors[rfVCount*4+1] = rg; roofColors[rfVCount*4+2] = rb; roofColors[rfVCount*4+3] = 1.0f;
+            rfVCount++;
+        }
+    }
+    cityRenderer.roofModel = BakeStaticGeometry(roofVerts, roofColors, rfVCount / 3);
+    free(roofVerts);
+    free(roofColors);
+
+    cityRenderer.mapBaked = true;
+    printf("Baking Done. V-Roads:%d, V-Marks:%d, V-Areas:%d, V-Roofs:%d\n", rVCount/3, mVCount/3, aVCount/3, rfVCount/3);
 }
 
 void LoadCityAssets() {
     if (cityRenderer.loaded) return;
-    printf("--- INITIALIZING CITY RENDERER (Instancing: %s) ---\n", USE_INSTANCING ? "ON" : "OFF");
-
+    
     Shader instancingShader = LoadShaderFromMemory(INSTANCING_VSH, INSTANCING_FSH);
     instancingShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(instancingShader, "instanceTransform");
 
@@ -195,272 +372,180 @@ void LoadCityAssets() {
     cityRenderer.whiteTex = LoadTextureFromImage(whiteImg);
     UnloadImage(whiteImg);
 
-    // UPDATED MACRO: Applies shader and texture settings to ALL materials in a model
     #define LOAD_ASSET(enumIdx, filename) \
         { \
             char fullPath[256]; \
             sprintf(fullPath, "resources/Buildings/%s", filename); \
             cityRenderer.models[enumIdx] = LoadModel(fullPath); \
             if (cityRenderer.models[enumIdx].meshCount == 0) { \
-                printf("[ERROR] MODEL MISSING: %s (Check filename/path!)\n", fullPath); \
                 cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f)); \
             } else { \
-                /* Iterate through all materials to apply settings */ \
                 for(int i = 0; i < cityRenderer.models[enumIdx].materialCount; i++) { \
-                     /* Apply Instancing Shader */ \
-                     cityRenderer.models[enumIdx].materials[i].shader = instancingShader; \
-                     \
-                     /* Apply Texture Filtering (if a texture exists) */ \
-                     if (cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture.id > 0) { \
+                      cityRenderer.models[enumIdx].materials[i].shader = instancingShader; \
+                      if (cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture.id > 0) { \
                         Texture2D *tex = &cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture; \
                         GenTextureMipmaps(tex); \
                         SetTextureFilter(*tex, TEXTURE_FILTER_TRILINEAR); \
-                     } \
+                      } \
                 } \
             } \
         }
 
-    // --- LOAD ALL ASSETS (List unchanged) ---
+    // Load Standard Assets
     LOAD_ASSET(ASSET_AC_A, "detail-ac-a.obj");
     LOAD_ASSET(ASSET_AC_B, "detail-ac-b.obj");
     LOAD_ASSET(ASSET_BALCONY, "balcony.obj");
     LOAD_ASSET(ASSET_BALCONY_WHITE, "balcony_white.obj");
-
-    // Doors (Inner)
     LOAD_ASSET(ASSET_DOOR_BROWN, "door-brown.obj");
     LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "door-brown-glass.obj");
     LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "door-brown-window.obj");
     LOAD_ASSET(ASSET_DOOR_WHITE, "door-white.obj"); 
     LOAD_ASSET(ASSET_DOOR_WHITE_GLASS, "door-white-glass.obj");
     LOAD_ASSET(ASSET_DOOR_WHITE_WIN, "door-white-window.obj");
-
-    // Door Frames
     LOAD_ASSET(ASSET_FRAME_DOOR1, "door1.obj");
     LOAD_ASSET(ASSET_FRAME_SIMPLE, "simple_door.obj");
     LOAD_ASSET(ASSET_FRAME_TENT, "doorframe_glass_tent.obj");
     LOAD_ASSET(ASSET_FRAME_WIN, "window_door.obj");
     LOAD_ASSET(ASSET_FRAME_WIN_WHITE, "window_door_white.obj");
-
-    // Windows
     LOAD_ASSET(ASSET_WIN_SIMPLE, "Windows_simple.obj");
     LOAD_ASSET(ASSET_WIN_SIMPLE_W, "Windows_simple_white.obj");
     LOAD_ASSET(ASSET_WIN_DET, "Windows_detailed.obj");
     LOAD_ASSET(ASSET_WIN_DET_W, "Windows_detailed_white.obj");
     LOAD_ASSET(ASSET_WIN_TWIN_TENT, "Twin_window_tents.obj");
     LOAD_ASSET(ASSET_WIN_TWIN_TENT_W, "Twin_window_tents_white.obj");
-
-    // Skyscraper
     LOAD_ASSET(ASSET_WIN_TALL, "windows_tall.obj");
     LOAD_ASSET(ASSET_WIN_TALL_TOP, "windows_tall_top.obj");
 
     // Procedural Assets
-    cityRenderer.models[ASSET_WALL] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-    cityRenderer.models[ASSET_CORNER] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
-    
-    Material procMat = LoadMaterialDefault();
-    procMat.shader = instancingShader; 
-    procMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex; 
-    procMat.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-    
-    cityRenderer.models[ASSET_WALL].materials[0] = procMat;
-    cityRenderer.models[ASSET_CORNER].materials[0] = procMat;
+    Model cubeModel = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
+    Material propMat = LoadMaterialDefault();
+    propMat.shader = instancingShader;
+    propMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
+    cubeModel.materials[0] = propMat;
 
-    // Buffers
+    cityRenderer.models[ASSET_WALL] = cubeModel;
+    cityRenderer.models[ASSET_CORNER] = cubeModel;
+    cityRenderer.models[ASSET_SIDEWALK] = cubeModel;
+    cityRenderer.models[ASSET_PROP_TREE] = cubeModel;
+    cityRenderer.models[ASSET_PROP_BENCH] = cubeModel;
+    cityRenderer.models[ASSET_PROP_HYDRANT] = cubeModel;
+    cityRenderer.models[ASSET_PROP_LIGHT] = cubeModel;
+    cityRenderer.models[ASSET_PROP_PARK_TREE] = cubeModel;
+
     for (int i = 0; i < 5; i++) {
         for (int m = 0; m < ASSET_COUNT; m++) InitRenderBatch(&cityRenderer.batches[i][m], cityPalette[i]);
     }
     for (int m = 0; m < ASSET_COUNT; m++) InitRenderBatch(&cityRenderer.batches[5][m], WHITE);
+    
+    // Prop Tints
+    cityRenderer.batches[5][ASSET_PROP_TREE].tint = (Color){30, 100, 30, 255};      
+    cityRenderer.batches[5][ASSET_PROP_BENCH].tint = (Color){100, 70, 40, 255};     
+    cityRenderer.batches[5][ASSET_PROP_HYDRANT].tint = (Color){200, 40, 40, 255};   
+    cityRenderer.batches[5][ASSET_PROP_LIGHT].tint = (Color){80, 80, 90, 255};      
+    cityRenderer.batches[5][ASSET_SIDEWALK].tint = (Color){180, 180, 180, 255};     
+    cityRenderer.batches[5][ASSET_PROP_PARK_TREE].tint = (Color){10, 90, 20, 255};  
 
     cityRenderer.loaded = true;
 }
 
 BuildingStyle GetBuildingStyle(Vector2 pos) {
     BuildingStyle style = {0};
-    
-    // Check Region
     float distToCenter = Vector2Length(pos);
     bool isCenter = (distToCenter < REGION_CENTER_RADIUS);
-    
     int roll = GetRandomValue(0, 100);
-
     if (isCenter && roll < 60) {
-        // --- STYLE: MODERN SKYSCRAPER ---
-        // High chance in city center
-        style.isSkyscraper = true;
-        style.window = ASSET_WIN_TALL;
-        style.windowTop = ASSET_WIN_TALL_TOP;
-        style.doorFrame = ASSET_FRAME_DOOR1;
-        style.doorInner = ASSET_DOOR_BROWN_GLASS;
-        style.balcony = ASSET_BALCONY; // Less likely to have balconies, but possible
-        style.hasAC = false; // Skyscrapers usually have central air (hidden)
-        style.isWhiteTheme = false;
-    } 
-    else if (roll < 30) {
-        // --- STYLE: VINTAGE / DETAILED ---
-        style.isSkyscraper = false;
-        style.isWhiteTheme = false;
-        style.window = ASSET_WIN_DET;
-        style.windowTop = ASSET_WIN_DET;
-        style.doorFrame = ASSET_FRAME_TENT;
-        style.doorInner = ASSET_DOOR_BROWN;
-        style.balcony = ASSET_BALCONY;
-        style.hasAC = true;
+        style.isSkyscraper = true; style.window = ASSET_WIN_TALL; style.windowTop = ASSET_WIN_TALL_TOP;
+        style.doorFrame = ASSET_FRAME_DOOR1; style.doorInner = ASSET_DOOR_BROWN_GLASS; style.balcony = ASSET_BALCONY;
+        style.hasAC = false; style.isWhiteTheme = false;
+    } else if (roll < 30) {
+        style.isSkyscraper = false; style.isWhiteTheme = false; style.window = ASSET_WIN_DET;
+        style.windowTop = ASSET_WIN_DET; style.doorFrame = ASSET_FRAME_TENT; style.doorInner = ASSET_DOOR_BROWN;
+        style.balcony = ASSET_BALCONY; style.hasAC = true;
+    } else if (roll < 70) {
+        style.isSkyscraper = false; style.isWhiteTheme = true; style.window = ASSET_WIN_TWIN_TENT_W;
+        style.windowTop = ASSET_WIN_TWIN_TENT_W; style.doorFrame = ASSET_FRAME_WIN_WHITE;
+        style.doorInner = ASSET_DOOR_WHITE_WIN; style.balcony = ASSET_BALCONY_WHITE; style.hasAC = true;
+    } else {
+        style.isSkyscraper = false; style.isWhiteTheme = false; style.window = ASSET_WIN_SIMPLE;
+        style.windowTop = ASSET_WIN_SIMPLE; style.doorFrame = ASSET_FRAME_SIMPLE; style.doorInner = ASSET_DOOR_BROWN_WIN;
+        style.balcony = ASSET_BALCONY; style.hasAC = true;
     }
-    else if (roll < 70) {
-        // --- STYLE: WHITE MODERN RESIDENTIAL ---
-        style.isSkyscraper = false;
-        style.isWhiteTheme = true;
-        style.window = ASSET_WIN_TWIN_TENT_W;
-        style.windowTop = ASSET_WIN_TWIN_TENT_W;
-        style.doorFrame = ASSET_FRAME_WIN_WHITE;
-        style.doorInner = ASSET_DOOR_WHITE_WIN;
-        style.balcony = ASSET_BALCONY_WHITE;
-        style.hasAC = true;
-    }
-    else {
-        // --- STYLE: BASIC APARTMENT ---
-        style.isSkyscraper = false;
-        style.isWhiteTheme = false;
-        style.window = ASSET_WIN_SIMPLE;
-        style.windowTop = ASSET_WIN_SIMPLE;
-        style.doorFrame = ASSET_FRAME_SIMPLE;
-        style.doorInner = ASSET_DOOR_BROWN_WIN;
-        style.balcony = ASSET_BALCONY;
-        style.hasAC = true;
-    }
-    
     return style;
 }
 
-// --- BAKING ---
+#define ADD_INSTANCE(group, assetType, pos, rotation, scaleVec) \
+    if (cityRenderer.batches[group][assetType].count < MAX_INSTANCES) { \
+        Matrix matScale = MatrixScale(scaleVec.x, scaleVec.y, scaleVec.z); \
+        Matrix matRot = MatrixRotateY(rotation * DEG2RAD); \
+        Matrix matTrans = MatrixTranslate(pos.x, pos.y, pos.z); \
+        Matrix final = MatrixMultiply(MatrixMultiply(matScale, matRot), matTrans); \
+        cityRenderer.batches[group][assetType].transforms[cityRenderer.batches[group][assetType].count++] = final; \
+    }
+
 void BakeBuildingGeometry(Building *b) {
     float floorHeight = 3.0f * (MODEL_SCALE / 4.0f); 
-    
-    // 1. Determine Style
     Vector2 bCenter = GetBuildingCenter(b->footprint, b->pointCount);
     BuildingStyle style = GetBuildingStyle(bCenter);
-
-    // 2. Skyscraper Compression
-    // Squeeze floors closer for skyscrapers (no horizontal beams)
-    if (style.isSkyscraper) {
-        floorHeight *= 0.85f; 
-    }
-
-    // 3. Calculate Floor Count
+    if (style.isSkyscraper) floorHeight *= 0.85f; 
     int rawFloors = (int)(b->height / floorHeight);
-    
-    if (style.isSkyscraper) {
-        if (rawFloors < 6) rawFloors = 6; 
-    } else {
-        if (rawFloors < 2) rawFloors = 2;
-        if (rawFloors > 5) rawFloors = 5;
-    }
-    
+    if (style.isSkyscraper) { if (rawFloors < 6) rawFloors = 6; } 
+    else { if (rawFloors < 2) rawFloors = 2; if (rawFloors > 5) rawFloors = 5; }
     int floors = rawFloors;
     float visualHeight = floors * floorHeight;
     b->height = visualHeight; 
-    
     int colorIdx = (abs((int)b->footprint[0].x) + abs((int)b->footprint[0].y)) % 5;
     if (style.isWhiteTheme) colorIdx = 5; 
-
-    // Dimensions
     float structuralDepth = MODEL_SCALE * MODEL_Z_SQUISH; 
     float cornerThick = structuralDepth * 0.85f; 
-
-    #define ADD_INSTANCE(group, assetType, pos, rotation, scaleVec) \
-        if (cityRenderer.batches[group][assetType].count < MAX_INSTANCES) { \
-            Matrix matScale = MatrixScale(scaleVec.x, scaleVec.y, scaleVec.z); \
-            Matrix matRot = MatrixRotateY(rotation * DEG2RAD); \
-            Matrix matTrans = MatrixTranslate(pos.x, pos.y, pos.z); \
-            Matrix final = MatrixMultiply(MatrixMultiply(matScale, matRot), matTrans); \
-            cityRenderer.batches[group][assetType].transforms[cityRenderer.batches[group][assetType].count++] = final; \
-        }
 
     for (int i = 0; i < b->pointCount; i++) {
         Vector2 p1 = b->footprint[i];
         Vector2 p2 = b->footprint[(i + 1) % b->pointCount];
         float dist = Vector2Distance(p1, p2);
         if (dist < 0.5f) continue;
-
         Vector2 dir = Vector2Normalize(Vector2Subtract(p2, p1));
         Vector2 wallNormal = { -dir.y, dir.x };
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
         float modelRotation = -angle;
-
         Vector2 wallMid = Vector2Scale(Vector2Add(p1, p2), 0.5f);
         Vector2 toCenter = Vector2Subtract(bCenter, wallMid);
         if (Vector2DotProduct(wallNormal, toCenter) > 0) {
             wallNormal = Vector2Negate(wallNormal); 
             modelRotation += 180.0f;                
         }
-
-        // --- CORNER ---
         Vector2 cornerInset = Vector2Scale(Vector2Normalize(Vector2Subtract(bCenter, p1)), 0.05f);
         Vector3 cornerPos = { p1.x + cornerInset.x, visualHeight/2.0f, p1.y + cornerInset.y };
         ADD_INSTANCE(colorIdx, ASSET_CORNER, cornerPos, -angle, ((Vector3){cornerThick, visualHeight, cornerThick}));
-
-        // --- MODULES ---
         float moduleWidth = 2.0f * (MODEL_SCALE / 4.0f); 
         int modulesCount = (int)(dist / moduleWidth);
         float remainingSpace = dist - (modulesCount * moduleWidth);
         float startOffset = (remainingSpace / 2.0f) + (moduleWidth / 2.0f);
         Vector2 currentPos2D = Vector2Add(p1, Vector2Scale(dir, startOffset)); 
         float outwardOffset = 0.35f; 
-
-        // Beams
         float beamHeight = 0.3f;
         float beamDepth = structuralDepth * 0.25f; 
         Vector3 floorBeamScale = { moduleWidth * 1.05f, beamHeight, beamDepth };
-
         for (int m = 0; m < modulesCount; m++) {
             for (int f = 0; f < floors; f++) {
                 float yPos = (f * floorHeight) + 0.1f;
                 Vector3 pos = { currentPos2D.x + (wallNormal.x * outwardOffset), yPos, currentPos2D.y + (wallNormal.y * outwardOffset) };
-
-                // Define Bools for Logic Clarity
                 bool isDoor = (f == 0 && m == modulesCount / 2);
-                
-                // --- LOGIC TREE: DOOR vs EVERYTHING ELSE ---
-                
                 if (isDoor) {
-                    // 1. RENDER DOOR (Exclusive)
-                    // Frame
                     Vector3 frameScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
                     ADD_INSTANCE(colorIdx, style.doorFrame, pos, modelRotation, frameScale);
-                    
-                    // Inner Door
                     Vector3 doorScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth * 0.8f };
                     ADD_INSTANCE(colorIdx, style.doorInner, pos, modelRotation, doorScale);
-                } 
-                else {
-                    // 2. RENDER WINDOW OR BALCONY
-                    
-                    // Determine if Balcony
+                } else {
                     bool wantsBalcony = false;
-                    
-                    // Balcony Rules:
-                    // 1. Not a skyscraper
-                    // 2. Not ground, not roof
-                    // 3. Random chance (40%)
-                    // 4. SPACING RULE: (m % 2 != 0) -> Only allow on odd modules to prevent horizontal clipping
                     if (!style.isSkyscraper && f > 0 && f < floors-1) {
-                         if ((m % 2 != 0) && GetRandomValue(0, 100) < 40) {
-                             wantsBalcony = true;
-                         }
+                          if ((m % 2 != 0) && GetRandomValue(0, 100) < 40) wantsBalcony = true;
                     }
-
                     Vector3 winScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
-
                     if (wantsBalcony) {
-                        // --- BALCONY ---
                         ADD_INSTANCE(colorIdx, style.balcony, pos, modelRotation, winScale);
-                    } 
-                    else {
-                        // --- WINDOW ---
+                    } else {
                         AssetType winType = (f == floors - 1) ? style.windowTop : style.window;
                         ADD_INSTANCE(colorIdx, winType, pos, modelRotation, winScale);
-                        
-                        // --- EXTRAS: AC UNITS (Only attached to windows) ---
                         if (style.hasAC && f < floors-1 && GetRandomValue(0, 100) < 15) {
                             AssetType acType = (GetRandomValue(0, 1) == 0) ? ASSET_AC_A : ASSET_AC_B;
                             Vector3 acPos = { pos.x, pos.y - 0.4f, pos.z }; 
@@ -469,17 +554,12 @@ void BakeBuildingGeometry(Building *b) {
                         }
                     }
                 }
-
-                // --- STRUCTURAL BEAMS ---
-                // No beams on skyscrapers (glass curtain look)
                 if (!style.isSkyscraper) {
                     if (f > 0) {
                         Vector3 beamPos = { pos.x, (f * floorHeight), pos.z };
                         ADD_INSTANCE(colorIdx, ASSET_WALL, beamPos, modelRotation, floorBeamScale);
                     }
                 }
-
-                // ROOF CORNICE
                 if (f == floors - 1) {
                     float corniceOffset = 0.15f; 
                     Vector3 cornicePos = { currentPos2D.x + (wallNormal.x * corniceOffset), visualHeight, currentPos2D.y + (wallNormal.y * corniceOffset) };
@@ -489,14 +569,11 @@ void BakeBuildingGeometry(Building *b) {
             }
             currentPos2D = Vector2Add(currentPos2D, Vector2Scale(dir, moduleWidth));
         }
-
-        // --- FILLERS ---
         if (remainingSpace > 0.1f) {
             float fillerLen = remainingSpace / 2.0f;
             Vector2 f1 = Vector2Add(p1, Vector2Scale(dir, fillerLen/2.0f));
             Vector3 pos1 = {f1.x, visualHeight/2.0f, f1.y};
             ADD_INSTANCE(colorIdx, ASSET_WALL, pos1, -angle, ((Vector3){fillerLen, visualHeight, structuralDepth}));
-
             Vector2 f2 = Vector2Add(p2, Vector2Scale(dir, -fillerLen/2.0f));
             Vector3 pos2 = {f2.x, visualHeight/2.0f, f2.y};
             ADD_INSTANCE(colorIdx, ASSET_WALL, pos2, -angle, ((Vector3){fillerLen, visualHeight, structuralDepth}));
@@ -504,112 +581,258 @@ void BakeBuildingGeometry(Building *b) {
     }
 }
 
-// --- RENDER ---
-void DrawGameMap(GameMap *map, Vector3 playerPos) {
-    rlDisableBackfaceCulling(); 
-    Vector2 pPos2D = { playerPos.x, playerPos.z };
+void BakeRoadDetails(GameMap *map) {
+    float sidewalkW = 2.5f; 
+    float propSpacing = 15.0f; 
 
-    // 1. Areas
-    for(int i=0; i<map->areaCount; i++) {
-        if (map->areas[i].pointCount > 0 && Vector2Distance(pPos2D, map->areas[i].points[0]) > RENDER_DISTANCE) continue;
-        Vector3 center = {0, 0.01f, 0};
-        for(int j=0; j<map->areas[i].pointCount; j++) { center.x += map->areas[i].points[j].x; center.z += map->areas[i].points[j].y; }
-        center.x /= map->areas[i].pointCount; center.z /= map->areas[i].pointCount;
-        for(int j=0; j<map->areas[i].pointCount; j++) {
-            Vector2 p1 = map->areas[i].points[j]; Vector2 p2 = map->areas[i].points[(j+1)%map->areas[i].pointCount];
-            DrawTriangle3D(center, (Vector3){p2.x, 0.01f, p2.y}, (Vector3){p1.x, 0.01f, p1.y}, map->areas[i].color);
-        }
+    int *nodeDegree = (int*)calloc(map->nodeCount, sizeof(int));
+    for(int i=0; i<map->edgeCount; i++) {
+        if(map->edges[i].startNode < map->nodeCount) nodeDegree[map->edges[i].startNode]++;
+        if(map->edges[i].endNode < map->nodeCount) nodeDegree[map->edges[i].endNode]++;
     }
 
-    // 2. Roads
-    for (int i = 0; i < map->edgeCount; i++) {
+    for(int i=0; i<map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
         
-        Vector2 s = map->nodes[e.startNode].position; 
+        Vector2 s = map->nodes[e.startNode].position;
         Vector2 en = map->nodes[e.endNode].position;
-        
-        // Distance Culling
-        if (Vector2Distance(pPos2D, s) > RENDER_DISTANCE) continue; 
-        
-        Vector3 start = {s.x, 0.02f, s.y}; 
-        Vector3 end = {en.x, 0.02f, en.y};
-        Vector3 diff = Vector3Subtract(end, start);
-        
-        if (Vector3Length(diff) < 0.001f) continue;
+        float finalRoadW = (e.width * MAP_SCALE) * 2.0f;
+        Vector2 dir = Vector2Normalize(Vector2Subtract(en, s));
+        Vector2 right = { -dir.y, dir.x };
+        float len = Vector2Distance(s, en);
+        float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
 
-        // --- SIMPLIFIED WIDTH LOGIC ---
-        // Just double the width from the map file as requested
-        float finalWidth = (e.width * MAP_SCALE) * 2.0f;
+        float offsetDist = (finalRoadW / 2.0f) + (sidewalkW / 2.0f);
 
-        Vector3 right = Vector3Normalize(Vector3CrossProduct((Vector3){0,1,0}, diff));
-        Vector3 halfWidthVec = Vector3Scale(right, finalWidth * 0.5f);
+        // --- CUT LOGIC (SMART) ---
+        // Cut sidewalks ONLY at intersections (degree > 2)
+        float cutFactor = finalRoadW * 0.85f; 
+        float startCut = 0.0f;
+        float endCut = 0.0f;
         
-        // --- DRAW ASPHALT ---
-        Vector3 v1 = Vector3Subtract(start, halfWidthVec); 
-        Vector3 v2 = Vector3Add(start, halfWidthVec);      
-        Vector3 v3 = Vector3Add(end, halfWidthVec);        
-        Vector3 v4 = Vector3Subtract(end, halfWidthVec);   
+        if (nodeDegree[e.startNode] > 2) startCut = cutFactor;
+        if (nodeDegree[e.endNode] > 2) endCut = cutFactor;
         
-        DrawTriangle3D(v1, v3, v2, DARKGRAY); 
-        DrawTriangle3D(v1, v4, v3, DARKGRAY); 
+        if (startCut + endCut > len * 0.9f) {
+            float factor = (len * 0.9f) / (startCut + endCut);
+            startCut *= factor;
+            endCut *= factor;
+        }
 
-        // --- DRAW LANE MARKINGS ---
-        // Only for two-way roads (separate directions of traffic)
-        if (!e.oneway) {
-            // Yellow Center Line
-            float lineWidth = finalWidth * 0.05f; // Line is 5% of road width
-            Vector3 lineOffset = Vector3Scale(right, lineWidth * 0.5f);
-            
-            // Lift markings slightly (0.035f) to sit ON TOP of asphalt (0.02f)
-            Vector3 mStart = { start.x, 0.035f, start.z };
-            Vector3 mEnd = { end.x, 0.035f, end.z };
+        for(int side=-1; side<=1; side+=2) {
+            Vector2 sideOffset = Vector2Scale(right, offsetDist * side);
+            Vector2 rawStart = Vector2Add(s, sideOffset);
+            Vector2 swStart = Vector2Add(rawStart, Vector2Scale(dir, startCut));
+            float swLen = len - (startCut + endCut);
+            if (swLen < 0.1f) continue;
 
-            Vector3 l1 = Vector3Subtract(mStart, lineOffset);
-            Vector3 l2 = Vector3Add(mStart, lineOffset);
-            Vector3 l3 = Vector3Add(mEnd, lineOffset);
-            Vector3 l4 = Vector3Subtract(mEnd, lineOffset);
+            Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, swLen/2.0f));
+            Vector3 swPos = { swMid.x, 0.10f, swMid.y }; 
+            Vector3 swScale = { swLen, 0.10f, sidewalkW };
+            ADD_INSTANCE(5, ASSET_SIDEWALK, swPos, -angle, swScale);
 
-            DrawTriangle3D(l1, l3, l2, GOLD); 
-            DrawTriangle3D(l1, l4, l3, GOLD);
+            int propCount = (int)(swLen / propSpacing);
+            for(int p=0; p<propCount; p++) {
+                float distAlong = (p * propSpacing) + (propSpacing * 0.5f);
+                Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, distAlong));
+                
+                bool blocked = false;
+                for(int L=0; L<map->locationCount; L++) {
+                    if(map->locations[L].type != LOC_HOUSE && map->locations[L].type != LOC_FUEL) {
+                          if(Vector2Distance(propPos2D, map->locations[L].position) < 8.0f) {
+                              blocked = true;
+                              break;
+                          }
+                    }
+                }
+                if (blocked) continue;
+
+                Vector3 propPos = { propPos2D.x, 0.2f, propPos2D.y };
+                float rot = (side == 1) ? -angle : -angle + 180.0f; 
+
+                int roll = GetRandomValue(0, 100);
+                if (roll < 40) { 
+                      Vector3 scale = { 0.8f, 3.5f, 0.8f }; 
+                      ADD_INSTANCE(5, ASSET_PROP_TREE, propPos, rot, scale);
+                      Vector3 leavesPos = { propPos.x, 3.0f, propPos.z };
+                      Vector3 leavesScale = { 2.5f, 2.0f, 2.5f };
+                      ADD_INSTANCE(5, ASSET_PROP_TREE, leavesPos, rot, leavesScale);
+                }
+                else if (roll < 60) {
+                      Vector3 scale = { 2.0f, 0.5f, 0.8f };
+                      ADD_INSTANCE(5, ASSET_PROP_BENCH, propPos, rot, scale);
+                }
+                else if (roll < 70) {
+                      Vector3 scale = { 0.5f, 0.8f, 0.5f };
+                      ADD_INSTANCE(5, ASSET_PROP_HYDRANT, propPos, rot, scale);
+                }
+                else if (roll < 85) {
+                      Vector3 scale = { 0.3f, 5.0f, 0.3f };
+                      ADD_INSTANCE(5, ASSET_PROP_LIGHT, propPos, rot, scale);
+                }
+            }
         }
     }
+    free(nodeDegree);
+}
 
-    for (int i = 0; i < map->buildingCount; i++) {
-        // Simple distance cull
-        Vector2 bPos = map->buildings[i].footprint[0];
-        if (Vector2Distance(pPos2D, bPos) > RENDER_DISTANCE) continue;
+// Helper to clear events
+void ClearEvents(GameMap *map) {
+    for (int i = 0; i < MAX_EVENTS; i++) {
+        map->events[i].active = false;
+        map->events[i].timer = 0;
+    }
+}
 
-        DrawBuildingRoof(&map->buildings[i]);
+// Dev function to trigger specific event
+void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Vector3 playerFwd) {
+    int slot = -1;
+    for (int i = 0; i < MAX_EVENTS; i++) {
+        if (!map->events[i].active) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) return;
+
+    // Spawn 15 units in front of player
+    Vector2 spawnPos;
+    spawnPos.x = playerPos.x + (playerFwd.x * 15.0f);
+    spawnPos.y = playerPos.z + (playerFwd.z * 15.0f);
+
+    map->events[slot].active = true;
+    map->events[slot].type = type;
+    map->events[slot].position = spawnPos;
+    map->events[slot].radius = 8.0f; 
+    map->events[slot].timer = 30.0f; // 30 seconds for dev events
+
+    if (type == EVENT_CRASH) {
+        snprintf(map->events[slot].label, 64, "ACCIDENT ALERT");
+    } else if (type == EVENT_ROADWORK) {
+        snprintf(map->events[slot].label, 64, "ROAD WORK");
+    }
+}
+
+void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
+    // 1. Find a Random Slot
+    int slot = -1;
+    for (int i = 0; i < MAX_EVENTS; i++) {
+        if (!map->events[i].active) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot == -1) return; // Map full of events
+
+    // 2. Find a Random Road Location (Not on player, but in range)
+    int attempts = 0;
+    bool found = false;
+    Vector2 spawnPos = {0};
+
+    while (attempts < 50) {
+        int eIdx = GetRandomValue(0, map->edgeCount - 1);
+        Edge e = map->edges[eIdx];
+        
+        Vector2 p1 = map->nodes[e.startNode].position;
+        Vector2 p2 = map->nodes[e.endNode].position;
+        Vector2 mid = Vector2Scale(Vector2Add(p1, p2), 0.5f); // Middle of road
+        
+        float dist = Vector2Distance(mid, (Vector2){playerPos.x, playerPos.z});
+        
+        // Spawn between 100 and 500 units away
+        if (dist > 100.0f && dist < 500.0f) {
+            spawnPos = mid;
+            found = true;
+            break;
+        }
+        attempts++;
     }
 
-    // 3. CITY
+    if (!found) return; // Couldn't find a spot
+
+    // 3. Setup Event
+    map->events[slot].active = true;
+    map->events[slot].position = spawnPos;
+    map->events[slot].radius = 8.0f;
+    map->events[slot].timer = 120.0f; // Lasts 2 mins
+
+    // 4. Random Type (50/50 Chance)
+    if (GetRandomValue(0, 100) < 50) {
+        map->events[slot].type = EVENT_CRASH;
+        snprintf(map->events[slot].label, 64, "ACCIDENT ALERT");
+    } else {
+        map->events[slot].type = EVENT_ROADWORK;
+        snprintf(map->events[slot].label, 64, "ROAD WORK");
+    }
+}
+
+// Dev Controls
+void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
+    if (IsKeyPressed(KEY_F1)) {
+        TriggerSpecificEvent(map, EVENT_CRASH, playerPos, playerFwd);
+        TraceLog(LOG_INFO, "DEV: Spawned Crash");
+    }
+    if (IsKeyPressed(KEY_F2)) {
+        TriggerSpecificEvent(map, EVENT_ROADWORK, playerPos, playerFwd);
+        TraceLog(LOG_INFO, "DEV: Spawned Roadwork");
+    }
+    if (IsKeyPressed(KEY_F3)) {
+        ClearEvents(map);
+        TraceLog(LOG_INFO, "DEV: Cleared Events");
+    }
+}
+
+// [HELPER] Draws a label centered on a 3D position
+// [UPDATED] Uses black background for visibility
+static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text, Color color) {
+    Vector2 screenPos = GetWorldToScreen(position, camera);
+    if (screenPos.x > 0 && screenPos.x < GetScreenWidth() && 
+        screenPos.y > 0 && screenPos.y < GetScreenHeight()) {
+        
+        int fontSize = 20;
+        int textW = MeasureText(text, fontSize);
+        int padding = 4;
+        
+        // Draw Black Background Rectangle
+        DrawRectangle(screenPos.x - textW/2 - padding, screenPos.y - fontSize/2 - padding, 
+                      textW + padding*2, fontSize + padding*2, BLACK);
+                      
+        // Draw White Text (Ignore color param for max contrast as requested)
+        DrawText(text, (int)screenPos.x - textW/2, (int)screenPos.y - fontSize/2, fontSize, WHITE);
+    }
+}
+
+// --- RENDER ---
+void DrawGameMap(GameMap *map, Camera camera) {
+    rlDisableBackfaceCulling(); 
+    Vector2 pPos2D = { camera.position.x, camera.position.z };
+
+    // Infinite Floor (Regular Gray)
+    DrawPlane((Vector3){0, -0.05f, 0}, (Vector2){10000.0f, 10000.0f}, (Color){80, 80, 80, 255});
+
+    // 1. Static Baked Geometry (Fastest)
+    if (cityRenderer.mapBaked) {
+        DrawModel(cityRenderer.areaModel, (Vector3){0,0,0}, 1.0f, WHITE);
+        DrawModel(cityRenderer.roadModel, (Vector3){0,0,0}, 1.0f, WHITE);
+        DrawModel(cityRenderer.markingsModel, (Vector3){0,0,0}, 1.0f, WHITE);
+        DrawModel(cityRenderer.roofModel, (Vector3){0,0,0}, 1.0f, WHITE); 
+    } 
+
+    // 2. Instanced Buildings
     for (int g = 0; g < BATCH_GROUPS; g++) {
         for (int m = 0; m < ASSET_COUNT; m++) {
             RenderBatch *batch = &cityRenderer.batches[g][m];
             if (batch->count > 0) {
-#if DRAW_DEBUG_WIRES
-                // DEBUG: Wireframes
-                for(int i=0; i<batch->count; i++) {
-                    Matrix mat = batch->transforms[i];
-                    Vector3 pos = (Vector3){ mat.m12, mat.m13, mat.m14 };
-                    DrawCubeWires(pos, MODEL_SCALE, MODEL_SCALE, MODEL_SCALE, RED);
-                }
-#elif USE_INSTANCING
-                // FAST MODE: Instancing
+#if USE_INSTANCING
                 cityRenderer.models[m].materials[0].maps[MATERIAL_MAP_DIFFUSE].color = batch->tint;
                 DrawMeshInstanced(cityRenderer.models[m].meshes[0], cityRenderer.models[m].materials[0], batch->transforms, batch->count);
 #else
-                // SAFE MODE: Manual Loop
-                // Since wireframes work, this MUST work.
                 cityRenderer.models[m].materials[0].maps[MATERIAL_MAP_DIFFUSE].color = batch->tint;
                 for(int i=0; i<batch->count; i++) {
-                    // Extract position from matrix to check render distance
                     Matrix mat = batch->transforms[i];
                     Vector3 pos = (Vector3){ mat.m12, mat.m13, mat.m14 };
-                    if (Vector2Distance(pPos2D, (Vector2){pos.x, pos.z}) > RENDER_DISTANCE) continue;
-
-                    // Set transform and draw
+                    if (Vector2Distance(pPos2D, (Vector2){pos.x, pos.z}) > RENDER_DIST_BASE) continue;
                     cityRenderer.models[m].transform = mat;
                     DrawModel(cityRenderer.models[m], (Vector3){0,0,0}, 1.0f, WHITE);
                 }
@@ -618,30 +841,101 @@ void DrawGameMap(GameMap *map, Vector3 playerPos) {
         }
     }
     
-    // 4. Locations
+    // 3. Locations
     for (int i = 0; i < map->locationCount; i++) {
-        if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DISTANCE) continue;
+        if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DIST_BASE) continue;
         Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
         Color poiColor = RED;
-        if(map->locations[i].type == LOC_FUEL) poiColor = ORANGE;
+        
+        // [NEW] Draw Gas Pumps at LOC_FUEL
+        if(map->locations[i].type == LOC_FUEL) {
+            poiColor = ORANGE;
+            // Draw a simple pump shape (Yellow Box with Black Screen)
+            Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f }; // Slight offset from center
+            DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
+            DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
+            DrawCube((Vector3){pumpPos.x + 0.51f, pumpPos.y + 0.5f, pumpPos.z}, 0.1f, 0.5f, 0.6f, BLACK); // Screen
+        }
         else if(map->locations[i].type == LOC_FOOD) poiColor = GREEN;
         else if(map->locations[i].type == LOC_MARKET) poiColor = BLUE;
+        
         DrawSphere(pos, 1.5f, Fade(poiColor, 0.8f));
         DrawLine3D(pos, (Vector3){pos.x, 4.0f, pos.z}, BLACK);
     }
-    rlEnableBackfaceCulling();
-}
-
-// --- UTILS ---
-void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
-    for (int i = 0; i < map->locationCount; i++) {
-        Vector3 locPos = { map->locations[i].position.x, 0.5f, map->locations[i].position.y };
-        if (Vector3Distance(playerPos, locPos) < 50.0f) {
-            float pulse = (sinf(GetTime() * 5.0f) + 1.0f) * 0.5f; 
-            DrawCircle3D(locPos, 4.0f + pulse, (Vector3){1,0,0}, 90.0f, Fade(RED, 0.3f));
-            DrawCubeWires(locPos, 2.0f, 10.0f, 2.0f, Fade(GOLD, 0.5f));
+    
+    // Draw Events
+    for(int i=0; i<MAX_EVENTS; i++) {
+        if (map->events[i].active) {
+            Vector3 pos = { map->events[i].position.x, 1.5f, map->events[i].position.y };
+            DrawCube(pos, 3.0f, 3.0f, 3.0f, COLOR_EVENT_PROP);
+            DrawCubeWires(pos, 3.1f, 3.1f, 3.1f, BLACK);
         }
     }
+    
+    rlEnableBackfaceCulling();
+    
+    // --- DRAW LABELS (2D Overlay) ---
+    EndMode3D(); 
+    
+    // A. Draw Event Labels
+    for(int i=0; i<MAX_EVENTS; i++) {
+        if (map->events[i].active) {
+            // Label on cube center (Y ~ 1.5f)
+            Vector3 pos = { map->events[i].position.x, 1.5f, map->events[i].position.y };
+            DrawCenteredLabel(camera, pos, map->events[i].label, COLOR_EVENT_TEXT);
+        }
+    }
+
+    // B. Draw Placeholder Prop Labels (Close range only)
+    Vector3 playerPos = camera.position; 
+    float renderLabelDistSq = 20.0f * 20.0f; // 20m range
+
+    // Only iterate prop batches (ASSET_PROP_*)
+    for (int g = 0; g < BATCH_GROUPS; g++) {
+        for (int m = ASSET_PROP_TREE; m <= ASSET_PROP_PARK_TREE; m++) {
+            RenderBatch *batch = &cityRenderer.batches[g][m];
+            if (batch->count == 0) continue;
+
+            const char* label = "PROP";
+            if (m == ASSET_PROP_TREE) label = "TREE";
+            else if (m == ASSET_PROP_BENCH) label = "BENCH";
+            else if (m == ASSET_PROP_HYDRANT) label = "HYDRANT";
+            else if (m == ASSET_PROP_LIGHT) label = "LIGHT";
+            else if (m == ASSET_PROP_PARK_TREE) label = "PARK TREE";
+
+            for(int i=0; i<batch->count; i++) {
+                // Extract position from transform matrix (m12, m13, m14)
+                Vector3 pos = { batch->transforms[i].m12, batch->transforms[i].m13 + 1.0f, batch->transforms[i].m14 };
+                
+                // Only draw if close
+                if (Vector3DistanceSqr(pos, playerPos) < renderLabelDistSq) {
+                    DrawCenteredLabel(camera, pos, label, BLACK);
+                }
+            }
+        }
+    }
+
+    BeginMode3D(camera); 
+}
+
+void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
+    for(int i=0; i<MAX_EVENTS; i++) {
+        if(map->events[i].active) {
+            map->events[i].timer -= GetFrameTime();
+            if(map->events[i].timer <= 0) map->events[i].active = false;
+        }
+    }
+}
+
+void DrawZoneMarker(Vector3 pos, Color color) {
+    float time = GetTime();
+    float scale = 1.0f + sinf(time * 3.0f) * 0.1f;
+    float height = 4.0f;
+    float radius = 4.0f * scale;
+    DrawCylinder(pos, radius, radius, height, 16, Fade(color, 0.3f));
+    DrawCylinderWires(pos, radius, radius, height, 16, color);
+    Vector3 ringPos = { pos.x, pos.y + height + 0.5f + sinf(time * 2.0f) * 0.5f, pos.z };
+    DrawCircle3D(ringPos, radius * 0.8f, (Vector3){1,0,0}, 90.0f, color);
 }
 
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
@@ -665,14 +959,23 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
         if (Vector2Distance(p, center) > 25.0f) continue; 
         if (CheckCollisionPointPoly(p, map->buildings[i].footprint, map->buildings[i].pointCount)) return true;
     }
+    for(int i=0; i<MAX_EVENTS; i++) {
+        if (map->events[i].active) {
+            if (Vector2Distance(p, map->events[i].position) < (map->events[i].radius + radius)) return true;
+        }
+    }
     return false;
 }
 
 void UnloadGameMap(GameMap *map) {
     if (map->nodes) free(map->nodes);
     if (map->edges) free(map->edges);
-    for (int i = 0; i < map->buildingCount; i++) free(map->buildings[i].footprint);
-    for (int i = 0; i < map->areaCount; i++) free(map->areas[i].points);
+    if (map->buildingCount > 0) {
+        for (int i = 0; i < map->buildingCount; i++) free(map->buildings[i].footprint);
+    }
+    if (map->areaCount > 0) {
+        for (int i = 0; i < map->areaCount; i++) free(map->areas[i].points);
+    }
     if (map->buildings) free(map->buildings);
     if (map->locations) free(map->locations);
     if (map->areas) free(map->areas);
@@ -685,7 +988,20 @@ void UnloadGameMap(GameMap *map) {
         for (int i = 0; i < BATCH_GROUPS; i++) {
             for (int m = 0; m < ASSET_COUNT; m++) if(cityRenderer.batches[i][m].transforms) free(cityRenderer.batches[i][m].transforms);
         }
-        for (int m = 0; m < ASSET_COUNT; m++) UnloadModel(cityRenderer.models[m]);
+        
+        // --- FIX SEGFAULT IN UNLOAD ---
+        // 1. Unload unique loaded models
+        for (int m = 0; m < ASSET_WALL; m++) UnloadModel(cityRenderer.models[m]);
+        // 2. Unload the shared procedural model ONCE
+        UnloadModel(cityRenderer.models[ASSET_WALL]);
+        
+        if(cityRenderer.mapBaked) {
+            UnloadModel(cityRenderer.roadModel);
+            UnloadModel(cityRenderer.markingsModel);
+            UnloadModel(cityRenderer.areaModel);
+            UnloadModel(cityRenderer.roofModel); 
+        }
+        
         cityRenderer.loaded = false;
     }
 }
@@ -771,7 +1087,6 @@ int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, i
     return pathLen;
 }
 
-// --- PARSING ---
 GameMap LoadGameMap(const char *fileName) {
     GameMap map = {0};
     map.nodes = (Node *)calloc(MAX_NODES, sizeof(Node));
@@ -780,6 +1095,9 @@ GameMap LoadGameMap(const char *fileName) {
     map.locations = (MapLocation *)calloc(MAX_LOCATIONS, sizeof(MapLocation));
     map.areas = (MapArea *)calloc(MAX_AREAS, sizeof(MapArea));
     map.isBatchLoaded = false;
+    
+    // [NEW] Init Events
+    ClearEvents(&map);
 
     LoadCityAssets(); 
 
@@ -788,7 +1106,6 @@ GameMap LoadGameMap(const char *fileName) {
         printf("CRITICAL ERROR: Could not load map file %s\n", fileName);
         return map;
     }
-
     char *line = strtok(text, "\n");
     int mode = 0; 
     while (line != NULL) {
@@ -874,23 +1191,18 @@ GameMap LoadGameMap(const char *fileName) {
     }
     UnloadFileText(text);
 
-    // --- BAKE ---
-    printf("Baking City Geometry for %d buildings...\n", map.buildingCount);
+    printf("Baking City Geometry...\n");
     for (int i = 0; i < map.buildingCount; i++) {
         BakeBuildingGeometry(&map.buildings[i]);
     }
-    
+    BakeRoadDetails(&map); 
+    BakeMapElements(&map); 
+
     int totalInstances = 0;
     for(int g=0; g<BATCH_GROUPS; g++) {
         for(int m=0; m<ASSET_COUNT; m++) totalInstances += cityRenderer.batches[g][m].count;
     }
     printf("Baking Complete. Total Instances: %d\n", totalInstances);
-    
-    // DEBUG MATRIX PRINT
-    if (cityRenderer.batches[0][ASSET_WALL].count > 0) {
-        Matrix m = cityRenderer.batches[0][ASSET_WALL].transforms[0];
-        printf("DEBUG: First Wall Matrix -> T: %.2f, %.2f, %.2f\n", m.m12, m.m13, m.m14);
-    }
 
     return map;
 }

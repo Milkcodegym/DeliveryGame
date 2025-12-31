@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "map.h"
+#define MAX_PATH_NODES 2048
 
 void InitMapsApp();
 // Updated signature: Now accepts 'playerAngle'

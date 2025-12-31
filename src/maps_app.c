@@ -4,36 +4,26 @@
 #include <string.h>
 #include <float.h> 
 
+
 // --- MAPS APP STATE ---
 typedef struct {
     Camera2D camera;
-    
-    // Interaction
     bool isDragging;
-    Vector2 dragStart; // Stores SCREEN position
+    Vector2 dragStart;
     Vector2 playerPos; 
     float playerAngle;      
-    
     bool isFollowingPlayer; 
     bool isHeadingUp;       
-
-    // Input Timing
     float lastClickTime;
-
-    // Pathfinding
     Vector2 path[MAX_PATH_NODES];
     int pathLen;
     bool hasDestination;
     Vector2 destination;
-
-    // Search
     bool isSearching;
     char searchQuery[64];
     int searchCharCount;
     MapLocation searchResults[MAX_SEARCH_RESULTS];
     int resultCount;
-
-    // Resources (Icons)
     Texture2D icons[20]; 
 } MapsAppState;
 
@@ -43,9 +33,7 @@ bool IsMapsAppTyping() {
     return mapsState.isSearching;
 }
 
-// --- HELPER: TEXTURE LOADING ---
 void LoadMapIcons() {
-    // Ensure these files exist in resources/icons/
     mapsState.icons[LOC_FUEL]        = LoadTexture("resources/icons/icon_fuel.png");
     mapsState.icons[LOC_FOOD]        = LoadTexture("resources/icons/icon_fastfood.png");
     mapsState.icons[LOC_CAFE]        = LoadTexture("resources/icons/icon_cafe.png");
@@ -54,13 +42,10 @@ void LoadMapIcons() {
     mapsState.icons[LOC_SUPERMARKET] = LoadTexture("resources/icons/icon_supermarket.png");
     mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/icons/icon_restaurant.png");
     mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/icons/icon_house.png");
-    
-    for(int i=1; i<=8; i++) {
-        SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
-    }
+    for(int i=1; i<=8; i++) SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
 }
 
-// --- MATH HELPERS ---
+// ... Math Helpers & Init (Same as before) ...
 Vector2 GetClosestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
     Vector2 ap = Vector2Subtract(p, a);
     Vector2 ab = Vector2Subtract(b, a);
@@ -75,24 +60,17 @@ Vector2 GetClosestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
 Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     Vector2 bestPoint = clickPos;
     float minDistSq = threshold * threshold;
-
     for (int i = 0; i < map->edgeCount; i++) {
         Vector2 start = map->nodes[map->edges[i].startNode].position;
         Vector2 end = map->nodes[map->edges[i].endNode].position;
-
         float minX = (start.x < end.x ? start.x : end.x) - threshold;
         float maxX = (start.x > end.x ? start.x : end.x) + threshold;
         float minY = (start.y < end.y ? start.y : end.y) - threshold;
         float maxY = (start.y > end.y ? start.y : end.y) + threshold;
-
         if (clickPos.x < minX || clickPos.x > maxX || clickPos.y < minY || clickPos.y > maxY) continue; 
-
         Vector2 closest = GetClosestPointOnSegment(clickPos, start, end);
         float dSq = Vector2DistanceSqr(clickPos, closest);
-        if (dSq < minDistSq) {
-            minDistSq = dSq;
-            bestPoint = closest;
-        }
+        if (dSq < minDistSq) { minDistSq = dSq; bestPoint = closest; }
     }
     return bestPoint;
 }
@@ -110,7 +88,6 @@ void InitMapsApp() {
     mapsState.isFollowingPlayer = true; 
     mapsState.isHeadingUp = true; 
     mapsState.lastClickTime = 0.0f;
-
     LoadMapIcons(); 
 }
 
@@ -131,7 +108,6 @@ void ResetMapCamera(Vector2 playerPos) {
 
 void SetMapDestination(GameMap *map, Vector2 dest) {
     int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
-    
     if (len == 0) {
         float dist = Vector2Distance(mapsState.playerPos, dest);
         if (dist < 10.0f) {
@@ -141,7 +117,6 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
         }
         return; 
     }
-
     mapsState.destination = dest;
     mapsState.hasDestination = true;
     mapsState.pathLen = len;
@@ -153,7 +128,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     mapsState.playerPos = currentPlayerPos; 
     mapsState.playerAngle = playerAngle;
 
-    // --- 1. END NAVIGATION ---
     if (mapsState.hasDestination) {
         if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
             mapsState.hasDestination = false;
@@ -161,30 +135,25 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
 
-    // --- 2. FOLLOW & ROTATION LOGIC ---
-    // Only auto-follow if we are NOT dragging and NOT searching
     if (mapsState.isFollowingPlayer && !mapsState.isDragging && !mapsState.isSearching) {
         Vector2 diff = Vector2Subtract(mapsState.playerPos, mapsState.camera.target);
         if (Vector2Length(diff) > 0.1f) {
-            mapsState.camera.target = Vector2Add(mapsState.camera.target, Vector2Scale(diff, 0.1f));
+            mapsState.camera.target = Vector2Add(mapsState.camera.target, Vector2Scale(diff, 0.3f));
         }
 
         if (mapsState.isHeadingUp) {
-            float targetRot = playerAngle; 
+            // Restore 180 rotation preference
+            float targetRot = playerAngle + 180.0f; 
             float currentRot = mapsState.camera.rotation;
             float rotDiff = targetRot - currentRot;
             while (rotDiff < -180) rotDiff += 360;
             while (rotDiff > 180) rotDiff -= 360;
-            mapsState.camera.rotation += rotDiff * 0.1f;
+            mapsState.camera.rotation += rotDiff * 0.2f;
         } else {
-            mapsState.camera.rotation = Lerp(mapsState.camera.rotation, 0.0f, 0.1f);
+            mapsState.camera.rotation = Lerp(mapsState.camera.rotation, 0.0f, 0.2f);
         }
     }
 
-    // --- 3. INPUT HANDLING ---
-    
-    // Safety: If mouse leaves the phone screen, stop interactions immediately
-    // This fixes the "crazy" panning when mouse exits window
     if (localMouse.x < 0 || localMouse.x > 280 || localMouse.y < 0 || localMouse.y > 600) {
         mapsState.isDragging = false;
         return; 
@@ -192,8 +161,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
 
     if (isClicking) {
         bool handled = false;
-
-        // A. SEARCH RESULTS
         if (mapsState.isSearching) {
             for(int i=0; i<mapsState.resultCount; i++) {
                 Rectangle resRect = {10, 85 + i*45, 260, 40};
@@ -207,7 +174,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
 
         if (!handled) {
-            // B. UI HEADER
             if (localMouse.y <= 80) {
                  if (localMouse.x < 200 && localMouse.y > 30) {
                       mapsState.isSearching = true;
@@ -218,7 +184,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                  }
                  handled = true; 
             }
-            // C. BUTTONS
             else {
                 if (CheckCollisionPointCircle(localMouse, (Vector2){240, 450}, 20)) {
                     mapsState.isHeadingUp = false; 
@@ -232,69 +197,43 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 }
             }
 
-            // D. MAP CLICK (Start Drag logic)
             if (!handled) {
                 float currentTime = GetTime();
-                
-                // Double Click to Set Destination
-                if ((currentTime - mapsState.lastClickTime) < 0.3f) { // 0.3s is better for double click
+                if ((currentTime - mapsState.lastClickTime) < 0.3f) { 
                     Vector2 worldPos = GetScreenToWorld2D(localMouse, mapsState.camera);
                     Vector2 snappedPos = SnapToRoad(map, worldPos, 30.0f);
                     SetMapDestination(map, snappedPos);
                 }
                 mapsState.lastClickTime = currentTime;
-
-                // Start Dragging
                 mapsState.isDragging = true;
-                // KEY FIX: Store the WORLD position of where we clicked.
-                // We will anchor the camera to this world point.
                 mapsState.dragStart = GetScreenToWorld2D(localMouse, mapsState.camera);
-                
                 mapsState.isSearching = false;    
                 mapsState.isFollowingPlayer = false; 
             }
         }
     }
     
-    // --- 4. DRAGGING (FIXED LOGIC) ---
     if (mapsState.isDragging) {
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-            // 1. Where is the mouse now in the world?
-            // Note: GetScreenToWorld2D uses the CURRENT camera target.
             Vector2 mouseWorldPos = GetScreenToWorld2D(localMouse, mapsState.camera);
-            
-            // 2. Calculate the difference between where we clicked (dragStart)
-            //    and where the mouse is now (mouseWorldPos).
             Vector2 delta = Vector2Subtract(mapsState.dragStart, mouseWorldPos);
-            
-            // 3. Move the target by that difference.
-            //    This effectively shifts the world so 'dragStart' is back under the mouse.
             mapsState.camera.target = Vector2Add(mapsState.camera.target, delta);
-            
-            // Note: We do NOT update mapsState.dragStart here. 
-            // We want to keep holding onto the original patch of grass/road we clicked.
         } else {
             mapsState.isDragging = false;
         }
     }
     
-    // --- 5. ZOOM ---
     float wheel = GetMouseWheelMove();
     if (wheel != 0) {
-        // Zoom towards mouse pointer for better feel
         Vector2 mouseWorldBeforeZoom = GetScreenToWorld2D(localMouse, mapsState.camera);
-        
         mapsState.camera.zoom += wheel * 0.5f; 
         if (mapsState.camera.zoom < 0.5f) mapsState.camera.zoom = 0.5f;
         if (mapsState.camera.zoom > 10.0f) mapsState.camera.zoom = 10.0f;
-        
-        // Adjust target so the point under mouse stays stationary
         Vector2 mouseWorldAfterZoom = GetScreenToWorld2D(localMouse, mapsState.camera);
         Vector2 zoomDelta = Vector2Subtract(mouseWorldBeforeZoom, mouseWorldAfterZoom);
         mapsState.camera.target = Vector2Add(mapsState.camera.target, zoomDelta);
     }
 
-    // --- 6. KEYBOARD (Search) ---
     if (mapsState.isSearching) {
         int key = GetCharPressed();
         while (key > 0) {
@@ -320,34 +259,22 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
 }
+
 void DrawMapsApp(GameMap *map) {
     ClearBackground(RAYWHITE);
-
     BeginMode2D(mapsState.camera);
-    
     float scale = 1.0f / mapsState.camera.zoom;
 
-    // --- 1. DRAW AREAS (Parks & Water) - FIXED ---
+    // Areas
     for (int i = 0; i < map->areaCount; i++) {
         if(map->areas[i].pointCount < 3) continue;
-        
-        // Apply Fade
         Color areaColor = Fade(map->areas[i].color, 0.4f); 
-
-        // FIX: Use DrawTriangleFan. 
-        // This handles standard convex polygons regardless of winding order better than manual triangulation.
         DrawTriangleFan(map->areas[i].points, map->areas[i].pointCount, areaColor);
-        
-        // Optional: Draw outline to make it pop if fill is faint
         DrawLineStrip(map->areas[i].points, map->areas[i].pointCount, areaColor);
-        // Connect last point to first to close loop
         DrawLineEx(map->areas[i].points[map->areas[i].pointCount-1], map->areas[i].points[0], 2.0f*scale, areaColor);
     }
 
-    // --- 2. DRAW ROADS ---
-    float lineThick = 5.0f * scale; 
-    if (lineThick < 1.0f) lineThick = 1.0f;
-
+    // Roads
     for (int i = 0; i < map->edgeCount; i++) {
         Vector2 s = map->nodes[map->edges[i].startNode].position;
         Vector2 e = map->nodes[map->edges[i].endNode].position;
@@ -357,7 +284,7 @@ void DrawMapsApp(GameMap *map) {
         }
     }
     
-    // --- 3. DRAW BUILDINGS ---
+    // Buildings
     for (int i = 0; i < map->buildingCount; i++) {
         for(int j=0; j<map->buildings[i].pointCount; j++) {
             Vector2 p1 = map->buildings[i].footprint[j];
@@ -367,18 +294,19 @@ void DrawMapsApp(GameMap *map) {
         DrawTriangleFan(map->buildings[i].footprint, map->buildings[i].pointCount, Fade(map->buildings[i].color, 0.5f));
     }
 
-    // --- 4. DRAW TRAFFIC SIGNALS ---
-    if (mapsState.camera.zoom > 3.0f) {
-        for (int i = 0; i < map->nodeCount; i++) {
-            if (map->nodes[i].flags == 1) { 
-                DrawCircleV(map->nodes[i].position, 3.0f * scale, YELLOW);
-            } else if (map->nodes[i].flags == 2) { 
-                DrawCircleV(map->nodes[i].position, 3.0f * scale, RED);
-            }
+    // Events
+    for(int i=0; i<MAX_EVENTS; i++) {
+        if(map->events[i].active) {
+            Color c = (map->events[i].type == EVENT_CRASH) ? RED : ORANGE;
+            DrawCircleV(map->events[i].position, 8.0f * scale, c);
+            DrawText((map->events[i].type == EVENT_CRASH) ? "!" : "W", 
+                     map->events[i].position.x - 2*scale, 
+                     map->events[i].position.y - 4*scale, 
+                     10.0f * scale, WHITE);
         }
     }
 
-    // --- 5. DRAW POIs (ICONS OR FALLBACK) ---
+    // POIs
     for(int i=0; i<map->locationCount; i++) {
         if (map->locations[i].type == LOC_HOUSE) continue; 
         
@@ -394,8 +322,6 @@ void DrawMapsApp(GameMap *map) {
             DrawTexturePro(icon, source, dest, origin, 0.0f, WHITE);
         } 
         else {
-            // FIX: Removed the NESTED LOOP that was here.
-            // Just draw the circle for THIS 'i'.
             Color c = GRAY;
             switch(map->locations[i].type) {
                 case LOC_FUEL: c = ORANGE; break;
@@ -416,7 +342,7 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // Draw Player
+    // Player & Path (Same as before)
     DrawCircleV(mapsState.playerPos, 10.0f * scale, GREEN);
     Vector2 tip = {
         mapsState.playerPos.x + sinf(mapsState.playerAngle*DEG2RAD)*8.0f*scale,
@@ -424,7 +350,6 @@ void DrawMapsApp(GameMap *map) {
     };
     DrawLineEx(mapsState.playerPos, tip, 2.0f * scale, DARKBLUE);
 
-    // Draw Path
     if (mapsState.hasDestination && mapsState.pathLen > 1) {
         float pathThick = 8.0f * scale; 
         for (int i = 0; i < mapsState.pathLen - 1; i++) {
@@ -436,12 +361,9 @@ void DrawMapsApp(GameMap *map) {
 
     EndMode2D();
 
-    // --- UI OVERLAY ---
-    
+    // UI Overlay (Same)
     DrawRectangle(0, 0, 280, 80, WHITE);
     DrawText("Maps", 10, 10, 20, BLACK);
-
-    // Search Box
     DrawRectangle(10, 40, 200, 30, LIGHTGRAY);
     if (mapsState.isSearching) {
         DrawText(mapsState.searchQuery, 15, 48, 10, BLACK);
@@ -451,12 +373,9 @@ void DrawMapsApp(GameMap *map) {
     } else {
         DrawText("Search...", 15, 48, 10, GRAY);
     }
-
-    // Reset Search Button
     DrawRectangle(220, 40, 50, 30, BLACK);
     DrawText("X", 240, 50, 10, WHITE);
 
-    // Results Dropdown
     if (mapsState.isSearching && mapsState.resultCount > 0) {
         DrawRectangle(10, 80, 260, mapsState.resultCount * 45, WHITE);
         for(int i=0; i<mapsState.resultCount; i++) {
@@ -471,20 +390,15 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // --- BUTTONS ---
-    
-    // 1. COMPASS BUTTON
     DrawCircle(240, 450, 20, WHITE);
     DrawCircleLines(240, 450, 20, DARKGRAY);
-    
     float needleRot = -mapsState.camera.rotation * DEG2RAD;
-    Vector2 center = {240, 450};
-    Vector2 northTip = { center.x + sinf(needleRot)*15, center.y - cosf(needleRot)*15 };
-    Vector2 southTip = { center.x - sinf(needleRot)*15, center.y + cosf(needleRot)*15 };
-    DrawLineEx(center, northTip, 3.0f, RED);   
-    DrawLineEx(center, southTip, 3.0f, DARKGRAY); 
+    Vector2 cCenter = {240, 450};
+    Vector2 northTip = { cCenter.x + sinf(needleRot)*15, cCenter.y - cosf(needleRot)*15 };
+    Vector2 southTip = { cCenter.x - sinf(needleRot)*15, cCenter.y + cosf(needleRot)*15 };
+    DrawLineEx(cCenter, northTip, 3.0f, RED);   
+    DrawLineEx(cCenter, southTip, 3.0f, DARKGRAY); 
 
-    // 2. RE-CENTER BUTTON
     if (!mapsState.isFollowingPlayer) {
         DrawCircle(240, 510, 25, BLACK);
         DrawCircleLines(240, 510, 25, WHITE);
