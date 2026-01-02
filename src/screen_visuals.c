@@ -278,7 +278,8 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
 
 void DrawVisuals(float currentSpeed, float maxSpeed){
     DrawWASDOverlay();
-    if (currentSpeed >= 0) DrawSpeedometer(currentSpeed, maxSpeed); 
+    if (currentSpeed>=0) DrawSpeedometer(currentSpeed, maxSpeed); 
+    else DrawSpeedometer(-currentSpeed,maxSpeed);
 }
 
 void DrawVisualsWithPinned(Player *player) {
