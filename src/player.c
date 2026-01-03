@@ -131,11 +131,12 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     bool inputBlocked = IsMapsAppTyping();
 
     Vector3 move = { 0 };
-
+    float angle=0.0f;
     // --- 1. Rotation ---
     if (!inputBlocked) {
-        if (IsKeyDown(KEY_A)) player->angle += player->rotationSpeed * dt;
-        if (IsKeyDown(KEY_D)) player->angle -= player->rotationSpeed * dt;
+        if (IsKeyDown(KEY_A)) angle += player->rotationSpeed * dt;
+        if (IsKeyDown(KEY_D)) angle -= player->rotationSpeed * dt;
+        player->angle += angle;
     }
 
     // --- 2. Determine Target Speed ---
@@ -147,7 +148,10 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
             target_speed = player->max_speed;
             checkcamera_collision = true;
         }
-        if (IsKeyDown(KEY_S)) target_speed = -player->max_speed;
+        if (IsKeyDown(KEY_S)){
+            if (target_speed==player->max_speed) target_speed = 0;
+            else target_speed = -player->max_speed;
+        }
     }
 
     if (player->current_speed < target_speed) {

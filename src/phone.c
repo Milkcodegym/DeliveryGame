@@ -252,6 +252,7 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     if (phone->isOpen) {
         if (phone->currentApp == APP_MAP) {
             UpdateMapsApp(map, (Vector2){player->position.x, player->position.z}, player->angle, localMouse, isClicking);
+            //update 
         }
         
         if (phone->currentApp == APP_HOME && isClicking) {

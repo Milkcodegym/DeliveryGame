@@ -154,11 +154,22 @@ static void DrawJobDetails(PhoneState *phone, GameMap *map, Rectangle screenRect
     }
 
     float btnY = screenRect.height - 130;
+    
+    // --- UPDATED SHOW ON MAP BUTTON ---
     if (GuiButton((Rectangle){screenRect.x + 20, btnY, screenRect.width - 40, 45}, "Show on Map", COLOR_BUTTON, mouse, click)) {
          phone->currentApp = APP_MAP;
          Vector2 target = (t->status == JOB_PICKED_UP) ? t->customerPos : t->restaurantPos;
-         SetMapDestination(map, target);
+         
+         // LOGIC CHANGE:
+         // If we haven't accepted yet, just PREVIEW it (don't follow player).
+         // If we HAVE accepted (or picked up), START NAVIGATION (follow player).
+         if (t->status == JOB_AVAILABLE) {
+             PreviewMapLocation(map, target);
+         } else {
+             SetMapDestination(map, target);
+         }
     }
+
     btnY += 55;
     bool isActive = (t->status != JOB_AVAILABLE);
     const char* txt = isActive ? "ABANDON JOB" : "ACCEPT JOB";
@@ -177,7 +188,7 @@ static void DrawJobDetails(PhoneState *phone, GameMap *map, Rectangle screenRect
             // Placeholder: Need player info to calc fwd, passing 0,0,0 causes basic check
             // Ideally UpdateDeliveryApp handles this via player struct
             
-            currentScreen = SCREEN_HOME; 
+            //currentScreen = SCREEN_HOME; 
         } else {
             t->status = JOB_AVAILABLE; 
             ShowPhoneNotification("Job Cancelled", COLOR_DANGER);
@@ -280,6 +291,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         else if (t->status == JOB_PICKED_UP) {
             if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
+                ShowPhoneNotification("Delivered!", GREEN);
                 AddMoney(player, t->restaurant, t->pay);
                 player->totalEarnings += t->pay;
                 player->totalDeliveries++;

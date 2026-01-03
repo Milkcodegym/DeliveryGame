@@ -18,6 +18,7 @@ typedef struct {
     int pathLen;
     bool hasDestination;
     Vector2 destination;
+    float lastPathUpdate;
     
     // Search State
     bool isSearching;
@@ -35,6 +36,8 @@ typedef struct {
 } MapsAppState;
 
 MapsAppState mapsState = {0};
+
+float scale;
 
 bool IsMapsAppTyping() {
     return mapsState.isSearching;
@@ -150,12 +153,35 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
     mapsState.isHeadingUp = true; 
 }
 
+void PreviewMapLocation(GameMap *map, Vector2 target) {
+    // 1. Calculate the path so we can see the red line
+    int len = FindPath(map, mapsState.playerPos, target, mapsState.path, MAX_PATH_NODES);
+    
+    mapsState.destination = target;
+    mapsState.hasDestination = true;
+    mapsState.pathLen = len;
+
+    // 2. IMPORTANT: Disable following the player
+    mapsState.isFollowingPlayer = false; 
+    
+    // 3. Teleport camera to the target location so user can see it immediately
+    mapsState.camera.target = target;
+    mapsState.camera.zoom = 3.0f; // Zoom out slightly to see context
+}
+
 void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Vector2 localMouse, bool isClicking) {
     mapsState.playerPos = currentPlayerPos; 
     mapsState.playerAngle = playerAngle;
 
-    // Arrival Check
+    
     if (mapsState.hasDestination) {
+        // 1. DYNAMIC RECALCULATION
+        // We recalculate the nodes from the CURRENT player position to the DESTINATION
+        // This updates mapsState.path with new coordinates.
+
+        mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
+
+        // Arrival Check
         if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
             mapsState.hasDestination = false;
             mapsState.pathLen = 0;
@@ -338,10 +364,12 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     }
 }
 
+
+
 void DrawMapsApp(GameMap *map) {
     ClearBackground(RAYWHITE);
     BeginMode2D(mapsState.camera);
-    float scale = 1.0f / mapsState.camera.zoom;
+    scale = 1.0f / mapsState.camera.zoom;
 
     // --- MAP RENDER ---
     
@@ -418,11 +446,26 @@ void DrawMapsApp(GameMap *map) {
             DrawCircleV(map->locations[i].position, 6.0f * scale, c);
         }
         
-        if (mapsState.camera.zoom > 5.0f) {
-            DrawText(map->locations[i].name, 
-                     map->locations[i].position.x, 
-                     map->locations[i].position.y, 
-                     scale, BLACK);
+        if (mapsState.camera.zoom > 5.0f) { // Start showing names a bit earlier
+            
+            // 1. Decide how big you want the text to appear on screen (e.g., 20 pixels)
+            float targetScreenSize = 20.0f; 
+            
+            // 2. Calculate the "World Size" needed to achieve that screen size
+            //    (If zoom is 5x, we draw at size 4, so 4*5 = 20)
+            float fontSize = targetScreenSize / mapsState.camera.zoom;
+            
+            // 3. Measure text to center it (using the calculated world size)
+            Vector2 textSize = MeasureTextEx(GetFontDefault(), map->locations[i].name, fontSize, 1.0f);
+            
+            // 4. Calculate position (Centered X, Offset Y below the icon)
+            Vector2 textPos = {
+                map->locations[i].position.x - textSize.x / 2,      // Center Horizontally
+                map->locations[i].position.y + (10.0f / mapsState.camera.zoom) // Push it slightly below the dot
+            };
+
+            // 5. Use DrawTextEx because it supports float font sizes (standard DrawText uses ints)
+            DrawTextEx(GetFontDefault(), map->locations[i].name, textPos, fontSize, 1.0f, BLACK);
         }
     }
 
