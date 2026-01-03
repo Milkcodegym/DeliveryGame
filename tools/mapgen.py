@@ -5,12 +5,21 @@ import os
 
 # --- CONFIGURATION ---
 OUTPUT_DIR = os.path.join("..", "resources", "maps") 
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "real_city.map")
-INPUT_FILE = "map.osm" 
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "whole_city.map")
+INPUT_FILE = "wholemap.osm" 
 
 SCALE = 111139.0 
 
-# --- POI TYPE MAPPING (Commercial Only) ---
+# --- CRITICAL SETTINGS ---
+MAP_RADIUS_LIMIT = 2500.0 
+POI_RADIUS_LIMIT = 3000.0
+
+# Optimizations
+EXCLUDE_SERVICE_ROADS = True
+MIN_BUILDING_AREA = 10.0 
+SIMPLIFY_TOLERANCE = 0.3  # Restored to save space
+
+# --- POI TYPE MAPPING ---
 POI_TYPE_NONE = 0
 POI_TYPE_FUEL = 1
 POI_TYPE_FAST_FOOD = 2
@@ -25,10 +34,55 @@ def gps_to_local(lat, lon, origin_lat, origin_lon):
     z = (origin_lat - lat) * SCALE 
     return x, z
 
+# [NEW] Convex Hull Algorithm (Monotone Chain)
+# Forces messy building points into a clean, convex polygon.
+def convex_hull(points):
+    if len(points) <= 2: return points
+    # Sort by X, then Y
+    points = sorted(set(points), key=lambda p: (p[0], p[1]))
+    
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+
+    upper = []
+    for p in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+
+    return lower[:-1] + upper[:-1]
+
+def simplify_points(points, tolerance):
+    if len(points) < 3: return points
+    new_points = [points[0]]
+    last_p = points[0]
+    tol_sq = tolerance * tolerance
+    for i in range(1, len(points)):
+        p = points[i]
+        dist_sq = (p[0] - last_p[0])**2 + (p[1] - last_p[1])**2
+        if dist_sq > tol_sq or i == len(points) - 1:
+            new_points.append(p)
+            last_p = p
+    return new_points
+
+def calculate_area(points):
+    if len(points) < 3: return 0.0
+    area = 0.0
+    for i in range(len(points)):
+        j = (i + 1) % len(points)
+        area += points[i][0] * points[j][1]
+        area -= points[j][0] * points[i][1]
+    return abs(area) / 2.0
+
 def clean_name(name):
     if not name: return ""
-    clean = name.replace(" ", "_").encode('ascii', 'ignore').decode('ascii')
-    return clean
+    return name.replace(" ", "_").encode('ascii', 'ignore').decode('ascii')
 
 def get_name_from_tags(tags):
     if 'name' in tags: return clean_name(tags['name'])
@@ -47,43 +101,29 @@ def get_poi_type(tags):
     if shop == 'supermarket': return POI_TYPE_SUPERMARKET
     return POI_TYPE_NONE
 
-def parse_speed(speed_str):
-    if not speed_str: return 50
-    clean_str = ''.join(filter(str.isdigit, speed_str))
-    if clean_str: return int(clean_str)
-    return 50
-
 def parse_width_tag(width_str):
     if not width_str: return None
     try:
         clean_str = width_str.replace('m', '').replace(' ', '').replace(',', '.')
         return float(clean_str)
-    except ValueError:
-        return None
+    except ValueError: return None
 
 def convert_osm():
     if not os.path.exists(INPUT_FILE):
-        print(f"ERROR: Could not find '{INPUT_FILE}'.")
+        print(f"ERROR: '{INPUT_FILE}' not found.")
         return
 
-    print(f"Parsing {INPUT_FILE}...")
+    print("Parsing XML...")
     tree = ET.parse(INPUT_FILE)
     root = tree.getroot()
 
-    # 1. Calculate Origin
-    lats, lons = [], []
-    for node in root.findall('node'):
-        lats.append(float(node.attrib['lat']))
-        lons.append(float(node.attrib['lon']))
-    
-    if not lats: return
+    first_node = root.find('node')
+    if first_node is None: return
+    origin_lat = float(first_node.attrib['lat'])
+    origin_lon = float(first_node.attrib['lon'])
 
-    origin_lat = (min(lats) + max(lats)) / 2
-    origin_lon = (min(lons) + max(lons)) / 2
-    
-    # 2. Parse Nodes DB
-    node_db = {} 
-    print("Converting Nodes...")
+    node_db = {}
+    print("Loading Nodes...")
     for node in root.findall('node'):
         osm_id = node.attrib['id']
         lat = float(node.attrib['lat'])
@@ -92,178 +132,153 @@ def convert_osm():
         tags = {tag.attrib['k']: tag.attrib['v'] for tag in node.findall('tag')}
         node_db[osm_id] = {'x': x, 'z': z, 'tags': tags}
 
-    # Data Collections
-    nodes_export = []     
-    node_id_map = {}      
-    edges_export = []     
-    buildings_export = [] 
-    areas_export = []     
-    pois_export = []      
-    poi_coords = [] 
-
-    def add_poi(p_type, x, z, name):
-        if p_type == POI_TYPE_NONE: return
-        if name is None or len(name) < 2: return 
-        if "Unknown" in name: return 
-        
-        for px, pz in poi_coords:
-            dist = math.sqrt((x-px)**2 + (z-pz)**2)
-            if dist < 5.0: return 
-        
-        pois_export.append((p_type, x, z, name))
-        poi_coords.append((x, z))
-
+    nodes_export = []
+    node_id_map = {}
+    edges_export = []
+    buildings_export = []
+    pois_export = []
+    
     def register_node(osm_id):
         if osm_id not in node_id_map:
-            if osm_id not in node_db: return -1 
-            data = node_db[osm_id]
-            
-            flags = 0
-            if 'highway' in data['tags']:
-                h = data['tags']['highway']
-                if h == 'traffic_signals': flags = 1
-                elif h == 'stop': flags = 2
-            
-            new_idx = len(nodes_export)
-            nodes_export.append((new_idx, data['x'], data['z'], flags))
-            node_id_map[osm_id] = new_idx
+            if osm_id not in node_db: return -1
+            d = node_db[osm_id]
+            idx = len(nodes_export)
+            nodes_export.append([idx, d['x'], d['z'], 0])
+            node_id_map[osm_id] = idx
         return node_id_map[osm_id]
 
-    print("Processing Ways...")
+    print("Scanning POIs...")
+    for osm_id, data in node_db.items():
+        tags = data['tags']
+        ptype = get_poi_type(tags)
+        if ptype != POI_TYPE_NONE:
+            name = get_name_from_tags(tags)
+            pois_export.append([ptype, data['x'], data['z'], name])
+
+    print("Processing Geometry...")
     for way in root.findall('way'):
         tags = {tag.attrib['k']: tag.attrib['v'] for tag in way.findall('tag')}
         refs = [nd.attrib['ref'] for nd in way.findall('nd')]
         
-        # A. ROADS
         if 'highway' in tags:
-            road_type = tags['highway']
-            if road_type in ['footway', 'path', 'steps', 'pedestrian']: continue 
+            rtype = tags['highway']
+            if rtype in ['footway', 'path', 'steps', 'pedestrian', 'corridor', 'cycleway', 'track']: continue
+            if EXCLUDE_SERVICE_ROADS and rtype == 'service': continue
 
-            # --- 1. SET DEFAULTS BY TYPE FIRST (Fallback) ---
-            est_width = 3.5 
-            if road_type == 'motorway': est_width = 15.0  
-            elif road_type == 'trunk': est_width = 10.0
-            elif road_type in ['primary', 'primary_link']: est_width = 8.0
-            elif road_type in ['secondary', 'secondary_link']: est_width = 7.0
-            elif road_type == 'tertiary': est_width = 6.0
-            elif road_type in ['residential', 'living_street']: est_width = 5.0
-            elif road_type == 'service': est_width = 4.0
-
-            # --- 2. TRY 'lanes' TAG (Better Accuracy) ---
-            lanes_count = tags.get('lanes')
-            if lanes_count:
-                try:
-                    l = int(lanes_count)
-                    # Use 3.25m per lane if lane count is known
-                    est_width = l * 3.25 
-                except ValueError:
-                    pass 
-
-            # --- 3. TRY 'width' TAG (Best Accuracy) ---
-            explicit_width = parse_width_tag(tags.get('width'))
-            if explicit_width:
-                est_width = explicit_width
-
-            # --- 4. EXPORT ---
-            oneway = 1 if tags.get('oneway') == 'yes' else 0
-            maxspeed = parse_speed(tags.get('maxspeed'))
-            lanes = int(tags.get('lanes', 1))
-
-            for i in range(len(refs) - 1):
-                u = register_node(refs[i])
-                v = register_node(refs[i+1])
-                if u != -1 and v != -1:
-                    edges_export.append((u, v, est_width, oneway, maxspeed, lanes))
-
-        # B. BUILDINGS
-        elif 'building' in tags:
-            points = []
-            for ref in refs:
-                idx = register_node(ref)
-                if idx != -1:
-                    points.append((nodes_export[idx][1], nodes_export[idx][2]))
+            width = 6.0
+            if rtype == 'residential': width = 5.0
+            elif rtype == 'tertiary': width = 7.0
+            elif rtype == 'secondary': width = 9.0
+            elif rtype == 'primary': width = 12.0
             
-            if len(points) < 3: continue
+            segment = []
+            for r in refs:
+                idx = register_node(r)
+                if idx != -1: segment.append(idx)
+                else: 
+                    if len(segment) > 1:
+                        for i in range(len(segment)-1):
+                            edges_export.append([segment[i], segment[i+1], width, 0, 50, 1])
+                    segment = []
+            if len(segment) > 1:
+                for i in range(len(segment)-1):
+                    edges_export.append([segment[i], segment[i+1], width, 0, 50, 1])
 
-            height = 8.0 + random.random() * 5.0
+        elif 'building' in tags or 'building:part' in tags:
+            pts = []
+            for r in refs:
+                if r in node_db: pts.append((node_db[r]['x'], node_db[r]['z']))
+            
+            if len(pts) < 3: continue
+            
+            # [FIX] Use Convex Hull to fix geometry order for simple buildings
+            # This fixes "bow tie" or twisted polygons that look like triangles
+            if len(pts) < 10: 
+                pts = convex_hull(pts)
+            
+            if calculate_area(pts) < MIN_BUILDING_AREA: continue
+            
+            # Re-enable simplification to fix file size
+            pts = simplify_points(pts, SIMPLIFY_TOLERANCE)
+
+            height = 8.0 + random.random()*4.0
             if 'building:levels' in tags:
                 try: height = float(tags['building:levels']) * 3.5
                 except: pass
-
-            r, g, b = 200, 200, 200
-            buildings_export.append({
-                'height': height,
-                'color': (r, g, b),
-                'points': points
-            })
-
-            # Check if this building is a Commercial POI
-            poi_type = get_poi_type(tags)
-            if poi_type != POI_TYPE_NONE:
-                avg_x = sum(p[0] for p in points) / len(points)
-                avg_z = sum(p[1] for p in points) / len(points)
-                name = get_name_from_tags(tags)
-                add_poi(poi_type, avg_x, avg_z, name)
-
-        # C. AREAS (Parks & Water)
-        elif 'leisure' in tags or 'natural' in tags or 'landuse' in tags:
-            area_type = -1 
-            color = (0, 0, 0)
-            if tags.get('leisure') == 'park' or tags.get('landuse') == 'grass':
-                area_type = 0; color = (50, 150, 50) 
-            elif tags.get('natural') == 'water' or tags.get('landuse') == 'basin':
-                area_type = 1; color = (50, 100, 200)
+            elif 'height' in tags:
+                 try: height = float(tags['height'].replace('m',''))
+                 except: pass
             
-            if area_type != -1:
-                points = []
-                for ref in refs:
-                    if ref in node_db:
-                        d = node_db[ref]
-                        points.append((d['x'], d['z']))
-                if len(points) > 2:
-                    areas_export.append({'type': area_type, 'color': color, 'points': points})
+            buildings_export.append({'h': height, 'col': (200,200,200), 'pts': pts})
+            
+            ptype = get_poi_type(tags)
+            if ptype != POI_TYPE_NONE:
+                cx = sum(p[0] for p in pts)/len(pts)
+                cz = sum(p[1] for p in pts)/len(pts)
+                pois_export.append([ptype, cx, cz, get_name_from_tags(tags)])
 
-    # --- PASS 4: SCAN ALL STANDALONE NODES FOR POIS ---
-    print("Scanning Standalone POIs...")
-    for osm_id, data in node_db.items():
-        tags = data['tags']
-        poi_type = get_poi_type(tags)
-        
-        if poi_type != POI_TYPE_NONE:
-            name = get_name_from_tags(tags)
-            add_poi(poi_type, data['x'], data['z'], name)
+    print("Centering and Culling...")
+    if not nodes_export: return
 
-    # WRITE
-    if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
+    avg_x = sum(n[1] for n in nodes_export) / len(nodes_export)
+    avg_z = sum(n[2] for n in nodes_export) / len(nodes_export)
     
+    for n in nodes_export:
+        n[1] -= avg_x
+        n[2] -= avg_z
+
+    valid_node_indices = set()
+    r_sq = MAP_RADIUS_LIMIT * MAP_RADIUS_LIMIT
+    
+    for n in nodes_export:
+        if (n[1]*n[1] + n[2]*n[2]) < r_sq:
+            valid_node_indices.add(n[0]) 
+
+    final_buildings = []
+    for b in buildings_export:
+        new_pts = [(p[0]-avg_x, p[1]-avg_z) for p in b['pts']]
+        if (new_pts[0][0]**2 + new_pts[0][1]**2) < r_sq:
+            b['pts'] = new_pts
+            final_buildings.append(b)
+    
+    final_edges = []
+    for e in edges_export:
+        if e[0] in valid_node_indices or e[1] in valid_node_indices:
+            final_edges.append(e)
+
+    final_pois = []
+    poi_r_sq = POI_RADIUS_LIMIT * POI_RADIUS_LIMIT
+    
+    for p in pois_export:
+        p[1] -= avg_x
+        p[2] -= avg_z
+        if (p[1]**2 + p[2]**2) < poi_r_sq:
+            final_pois.append(p)
+
+    print(f"Writing File: {len(final_buildings)} blds, {len(final_edges)} roads.")
+    
+    if not os.path.exists(OUTPUT_DIR): os.makedirs(OUTPUT_DIR)
     with open(OUTPUT_FILE, 'w') as f:
         f.write("NODES:\n")
-        for i, x, z, flags in nodes_export:
-            f.write(f"{i}: {x:.2f} {z:.2f} {flags}\n")
-        
+        # [RESTORED] Using .1f precision to balance size vs accuracy
+        for n in nodes_export:
+            f.write(f"{n[0]}: {n[1]:.1f} {n[2]:.1f} {n[3]}\n")
+            
         f.write("\nEDGES:\n")
-        for u, v, w, ow, spd, ln in edges_export:
-            f.write(f"{u} {v} {w:.2f} {ow} {spd} {ln}\n")
+        for e in final_edges:
+            f.write(f"{e[0]} {e[1]} {e[2]:.1f} {e[3]} {e[4]} {e[5]}\n")
             
         f.write("\nBUILDINGS:\n")
-        for b in buildings_export:
-            f.write(f"{b['height']:.2f} {b['color'][0]} {b['color'][1]} {b['color'][2]}")
-            for px, pz in b['points']:
-                f.write(f" {px:.2f} {pz:.2f}")
+        for b in final_buildings:
+            f.write(f"{b['h']:.1f} {b['col'][0]} {b['col'][1]} {b['col'][2]}")
+            for p in b['pts']: f.write(f" {p[0]:.1f} {p[1]:.1f}")
             f.write("\n")
+            
+        f.write("\nAREAS:\n\nL:\n") 
+        for p in final_pois:
+            f.write(f"L {p[0]} {p[1]:.1f} {p[2]:.1f} {p[3]}\n")
 
-        f.write("\nAREAS:\n")
-        for a in areas_export:
-            f.write(f"{a['type']} {a['color'][0]} {a['color'][1]} {a['color'][2]}")
-            for px, pz in a['points']:
-                f.write(f" {px:.2f} {pz:.2f}")
-            f.write("\n")
-
-        f.write("\nL:\n")
-        for p_type, x, z, name in pois_export:
-            f.write(f"L {p_type} {x:.2f} {z:.2f} {name}\n")
-
-    print(f"SUCCESS! Map saved to {OUTPUT_FILE}")
+    print(f"Done! Saved to {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     convert_osm()

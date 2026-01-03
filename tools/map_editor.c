@@ -10,7 +10,7 @@
 
 // --- CONFIGURATION ---
 const float EDITOR_MAP_SCALE = 0.4f; 
-const char* MAP_FILE = "resources/maps/real_city.map"; 
+const char* MAP_FILE = "resources/maps/whole_city.map"; 
 
 #define LOC_DELETED -1 
 
@@ -51,13 +51,14 @@ void SaveMapToFile(GameMap *map) {
     for(int i=0; i<map->nodeCount; i++) {
         float rawX = map->nodes[i].position.x / EDITOR_MAP_SCALE;
         float rawY = map->nodes[i].position.y / EDITOR_MAP_SCALE;
-        fprintf(f, "%d: %.2f %.2f %d\n", map->nodes[i].id, rawX, rawY, map->nodes[i].flags);
+        // Save with 1 decimal precision to save space
+        fprintf(f, "%d: %.1f %.1f %d\n", map->nodes[i].id, rawX, rawY, map->nodes[i].flags);
     }
 
     fprintf(f, "\nEDGES:\n");
     for(int i=0; i<map->edgeCount; i++) {
         float rawW = map->edges[i].width / EDITOR_MAP_SCALE;
-        fprintf(f, "%d %d %.2f %d %d %d\n", 
+        fprintf(f, "%d %d %.1f %d %d %d\n", 
             map->edges[i].startNode, map->edges[i].endNode, rawW, 
             map->edges[i].oneway, map->edges[i].maxSpeed, 0); 
     }
@@ -65,11 +66,11 @@ void SaveMapToFile(GameMap *map) {
     fprintf(f, "\nBUILDINGS:\n");
     for(int i=0; i<map->buildingCount; i++) {
         float rawH = map->buildings[i].height / EDITOR_MAP_SCALE;
-        fprintf(f, "%.2f %d %d %d", rawH, map->buildings[i].color.r, map->buildings[i].color.g, map->buildings[i].color.b);
+        fprintf(f, "%.1f %d %d %d", rawH, map->buildings[i].color.r, map->buildings[i].color.g, map->buildings[i].color.b);
         for(int j=0; j<map->buildings[i].pointCount; j++) {
             float px = map->buildings[i].footprint[j].x / EDITOR_MAP_SCALE;
             float py = map->buildings[i].footprint[j].y / EDITOR_MAP_SCALE;
-            fprintf(f, " %.2f %.2f", px, py);
+            fprintf(f, " %.1f %.1f", px, py);
         }
         fprintf(f, "\n");
     }
@@ -80,7 +81,7 @@ void SaveMapToFile(GameMap *map) {
         for(int j=0; j<map->areas[i].pointCount; j++) {
             float px = map->areas[i].points[j].x / EDITOR_MAP_SCALE;
             float py = map->areas[i].points[j].y / EDITOR_MAP_SCALE;
-            fprintf(f, " %.2f %.2f", px, py);
+            fprintf(f, " %.1f %.1f", px, py);
         }
         fprintf(f, "\n");
     }
@@ -96,7 +97,7 @@ void SaveMapToFile(GameMap *map) {
         strncpy(safeName, map->locations[i].name, 64);
         for(int k=0; safeName[k]; k++) if(safeName[k] == ' ') safeName[k] = '_';
         
-        fprintf(f, "L %d %.2f %.2f %s\n", map->locations[i].type, rawX, rawY, safeName);
+        fprintf(f, "L %d %.1f %.1f %s\n", map->locations[i].type, rawX, rawY, safeName);
     }
 
     fclose(f);
@@ -105,7 +106,7 @@ void SaveMapToFile(GameMap *map) {
 
 // --- MAIN EDITOR ---
 int main(void) {
-    InitWindow(1280, 720, "Map Editor - Mechanic Update");
+    InitWindow(1280, 720, "Map Editor - v2.0 (Optimized)");
     SetWindowState(FLAG_WINDOW_RESIZABLE);
     SetTargetFPS(60);
 
@@ -113,9 +114,19 @@ int main(void) {
     
     EditorData editor = {0};
     editor.camera.zoom = 1.0f;
+    editor.camera.offset = (Vector2){GetScreenWidth()/2.0f, GetScreenHeight()/2.0f};
     editor.state = STATE_VIEW;
     editor.selectedType = LOC_FUEL; 
     editor.editingIndex = -1;
+    
+    // [FIX] Auto-Jump to the first node so we don't look at empty void
+    if (map.nodeCount > 0) {
+        editor.camera.target = map.nodes[0].position;
+        printf("EDITOR: Camera jumped to Node 0 (%.1f, %.1f)\n", map.nodes[0].position.x, map.nodes[0].position.y);
+    } else {
+        editor.camera.target = (Vector2){0,0};
+        printf("EDITOR: Warning - Map is empty. At 0,0.\n");
+    }
     
     const char* names[LOC_COUNT] = {
         "Fuel", "FastFood", "Cafe", "Bar", "Market", "SuperMkt", "Rest.", "House", "Mechanic"
@@ -135,12 +146,11 @@ int main(void) {
         int scrH = GetScreenHeight();
         
         // --- SCALING LOGIC ---
-        // Base height 720p. If window gets smaller, scale UI down.
         float uiScale = (float)scrH / 720.0f;
-        
         int uiHeight = (int)(140 * uiScale);
         int uiTop = scrH - uiHeight;
         
+        // Keep camera center focused when resizing window
         editor.camera.offset = (Vector2){scrW/2.0f, scrH/2.0f};
 
         int btnWidth = (int)(100 * uiScale);
@@ -192,7 +202,6 @@ int main(void) {
         }
         else if (editor.state == STATE_VIEW || editor.state == STATE_ADDING) {
             int clickedIndex = -1;
-            // Scale hit radius so it's easier to click when zoomed out
             float hitRadius = (10.0f / editor.camera.zoom) * uiScale;
             if (hitRadius < 2.0f) hitRadius = 2.0f;
 
@@ -278,7 +287,11 @@ int main(void) {
             ClearBackground(RAYWHITE);
             
             BeginMode2D(editor.camera);
-                float drawScale = 1.0f / editor.camera.zoom; // World drawing scale
+                float drawScale = 1.0f / editor.camera.zoom;
+
+                // Draw Origin Grid (To help visualize scale and center)
+                DrawLine(-1000, 0, 1000, 0, Fade(RED, 0.5f)); // X Axis
+                DrawLine(0, -1000, 0, 1000, Fade(GREEN, 0.5f)); // Y Axis
 
                 // Areas
                 for (int i=0; i<map.areaCount; i++) {
@@ -301,13 +314,30 @@ int main(void) {
                 }
                 
                 // Buildings
+                // Buildings
                 for (int i = 0; i < map.buildingCount; i++) {
-                    DrawTriangleFan(map.buildings[i].footprint, map.buildings[i].pointCount, map.buildings[i].color);
+                    // [FIX] Use Outlines instead of TriangleFan
+                    // TriangleFan creates glitches on L-shaped buildings. 
+                    // Lines show the true shape of the data.
+                    
+                    if (map.buildings[i].pointCount < 2) continue;
+
+                    Color bColor = map.buildings[i].color;
+                    
+                    // Draw filled shape (Optional: uses Raylib's simple triangulation)
+                    // DrawTriangleFan(map.buildings[i].footprint, map.buildings[i].pointCount, Fade(bColor, 0.5f));
+
+                    // Draw Thick Outline (The Truth)
+                    DrawLineStrip(map.buildings[i].footprint, map.buildings[i].pointCount, bColor);
+                    
+                    // Close the loop (Connect last point to first)
+                    Vector2 start = map.buildings[i].footprint[0];
+                    Vector2 end = map.buildings[i].footprint[map.buildings[i].pointCount - 1];
+                    DrawLineEx(start, end, 2.0f, bColor); // 2.0f thickness
                 }
                 
                 // POIs (Scaled Pins)
                 float pinRadius = (6.0f * drawScale) * uiScale; 
-                // Clamp pin radius so it doesn't vanish
                 if (pinRadius < 2.0f) pinRadius = 2.0f;
                 if (pinRadius > 20.0f) pinRadius = 20.0f;
 
@@ -321,7 +351,7 @@ int main(void) {
                     bool hover = CheckCollisionPointCircle(worldMouse, map.locations[i].position, pinRadius * 1.5f);
                     if (editor.camera.zoom > 0.5f || hover || editor.editingIndex == i) {
                         float textSize = (20.0f * drawScale) * uiScale;
-                        if (textSize < 10) textSize = 10; // Min readable size
+                        if (textSize < 10) textSize = 10; 
                         if (textSize > 50) textSize = 50;
 
                         DrawText(map.locations[i].name, 
@@ -357,6 +387,8 @@ int main(void) {
             
             int helpFontSize = (int)(16 * uiScale);
             DrawText("Left: Edit/Add | Middle: Delete | Right: Pan | Scroll: Zoom", 10, uiTop + 10, helpFontSize, DARKGRAY);
+            // Debug Text for Camera
+            DrawText(TextFormat("Cam: %.1f, %.1f | Zoom: %.2f", editor.camera.target.x, editor.camera.target.y, editor.camera.zoom), 10, 10, 20, DARKGRAY);
 
             if (editor.state == STATE_NAMING || editor.state == STATE_EDITING) {
                 float mw = 480 * uiScale; float mh = 120 * uiScale;
