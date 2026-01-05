@@ -15,11 +15,11 @@
 
 // --- VISUAL STYLES ---
 #define COLOR_ROAD          CLITERAL(Color){ 40, 40, 40, 255 }      // Dark asphalt
-#define COLOR_ROAD_MARKING  CLITERAL(Color){ 220, 220, 220, 255 }  // White lines
-#define COLOR_PARK          CLITERAL(Color){ 76, 175, 80, 255 }    // Vivid Green
-#define COLOR_WATER         CLITERAL(Color){ 33, 150, 243, 255 }   // Blue
-#define COLOR_EVENT_PROP    CLITERAL(Color){ 255, 161, 0, 255 }    // Orange for cones/barriers
-#define COLOR_EVENT_TEXT    CLITERAL(Color){ 255, 255, 255, 255 }  // White floating text
+#define COLOR_ROAD_MARKING  CLITERAL(Color){ 220, 220, 220, 255 }   // White lines
+#define COLOR_PARK          CLITERAL(Color){ 76, 175, 80, 255 }     // Vivid Green
+#define COLOR_WATER         CLITERAL(Color){ 33, 150, 243, 255 }    // Blue
+#define COLOR_EVENT_PROP    CLITERAL(Color){ 255, 161, 0, 255 }     // Orange for cones/barriers
+#define COLOR_EVENT_TEXT    CLITERAL(Color){ 255, 255, 255, 255 }   // White floating text
 
 // --- ENUMS ---
 typedef enum {
@@ -147,5 +147,6 @@ void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd);
 
 // Helpers
 void SetMapDestination(GameMap *map, Vector2 dest); // Used by Delivery App
+void ResetMapCamera(Vector2 pos); // Required by main.c respawn logic
 
 #endif

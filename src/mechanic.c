@@ -28,8 +28,8 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
 
     // Scale UI
     float scale = (float)screenH / 720.0f;
-    float w = 700 * scale; // Made wider for repair column
-    float h = 500 * scale;
+    float w = 700 * scale; 
+    float h = 550 * scale; // Slightly taller to fit Fuel Upgrade
     float x = (screenW - w) / 2;
     float y = (screenH - h) / 2;
     Vector2 mouse = GetMousePosition();
@@ -52,14 +52,14 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     float col1X = x + 20 * scale;
     float col2X = x + 360 * scale; // Second column
 
-    // --- COLUMN 1: REPAIRS & TUNING ---
+    // --- COLUMN 1: VEHICLE PERFORMANCE ---
     DrawText("Vehicle Service", col1X, startY, 20*scale, BLACK);
-    startY += 35 * scale;
+    startY += 30 * scale;
 
     // 1. REPAIR
     float damage = 100.0f - player->health;
-    int repairCost = (int)(damage * 2.0f); // $2 per HP point
-    if (repairCost < 10 && damage > 0) repairCost = 10; // Min charge
+    int repairCost = (int)(damage * 2.0f); 
+    if (repairCost < 10 && damage > 0) repairCost = 10; 
     if (damage <= 0) repairCost = 0;
 
     DrawText(TextFormat("Health: %.0f%%", player->health), col1X, startY, 16*scale, (player->health < 50) ? RED : DARKGREEN);
@@ -67,20 +67,20 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     const char* repairLabel = (repairCost == 0) ? "No Repairs Needed" : TextFormat("Repair ($%d)", repairCost);
     bool canAffordRepair = (player->money >= repairCost);
     
-    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 45*scale}, repairLabel, RED, mouse, (repairCost == 0 || !canAffordRepair))) {
+    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, repairLabel, RED, mouse, (repairCost == 0 || !canAffordRepair))) {
         AddMoney(player, "Car Repair", -repairCost);
         player->health = 100.0f;
     }
     
-    startY += 80 * scale;
+    startY += 70 * scale;
 
     // 2. ACCELERATION
     DrawText(TextFormat("Engine Tune (Accel: %.1f)", player->acceleration), col1X, startY, 16*scale, DARKGRAY);
     if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Upgrade ($200)", ORANGE, mouse, player->money < 200)) {
         AddMoney(player, "Engine Upgrade", -200);
-        player->acceleration += 0.2f;
+        player->acceleration += 0.5f; // Increased increment slightly
     }
-    startY += 75 * scale;
+    startY += 70 * scale;
 
     // 3. BRAKES
     DrawText(TextFormat("Brake Pads (Power: %.1f)", player->brake_power), col1X, startY, 16*scale, DARKGRAY);
@@ -88,11 +88,20 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
         AddMoney(player, "Brake Upgrade", -150);
         player->brake_power += 1.0f;
     }
+    startY += 70 * scale;
+
+    // 4. FUEL TANK [NEW]
+    DrawText(TextFormat("Fuel Tank (Max: %.0fL)", player->maxFuel), col1X, startY, 16*scale, DARKGRAY);
+    // Cost increases with tank size logic could go here, keeping flat for now
+    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Expand Tank ($350)", ORANGE, mouse, player->money < 350)) {
+        AddMoney(player, "Tank Expansion", -350);
+        player->maxFuel += 10.0f; // Add 10 Liters capacity
+    }
     
     // --- COLUMN 2: DIGITAL UPGRADES ---
-    startY = y + 70 * scale;
+    startY = y + 70 * scale; // Reset Y for col 2
     DrawText("MyCarMonitor App", col2X, startY, 20*scale, BLACK);
-    startY += 35 * scale;
+    startY += 30 * scale;
 
     if (!player->hasCarMonitorApp) {
         DrawText("Install the app to see", col2X, startY, 16*scale, GRAY);

@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "player.h"
+#include "delivery_app.h" // Needs PhoneState/DeliveryTask structs
 
 // Draws standard driving HUD (Speed, WASD)
 void DrawVisuals(float currentSpeed, float maxSpeed);
@@ -17,6 +18,8 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH);
 void UpdateVisuals(float dt);
 
 // Wrapper that calls standard visuals + pinned stats
-void DrawVisualsWithPinned(Player *player);
+void DrawVisualsWithPinned(Player *player, PhoneState *phone);
+
+void DrawSpeedometer(float currentSpeed, float maxSpeed);
 
 #endif

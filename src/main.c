@@ -222,7 +222,7 @@ int main(void)
                 EndMode3D();
                 
                 // --- 2D UI LAYER ---
-                DrawVisualsWithPinned(&player); 
+                DrawVisualsWithPinned(&player,&phone); 
                 DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
                 
                 // --- [RESTORED] INTERACTION TEXT (2D) ---

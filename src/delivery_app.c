@@ -39,7 +39,7 @@ typedef enum {
 
 static AppScreenState currentScreen = SCREEN_HOME;
 static int selectedJobIndex = -1;
-static float eventFallbackTimer = 120.0f; // 2 min fallback
+static float eventFallbackTimer = 120.0f; 
 
 extern bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed);
 
@@ -108,9 +108,6 @@ void InitDeliveryApp(PhoneState *phone, GameMap *map) {
     }
 }
 
-// ... DrawProfileScreen, DrawJobDetails, DrawHomeScreen (Keeping short for context, but same logic) ...
-// (I will assume these exist unchanged except for trigger calls below)
-
 static void DrawProfileScreen(Player *player, Rectangle screenRect, Vector2 mouse, bool click) {
     DrawRectangleRec(screenRect, COLOR_APP_BG);
     DrawText("DRIVER STATS", screenRect.x + 20, screenRect.y + 30, 24, COLOR_ACCENT);
@@ -156,14 +153,10 @@ static void DrawJobDetails(PhoneState *phone, GameMap *map, Rectangle screenRect
 
     float btnY = screenRect.height - 130;
     
-    // --- UPDATED SHOW ON MAP BUTTON ---
     if (GuiButton((Rectangle){screenRect.x + 20, btnY, screenRect.width - 40, 45}, "Show on Map", COLOR_BUTTON, mouse, click)) {
          phone->currentApp = APP_MAP;
          Vector2 target = (t->status == JOB_PICKED_UP) ? t->customerPos : t->restaurantPos;
          
-         // LOGIC CHANGE:
-         // If we haven't accepted yet, just PREVIEW it (don't follow player).
-         // If we HAVE accepted (or picked up), START NAVIGATION (follow player).
          if (t->status == JOB_AVAILABLE) {
              PreviewMapLocation(map, target);
          } else {
@@ -184,12 +177,6 @@ static void DrawJobDetails(PhoneState *phone, GameMap *map, Rectangle screenRect
             t->status = JOB_ACCEPTED;
             SetMapDestination(map, t->restaurantPos);
             ShowPhoneNotification("New Job Accepted", COLOR_ACCENT);
-            
-            // TRIGGER EVENT ON START
-            // Placeholder: Need player info to calc fwd, passing 0,0,0 causes basic check
-            // Ideally UpdateDeliveryApp handles this via player struct
-            
-            //currentScreen = SCREEN_HOME; 
         } else {
             t->status = JOB_AVAILABLE; 
             ShowPhoneNotification("Job Cancelled", COLOR_DANGER);
@@ -247,7 +234,6 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
     double currentTime = GetTime();
     float dt = GetFrameTime();
 
-    // Fallback Event Trigger (2 mins)
     eventFallbackTimer -= dt;
     if (eventFallbackTimer <= 0) {
         Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
@@ -257,6 +243,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
 
     for(int i=0; i<5; i++) {
         DeliveryTask *t = &phone->tasks[i];
+        
         if (t->status == JOB_DELIVERED) {
              int storeIdx = GetRandomStoreIndex(map);
              int houseIdx = GetRandomHouseIndex(map);
@@ -273,31 +260,51 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         if (t->status == JOB_AVAILABLE && (currentTime - t->creationTime > t->refreshTimer)) {
             if (GetRandomValue(0, 100) < 2) t->status = JOB_DELIVERED; 
         }
-        if (t->status == JOB_AVAILABLE || t->status == JOB_DELIVERED) continue;
 
-        Vector2 playerPos2D = { player->position.x, player->position.z };
+        if (t->status == JOB_PICKED_UP) {
+            Vector2 playerPos2D = { player->position.x, player->position.z };
 
-        if (t->status == JOB_ACCEPTED) {
-            if (Vector2Distance(playerPos2D, t->restaurantPos) < 5.0f) {
-                t->status = JOB_PICKED_UP;
-                SetMapDestination(map, t->customerPos);
-                ShowPhoneNotification("Order Picked Up!", COLOR_ACCENT);
-                
-                // EVENT TRIGGER ON PICKUP
-                Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
-                TriggerRandomEvent(map, player->position, fwd);
-                eventFallbackTimer = 120.0f; // Reset fallback
+            // --- G-FORCE PENALTY LOGIC ---
+            if (t->fragility > 0.0f) {
+                float turnG = (fabs(player->current_speed) * 0.02f) * (IsKeyDown(KEY_A) || IsKeyDown(KEY_D) ? 1.0f : 0.0f);
+                float brakeG = (player->brake_power > 0) ? 0.8f : 0.0f;
+                float currentG = turnG + brakeG;
+
+                // Threshold must match visual gauge logic
+                float gLimit = 1.5f * (1.0f - t->fragility);
+                if (gLimit < 0.3f) gLimit = 0.3f;
+
+                if (currentG > gLimit) {
+                    float penalty = 5.0f * dt; 
+                    t->pay -= penalty;
+                    if (GetRandomValue(0, 30) == 0) { 
+                        ShowPhoneNotification("CARGO DAMAGED!", COLOR_DANGER);
+                    }
+                }
             }
-        }
-        else if (t->status == JOB_PICKED_UP) {
+
+            // --- TEMPERATURE PENALTY LOGIC ---
+            if (t->timeLimit > 0) {
+                // Real creationTime = Pickup Time here
+                double elapsed = currentTime - t->creationTime; 
+                if (elapsed > t->timeLimit) {
+                    float penalty = 2.0f * dt;
+                    t->pay -= penalty;
+                }
+            }
+            
+            if (t->pay < 5.0f) t->pay = 5.0f;
+
             if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
                 ShowPhoneNotification("Delivered!", GREEN);
                 AddMoney(player, t->restaurant, t->pay);
                 player->totalEarnings += t->pay;
                 player->totalDeliveries++;
+                
                 if (t->timeLimit > 0 && (currentTime - t->creationTime) < t->timeLimit) {
                     float tip = t->pay * 0.2f;
+                    if (t->fragility > 0.5f) tip += 15.0f;
                     player->money += tip;
                     player->totalEarnings += tip;
                     ShowPhoneNotification(TextFormat("Paid $%.2f + Tip!", t->pay + tip), GREEN);
@@ -305,12 +312,24 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                     ShowPhoneNotification(TextFormat("Paid $%.2f", t->pay), GREEN);
                 }
                 
-                // EVENT TRIGGER ON DELIVERY
                 Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
                 TriggerRandomEvent(map, player->position, fwd);
-                eventFallbackTimer = 120.0f; // Reset fallback
+                eventFallbackTimer = 120.0f; 
                 SaveGame(player, phone);
                 ShowPhoneNotification("Auto-Saved", LIME);
+            }
+        }
+        else if (t->status == JOB_ACCEPTED) {
+            Vector2 playerPos2D = { player->position.x, player->position.z };
+            if (Vector2Distance(playerPos2D, t->restaurantPos) < 5.0f) {
+                t->status = JOB_PICKED_UP;
+                t->creationTime = currentTime; // Reset timer on pickup
+                SetMapDestination(map, t->customerPos);
+                ShowPhoneNotification("Order Picked Up!", COLOR_ACCENT);
+                
+                Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
+                TriggerRandomEvent(map, player->position, fwd);
+                eventFallbackTimer = 120.0f;
             }
         }
     }

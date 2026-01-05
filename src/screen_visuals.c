@@ -5,22 +5,26 @@
 // --- STATE FOR REFUEL SLIDER ---
 static float targetFuelAmount = 0.0f;
 static float fuelPricePerUnit = 1.50f; 
-static float priceTimer = 0.0f; // [NEW] Timer for price flux
+static float priceTimer = 0.0f;
 
-// [NEW] Updates dynamic elements like fuel price
+// [NEW] Helper to find the active job (Picked Up)
+static DeliveryTask* GetActiveTask(PhoneState *phone) {
+    for (int i = 0; i < 5; i++) {
+        if (phone->tasks[i].status == JOB_PICKED_UP) {
+            return &phone->tasks[i];
+        }
+    }
+    return NULL;
+}
+
 void UpdateVisuals(float dt) {
     priceTimer += dt;
-    if (priceTimer >= 60.0f) { // Every minute
+    if (priceTimer >= 60.0f) { 
         priceTimer = 0.0f;
-        // Fluctuate +/- 5%
         float flux = (float)GetRandomValue(-5, 5) / 100.0f; 
         fuelPricePerUnit *= (1.0f + flux);
-        
-        // Clamp realistic bounds (e.g. $0.50 to $5.00)
         if (fuelPricePerUnit < 0.50f) fuelPricePerUnit = 0.50f;
         if (fuelPricePerUnit > 5.00f) fuelPricePerUnit = 5.00f;
-        
-        // Round to nearest hundredth
         fuelPricePerUnit = roundf(fuelPricePerUnit * 100.0f) / 100.0f;
     }
 }
@@ -49,7 +53,7 @@ void DrawRealArrow(int cx, int cy, int dir, bool isPressed) {
         shadowPoints[i].y = cy + ny + shadowOffset;
     }
 
-    char* textChar;
+    const char* textChar; // Fixed const warning
     if (dir == 0) textChar = "W";
     else if (dir == 1) textChar = "D";
     else if (dir == 2) textChar = "S";
@@ -121,8 +125,6 @@ void DrawSpeedometer(float currentSpeed, float maxSpeed) {
 
 void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     float scale = (float)screenH / 720.0f;
-    
-    // Analog Fuel Gauge (Bottom Right)
     float gaugeRadius = 60.0f * scale;
     Vector2 center = { screenW - gaugeRadius - 30 * scale, screenH - gaugeRadius - 30 * scale };
     
@@ -153,50 +155,147 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
             int fontSize = 30 * scale;
             int txtW = MeasureText(warnText, fontSize);
             DrawText(warnText, center.x - txtW/2, center.y - 30*scale, fontSize, RED);
-            
-            float range = player->fuel / FUEL_CONSUMPTION_RATE; 
-            const char* rangeText = TextFormat("Est: %.0fm", range);
-            DrawText(rangeText, center.x - MeasureText(rangeText, 15*scale)/2, center.y - 50*scale, 15*scale, WHITE);
         }
     }
 }
 
-void DrawPinnedStats(Player *player) {
-    if (!player->pinAccel && !player->pinThermometer && !player->pinGForce) return;
+// [UPDATED] G-Force Visualizer with Real Fragility Limit
+void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float scale) {
+    float radius = 40.0f * scale;
+    DrawCircle(x, y, radius, Fade(BLACK, 0.8f));
+    DrawCircleLines(x, y, radius, WHITE);
+    
+    // Draw Safe Zone (Green) vs Danger Zone (Red) if cargo is fragile
+    if (task && task->fragility > 0.0f) {
+        float gLimit = 1.5f * (1.0f - task->fragility); // Must match delivery_app logic
+        if (gLimit < 0.3f) gLimit = 0.3f;
+        
+        // Scale limit to radius (Assuming 2.0G is edge of meter)
+        float limitRadius = (gLimit / 2.0f) * radius; 
+        if (limitRadius > radius) limitRadius = radius;
 
+        DrawCircle(x, y, limitRadius, Fade(GREEN, 0.2f));
+        DrawCircleLines(x, y, limitRadius, RED);
+    } else {
+        DrawCircleLines(x, y, radius * 0.5f, DARKGRAY);
+    }
+
+    DrawLine(x - radius, y, x + radius, y, DARKGRAY); // Horizontal Crosshair
+    DrawLine(x, y - radius, x, y + radius, DARKGRAY); // Vertical Crosshair
+
+    // Calculate approximate Gs
+    float gX = 0.0f;
+    if (IsKeyDown(KEY_A)) gX = -1.0f;
+    if (IsKeyDown(KEY_D)) gX = 1.0f;
+    gX *= (player->current_speed / player->max_speed); 
+
+    float gY = 0.0f;
+    if (player->acceleration > 0) gY = 1.0f; // Accelerating (pull back)
+    if (player->brake_power > 0) gY = -1.0f; // Braking (push forward)
+
+    // Calculate magnitude to check against limit
+    float magnitude = sqrtf(gX*gX + gY*gY);
+    // Visual multiplier (map 2G to radius edge)
+    float visualMag = magnitude / 2.0f; 
+    if (visualMag > 1.0f) visualMag = 1.0f;
+
+    float dotX = x + (gX * (radius/2.0f)); // rough approximation for visual placement
+    float dotY = y + (gY * (radius/2.0f));
+
+    Color dotColor = WHITE;
+    // Check if violating limit
+    if (task && task->fragility > 0.0f) {
+        float gLimit = 1.5f * (1.0f - task->fragility);
+        if (magnitude > gLimit) dotColor = RED;
+    }
+
+    DrawCircle(dotX, dotY, 6.0f * scale, dotColor);
+    DrawText("G-FORCE", x - 20*scale, y + radius + 5*scale, 10*scale, LIGHTGRAY);
+}
+
+// [UPDATED] Real Temperature Visualizer
+void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
+    float w = 20.0f * scale;
+    float h = 80.0f * scale;
+    
+    // Background
+    DrawRectangle(x, y, w, h, Fade(BLACK, 0.8f));
+    DrawRectangleLines(x, y, w, h, WHITE);
+    
+    if (task && task->timeLimit > 0) {
+        // Real Temperature Calculation
+        // timeLimit is the total time allowed before "cold".
+        // We compare GetTime() vs task->creationTime (which is reset on pickup)
+        double elapsed = GetTime() - task->creationTime;
+        float tempPct = 1.0f - ((float)elapsed / task->timeLimit);
+        
+        if (tempPct < 0.0f) tempPct = 0.0f;
+        if (tempPct > 1.0f) tempPct = 1.0f;
+
+        float fillH = h * tempPct;
+        
+        // Gradient Color
+        Color tempColor = GREEN;
+        if (tempPct < 0.5f) tempColor = ORANGE;
+        if (tempPct < 0.2f) tempColor = RED;
+
+        DrawRectangle(x + 2, y + h - fillH, w - 4, fillH, tempColor);
+        DrawText("TEMP", x - 5*scale, y + h + 5*scale, 10*scale, tempColor);
+    } else {
+        // No Active Job or Non-Perishable
+        DrawText("N/A", x + 2*scale, y + h/2 - 5*scale, 10*scale, GRAY);
+        DrawText("TEMP", x - 5*scale, y + h + 5*scale, 10*scale, GRAY);
+    }
+    
+    // Ticks
+    DrawLine(x, y + h*0.2f, x+w, y + h*0.2f, GRAY); // High
+    DrawLine(x, y + h*0.8f, x+w, y + h*0.8f, GRAY); // Low
+}
+
+void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
+    int screenW = GetScreenWidth();
     int screenH = GetScreenHeight();
     float scale = (float)screenH / 720.0f;
-    float x = 20 * scale;
-    float y = screenH - 220 * scale; 
-    float w = 180 * scale;
-    
-    DrawRectangleRounded((Rectangle){x, y, w, 150*scale}, 0.1f, 4, Fade(BLACK, 0.7f));
-    DrawRectangleRoundedLines((Rectangle){x, y, w, 150*scale}, 0.1f, 4, WHITE);
-    
-    float textY = y + 10*scale;
-    DrawText("CAR MONITOR", x + 10*scale, textY, 16*scale, SKYBLUE);
-    textY += 25*scale;
 
+    // Fetch Active Task for "Real" Data
+    DeliveryTask *activeTask = GetActiveTask(phone);
+
+    // 1. WASD Overlay
+    DrawWASDOverlay();
+
+    // 2. Speedometer
+    if (player->pinSpeed) {
+        if (player->current_speed >= 0) DrawSpeedometer(player->current_speed, player->max_speed); 
+        else DrawSpeedometer(-player->current_speed, player->max_speed);
+    }
+
+    // 3. Fuel Gauge
+    if (player->pinFuel) {
+        DrawFuelOverlay(player, screenW, screenH);
+    }
+
+    // 4. Pinned Gadgets
+    float gadgetX = 60 * scale;
+    float gadgetY = screenH - 250 * scale;
+    float gap = 110 * scale;
+
+    if (player->unlockGForce && player->pinGForce) {
+        DrawGForceMeter(player, activeTask, gadgetX, gadgetY, scale);
+        gadgetY -= gap;
+    }
+
+    if (player->unlockThermometer && player->pinThermometer) {
+        DrawThermometer(activeTask, gadgetX - 10*scale, gadgetY, scale); 
+        gadgetY -= gap;
+    }
+    
+    // 5. Basic Accel Text (Debug)
     if (player->pinAccel) {
-        DrawText(TextFormat("Accel: %.1f", player->acceleration), x + 10*scale, textY, 14*scale, WHITE);
-        textY += 20*scale;
-        DrawText(TextFormat("Brake: %.1f", player->brake_power), x + 10*scale, textY, 14*scale, WHITE);
-        textY += 25*scale;
-    }
-
-    if (player->pinThermometer && player->unlockThermometer) {
-        float temp = 20.0f + (fabs(player->current_speed) * 0.5f);
-        DrawText(TextFormat("Temp: %.1f C", temp), x + 10*scale, textY, 14*scale, ORANGE);
-        textY += 25*scale;
-    }
-
-    if (player->pinGForce && player->unlockGForce) {
-        float g = 1.0f + (fabs(player->current_speed) * 0.05f); 
-        DrawText(TextFormat("G-Force: %.2f g", g), x + 10*scale, textY, 14*scale, RED);
-        textY += 25*scale;
+        DrawText(TextFormat("A: %.1f", player->acceleration), 20, 200, 20, GREEN);
     }
 }
 
+// ... [DrawRefuelWindow stays the same] ...
 bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
@@ -274,15 +373,4 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     }
 
     return true; 
-}
-
-void DrawVisuals(float currentSpeed, float maxSpeed){
-    DrawWASDOverlay();
-    if (currentSpeed>=0) DrawSpeedometer(currentSpeed, maxSpeed); 
-    else DrawSpeedometer(-currentSpeed,maxSpeed);
-}
-
-void DrawVisualsWithPinned(Player *player) {
-    DrawVisuals(player->current_speed, player->max_speed);
-    DrawPinnedStats(player);
 }
