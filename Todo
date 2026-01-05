@@ -82,6 +82,12 @@ Systems that cost money or add strategic depth.
   save player data on exit, dev reset button.
   unlock mycarstats and speedometer, fuelometer after finishing it.
   add keyboard shortcuts for many phone features, like apps, app functions etc.
-  add respawn in mechanic garage.
-  FIX MECHANIC UI NOT OPENING WHEN CLOSE TO STATION
+  Add actual shop locations / parking spots to pull into?
   fix camera collisions - many bugs
+
+  an theloume map file size optimisation, sto mapgen.py allazoume 
+  auto for p in b['pts']: f.write(f" {p[0]:.1f} {p[1]:.1f}") se auto for p in b['pts']: f.write(f" {int(p[0])} {int(p[1])}")
+
+  auto kanei to arxeio apo 3375 KB se 2600 KB alla xaneis kapoia akriveia.
+
+  fix map app building issues

@@ -4,12 +4,12 @@
 #include "raylib.h"
 
 // --- CONSTANTS ---
-#define MAX_NODES 2000
-#define MAX_EDGES 2000
-#define MAX_BUILDINGS 1000
-#define MAX_BUILDING_POINTS 32
-#define MAX_LOCATIONS 100
-#define MAX_AREAS 100
+#define MAX_NODES 200000
+#define MAX_EDGES 200000
+#define MAX_BUILDINGS 100000
+#define MAX_BUILDING_POINTS 30002
+#define MAX_LOCATIONS 10000
+#define MAX_AREAS 10000
 #define MAX_SEARCH_RESULTS 5
 #define MAX_EVENTS 5 // Max concurrent events
 

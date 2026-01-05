@@ -23,7 +23,7 @@ static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mo
     return (hover && IsMouseButtonPressed(MOUSE_LEFT_BUTTON));
 }
 
-bool DrawMechanicWindow(Player *player, bool isActive, int screenW, int screenH) {
+bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
     // Scale UI

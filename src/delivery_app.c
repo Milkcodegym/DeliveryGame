@@ -1,4 +1,5 @@
 #include "delivery_app.h"
+#include "save.h"
 #include "maps_app.h" 
 #include "map.h"
 #include "raymath.h"
@@ -308,6 +309,8 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
                 TriggerRandomEvent(map, player->position, fwd);
                 eventFallbackTimer = 120.0f; // Reset fallback
+                SaveGame(player, phone);
+                ShowPhoneNotification("Auto-Saved", LIME);
             }
         }
     }

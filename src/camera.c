@@ -1,5 +1,6 @@
 #include "camera.h"
 #include <math.h>
+#include "raymath.h"
 
 Camera3D camera = { 0 };
 
@@ -7,12 +8,14 @@ void InitCamera(){
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
+    // Set a dummy position so it doesn't start at 0,0,0 if player is elsewhere
+    camera.position = (Vector3){ 0.0f, 10.0f, -10.0f };
 }
 
 void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
     // 1. Calculate the Ideal "Perfect" Position (Max Distance)
-    float camDist = 4.0f;
-    float camHeight = 1.5f;
+    float camDist = 6.0f;       // Increased slightly for better view of city
+    float camHeight = 2.5f;     // Increased height to see over traffic
 
     // Where we WANT the camera to be
     Vector3 desiredPos;
@@ -20,42 +23,50 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
     desiredPos.z = player_position.z - camDist * cosf(player_angle * DEG2RAD);
     desiredPos.y = player_position.y + camHeight;
 
+    // [FIX 1] Instant Teleport on Start
+    // If camera is > 100 units away (e.g. at 0,0 while player is at 2000,2000), snap it.
+    if (Vector3Distance(camera.position, player_position) > 100.0f) {
+        camera.position = desiredPos;
+    }
+
     // 2. Collision Check: Raycast from Player TO Camera
-    // We step from the player towards the camera. If we hit a wall, we stop there.
     // Checks after W is pressed for first time
     if (checkcamera_collision) {
         float dx = desiredPos.x - player_position.x;
         float dz = desiredPos.z - player_position.z;
         
-        // Number of checks between player and camera (higher = smoother, lower = faster)
-        int steps = 10; 
+        int steps = 8; // Optimized steps
         
-        for (int i = 1; i <= steps; i++) {
+        // [FIX 2] Start loop at 2 instead of 1.
+        // This ignores collisions in the first 20% of the distance (the player's car body).
+        for (int i = 2; i <= steps; i++) {
             float t = (float)i / steps;
             
-            // Calculate a point 't' percent of the way to the camera
             float checkX = player_position.x + (dx * t);
             float checkZ = player_position.z + (dz * t);
 
-            // <--- FIX IS HERE: Added radius argument (0.2f)
-            if (CheckMapCollision(map, checkX, checkZ, 0.2f)) {
+            // Using slightly smaller radius (0.1f) for camera ray to avoid snagging on light poles
+            if (CheckMapCollision(map, checkX, checkZ, 0.1f)) {
                 // WALL HIT! 
-                // Place camera slightly closer to player than the wall (buffer) to avoid clipping
-                float buffer = 0.2f; 
-                desiredPos.x = player_position.x + (dx * (t - buffer/camDist));
-                desiredPos.z = player_position.z + (dz * (t - buffer/camDist));
-                break; // Stop checking, we found the wall
+                // [FIX 3] Safety Buffer Calculation
+                // Don't pull closer than 20% (t=0.2) or it clips into car
+                float safeT = fmaxf(t - 0.1f, 0.2f); 
+                
+                desiredPos.x = player_position.x + (dx * safeT);
+                desiredPos.z = player_position.z + (dz * safeT);
+                // Lift camera up if compressed against wall
+                desiredPos.y += 1.0f * (1.0f - safeT); 
+                break; 
             }
         }
     }
 
-    // 3. Smoothly move Camera to the safe spot (Lerp)
-    // We apply smoothing to the FINAL calculated position, not the raw movement
-    float smoothSpeed = 5.0f;
+    // 3. Smoothly move Camera
+    float smoothSpeed = 8.0f; // Snappier response
     camera.position.x += (desiredPos.x - camera.position.x) * smoothSpeed * dt;
     camera.position.z += (desiredPos.z - camera.position.z) * smoothSpeed * dt;
     camera.position.y += (desiredPos.y - camera.position.y) * smoothSpeed * dt;
 
-    // 4. Look at player
-    camera.target = player_position;
+    // 4. Look at player (with slight offset up)
+    camera.target = (Vector3){ player_position.x, player_position.y + 0.5f, player_position.z };
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <float.h> 
+#include <ctype.h>
 
 // --- MAPS APP STATE ---
 typedef struct {
@@ -90,6 +91,39 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
         if (dSq < minDistSq) { minDistSq = dSq; bestPoint = closest; }
     }
     return bestPoint;
+}
+
+// [NEW] Helper to lower-case a string safely
+void ToLowerStr(const char* src, char* dest) {
+    for (int i = 0; src[i]; i++) {
+        dest[i] = tolower((unsigned char)src[i]);
+    }
+    dest[strlen(src)] = '\0'; // Null terminate
+}
+
+// [NEW] Custom Search Function (Replaces external SearchLocations)
+int SearchMapInternal(GameMap *map, const char *query, MapLocation *results) {
+    int count = 0;
+    char queryLower[64];
+    char nameLower[64];
+
+    // 1. Convert query to lower case once
+    ToLowerStr(query, queryLower);
+
+    for (int i = 0; i < map->locationCount; i++) {
+        if (map->locations[i].type == LOC_HOUSE) continue;
+
+        // 2. Convert location name to lower case
+        ToLowerStr(map->locations[i].name, nameLower);
+
+        // 3. Check if query is inside name
+        if (strstr(nameLower, queryLower) != NULL) {
+            results[count] = map->locations[i];
+            count++;
+            if (count >= MAX_SEARCH_RESULTS) break;
+        }
+    }
+    return count;
 }
 
 // [UPDATED] Recommendations now respect the filter
@@ -343,7 +377,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.searchQuery[mapsState.searchCharCount + 1] = '\0';
                 mapsState.searchCharCount++;
                 // If typing, standard search (ignores filter as requested)
-                mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
+                mapsState.resultCount = SearchMapInternal(map, mapsState.searchQuery, mapsState.searchResults);
             }
             key = GetCharPressed();
         }

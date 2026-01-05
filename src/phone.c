@@ -2,7 +2,7 @@
 #include "raymath.h"
 #include <stdio.h>
 #include <stdlib.h> 
-
+#include "save.h"
 #include "player.h" 
 #include "map.h"
 #include "maps_app.h" 
@@ -169,9 +169,13 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
     }
 }
 
-void DrawAppSettings(PhoneState *phone, Vector2 mouse, bool click) {
+void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
+    // Note: I added 'Player *player' to the arguments of this function in the switch statement below!
+    
     DrawRectangle(0, 0, SCREEN_WIDTH, 60, GRAY);
     DrawText("SETTINGS", 20, 20, 20, WHITE);
+    
+    // --- Volume Controls ---
     DrawText("Master Volume", 20, 80, 20, DARKGRAY);
     DrawRectangle(20, 110, 200, 10, LIGHTGRAY);
     DrawRectangle(20, 110, 200 * phone->settings.masterVolume, 10, BLUE);
@@ -194,6 +198,38 @@ void DrawAppSettings(PhoneState *phone, Vector2 mouse, bool click) {
     
     if (GuiButton(muteBtn, muteText, muteColor, mouse, click)) {
         phone->settings.mute = !phone->settings.mute;
+    }
+
+    // --- DATA MANAGEMENT SECTION ---
+    DrawLine(20, 260, SCREEN_WIDTH-20, 260, DARKGRAY);
+    DrawText("GAME DATA", 20, 270, 20, DARKGRAY);
+
+    Rectangle saveBtn = { 20, 300, 110, 50 };
+    Rectangle loadBtn = { 150, 300, 110, 50 };
+    Rectangle resetBtn = { 20, 370, 240, 40 };
+
+    // SAVE BUTTON
+    if (GuiButton(saveBtn, "SAVE", BLUE, mouse, click)) {
+        if (SaveGame(player, phone)) {
+            ShowPhoneNotification("Game Saved!", GREEN);
+        } else {
+            ShowPhoneNotification("Save Failed!", RED);
+        }
+    }
+
+    // LOAD BUTTON
+    if (GuiButton(loadBtn, "LOAD", ORANGE, mouse, click)) {
+        if (LoadGame(player, phone)) {
+            ShowPhoneNotification("Game Loaded!", ORANGE);
+        } else {
+            ShowPhoneNotification("No Save Found", GRAY);
+        }
+    }
+
+    // RESET BUTTON
+    if (GuiButton(resetBtn, "RESET DATA", RED, mouse, click)) {
+        ResetSaveGame(player, phone);
+        ShowPhoneNotification("Data Wiped", RED);
     }
 }
 
@@ -307,7 +343,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             case APP_BANK: DrawAppBank(phone, player); break; 
             case APP_MAP: DrawMapsApp(map); break;
             case APP_MUSIC: DrawAppMusic(phone, localMouse, click); break;
-            case APP_SETTINGS: DrawAppSettings(phone, localMouse, click); break;
+            case APP_SETTINGS: DrawAppSettings(phone, player, localMouse, click); break; // Added 'player'
             case APP_BROWSER: DrawText("404 Error", 80, 250, 20, RED); break;
             case APP_CAR_MONITOR: DrawCarMonitorApp(player, localMouse, click); break; // [NEW]
             default: break;
