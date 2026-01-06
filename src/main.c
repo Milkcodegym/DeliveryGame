@@ -16,13 +16,27 @@
 #include "mechanic.h" 
 #include "save.h"
 
+void FixPath(void) {
+    // 1. Loop 5 times trying to find the "resources" folder
+    for (int i = 0; i < 5; i++) {
+        if (DirectoryExists("resources")) {
+            // Found it! We are in the right folder. Stop searching.
+            TraceLog(LOG_INFO, "PATH FIX: Found resources folder.");
+            return;
+        }
+        // Not found? Move up one folder ("..")
+        ChangeDirectory("..");
+    }
+}
+
 // Forward declaration if not in map.h
 void DrawZoneMarker(Vector3 pos, Color color);
 
 int main(void)
 {
+    FixPath();
     // Initialize Window
-    InitWindow(1280, 720, "Delivery Game - v0.3");
+    InitWindow(1280, 720, "Delivery Game - v0.4");
 
     int monitorWidth = GetMonitorWidth(0);
     int monitorHeight = GetMonitorHeight(0);

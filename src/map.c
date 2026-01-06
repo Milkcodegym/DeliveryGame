@@ -60,9 +60,9 @@ const float MAP_SCALE = 0.4f;
 #define SECTOR_WIDTH (int)(WORLD_SIZE_METERS / SECTOR_SIZE)
 
 // LOD Distances
-const float LOD_DIST_PROPS = 60.0f;    
-const float LOD_DIST_WINDOWS = 120.0f;  
-const float LOD_DIST_STATIC = 600.0f; // Distance for baked walls/roads
+const float LOD_DIST_PROPS = 300.0f;    
+const float LOD_DIST_WINDOWS = 150.0f;  
+const float LOD_DIST_STATIC = 150.0f; // Distance for baked walls/roads
 
 #define MODEL_SCALE 1.8f         
 #define MODEL_Z_SQUISH 0.4f      
@@ -105,6 +105,12 @@ typedef struct {
     int buildingCount;
     int buildingCapacity;
     Vector2 center;
+
+    // --- NEW: Optimization for GetClosestNode ---
+    int *nodeIndices;      
+    int nodeCount;         
+    int nodeCapacity;      
+    // ---------------------------------------------
 } Chunk;
 
 // [OPTIMIZATION] Static Geometry Sector
@@ -114,12 +120,8 @@ typedef struct {
     bool hasGeometry;
 } Sector;
 
-// [OPTIMIZATION] Global Render Buffer (The Mega-Batch)
-#define MAX_VISIBLE_INSTANCES 100000
-typedef struct {
-    Matrix *transforms;
-    int count; 
-} GlobalBatch;
+
+// [DELETED] GlobalBatch typedef is gone.
 
 typedef struct {
     Model models[ASSET_COUNT];       
@@ -130,8 +132,7 @@ typedef struct {
     Chunk *chunks;
     Sector *sectors;
     
-    // Global buffers for single-draw-call rendering
-    GlobalBatch globalBatches[BATCH_GROUPS][ASSET_COUNT];
+    // [DELETED] globalBatches removed from here
     
     bool mapBaked;
     Shader instancingShader;
@@ -175,6 +176,19 @@ Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
     for(int i = 0; i < count; i++) center = Vector2Add(center, footprint[i]);
     center.x /= count; center.y /= count;
     return center;
+}
+
+void RegisterNodeToGrid(int nodeIdx, Vector2 pos) {
+    int idx = GetChunkIndex(pos);
+    if (idx < 0 || idx >= GRID_WIDTH * GRID_WIDTH) return;
+
+    Chunk *c = &cityRenderer.chunks[idx];
+    
+    if (c->nodeCount >= c->nodeCapacity) {
+        c->nodeCapacity = (c->nodeCapacity == 0) ? 32 : c->nodeCapacity * 2;
+        c->nodeIndices = (int*)realloc(c->nodeIndices, c->nodeCapacity * sizeof(int));
+    }
+    c->nodeIndices[c->nodeCount++] = nodeIdx;
 }
 
 // --- BAKING HELPERS ---
@@ -430,11 +444,12 @@ BuildingStyle GetBuildingStyle(Vector2 pos) {
     return style;
 }
 
-// [OPTIMIZATION] Bakes Walls/Corners/Beams into static mesh. Instances ONLY windows/doors/AC.
 void BakeBuildingGeometry(Building *b, SectorBuilder *sectors) {
     float floorHeight = 3.0f * (MODEL_SCALE / 4.0f); 
     Vector2 bCenter = GetBuildingCenter(b->footprint, b->pointCount);
     BuildingStyle style = GetBuildingStyle(bCenter);
+    
+    // Determine Building Height
     if (style.isSkyscraper) floorHeight *= 0.85f; 
     int floors = (int)(b->height / floorHeight);
     if (style.isSkyscraper && floors < 6) floors = 6;
@@ -442,78 +457,86 @@ void BakeBuildingGeometry(Building *b, SectorBuilder *sectors) {
     
     float visualHeight = floors * floorHeight;
     b->height = visualHeight; 
+    
+    // Determine Colors
     int colorIdx = (style.isWhiteTheme) ? 5 : (abs((int)b->footprint[0].x) + abs((int)b->footprint[0].y)) % 5;
     Color wallColor = (colorIdx == 5) ? WHITE : cityPalette[colorIdx];
-    float structuralDepth = MODEL_SCALE * MODEL_Z_SQUISH; 
-    float cornerThick = structuralDepth * 0.85f; 
+    
+    // --- SIMPLE SETTINGS ---
+    // 1. Windows at 0.0 (Physics line)
+    float windowOffset = 0.35f;
+    // 2. The Solid Wall sits behind (-0.20)
+    float wallOffset = -0.2f;
+    // 3. Wall Thickness (Thin)
+    float wallThickness = (MODEL_SCALE * MODEL_Z_SQUISH) * 0.25f;
 
     for (int i = 0; i < b->pointCount; i++) {
         Vector2 p1 = b->footprint[i];
         Vector2 p2 = b->footprint[(i + 1) % b->pointCount];
         float dist = Vector2Distance(p1, p2);
         if (dist < 0.5f) continue;
+        
         Vector2 dir = Vector2Normalize(Vector2Subtract(p2, p1));
         Vector2 wallNormal = { -dir.y, dir.x };
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
         float modelRotation = -angle;
+        
+        // Ensure wall faces outward
         Vector2 wallMid = Vector2Scale(Vector2Add(p1, p2), 0.5f);
         if (Vector2DotProduct(wallNormal, Vector2Subtract(bCenter, wallMid)) > 0) {
             wallNormal = Vector2Negate(wallNormal); modelRotation += 180.0f;                
         }
-        
-        // 1. Bake Corner
-        Vector2 cornerInset = Vector2Scale(Vector2Normalize(Vector2Subtract(bCenter, p1)), 0.05f);
-        Vector3 cornerPos = { p1.x + cornerInset.x, visualHeight/2.0f, p1.y + cornerInset.y };
-        int sIdx = GetSectorIndex((Vector2){cornerPos.x, cornerPos.z});
-        BakeCubeToSector(&sectors[sIdx], cornerPos, -angle, (Vector3){cornerThick, visualHeight, cornerThick}, wallColor);
 
-        // 2. Loop Modules
+        // --- PART A: THE SOLID WALL (One big slab) ---
+        // Calculate the center position of this wall section
+        Vector2 wallCenter2D = { 
+            wallMid.x + (wallNormal.x * wallOffset), 
+            wallMid.y + (wallNormal.y * wallOffset) 
+        };
+        Vector3 wallPos = { wallCenter2D.x, visualHeight / 2.0f, wallCenter2D.y };
+        
+        // Find Sector and Bake ONE cube for the entire wall
+        int sIdx = GetSectorIndex((Vector2){wallPos.x, wallPos.z});
+        
+        // dist + 0.2f adds a tiny overlap to close corners automatically
+        BakeCubeToSector(&sectors[sIdx], wallPos, -angle, (Vector3){dist + 0.2f, visualHeight, wallThickness}, wallColor);
+
+
+        // --- PART B: THE WINDOWS (Instancing Loop) ---
         float moduleWidth = 2.0f * (MODEL_SCALE / 4.0f); 
         int modulesCount = (int)(dist / moduleWidth);
         float remainingSpace = dist - (modulesCount * moduleWidth);
         float startOffset = (remainingSpace / 2.0f) + (moduleWidth / 2.0f);
         Vector2 currentPos2D = Vector2Add(p1, Vector2Scale(dir, startOffset)); 
-        float outwardOffset = 0.35f; 
-        Vector3 floorBeamScale = { moduleWidth * 1.05f, 0.3f, structuralDepth * 0.25f };
         
+        float structuralDepth = MODEL_SCALE * MODEL_Z_SQUISH; // Needed for window scaling
+
         for (int m = 0; m < modulesCount; m++) {
             for (int f = 0; f < floors; f++) {
                 float yPos = (f * floorHeight) + 0.1f;
-                Vector3 pos = { currentPos2D.x + (wallNormal.x * outwardOffset), yPos, currentPos2D.y + (wallNormal.y * outwardOffset) };
                 
+                // Place Window at 0.0 (On the physics line)
+                Vector3 winPos = { currentPos2D.x + (wallNormal.x * windowOffset), yPos, currentPos2D.y + (wallNormal.y * windowOffset) };
+
+                // Select Asset
                 bool isDoor = (f == 0 && m == modulesCount / 2);
                 if (isDoor) {
-                    AddInstanceToGrid(colorIdx, style.doorFrame, pos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
-                    AddInstanceToGrid(colorIdx, style.doorInner, pos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth * 0.8f });
+                    AddInstanceToGrid(colorIdx, style.doorFrame, winPos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
+                    AddInstanceToGrid(colorIdx, style.doorInner, winPos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth * 0.8f });
                 } else {
                     bool wantsBalcony = (!style.isSkyscraper && f > 0 && f < floors-1 && (m % 2 != 0) && GetRandomValue(0, 100) < 40);
-                    if (wantsBalcony) AddInstanceToGrid(colorIdx, style.balcony, pos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
+                    if (wantsBalcony) AddInstanceToGrid(colorIdx, style.balcony, winPos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
                     else {
                         AssetType winType = (f == floors - 1) ? style.windowTop : style.window;
-                        AddInstanceToGrid(colorIdx, winType, pos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
+                        AddInstanceToGrid(colorIdx, winType, winPos, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
                         if (style.hasAC && f < floors-1 && GetRandomValue(0, 100) < 15) {
-                            AddInstanceToGrid(colorIdx, (GetRandomValue(0,1)?ASSET_AC_A:ASSET_AC_B), (Vector3){pos.x, pos.y-0.4f, pos.z}, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
+                            AddInstanceToGrid(colorIdx, (GetRandomValue(0,1)?ASSET_AC_A:ASSET_AC_B), (Vector3){winPos.x, winPos.y-0.4f, winPos.z}, modelRotation, (Vector3){ MODEL_SCALE, MODEL_SCALE, structuralDepth });
                         }
                     }
                 }
-                
-                if (!style.isSkyscraper && f > 0) {
-                    Vector3 beamPos = { pos.x, (f * floorHeight), pos.z };
-                    BakeCubeToSector(&sectors[sIdx], beamPos, modelRotation, floorBeamScale, wallColor);
-                }
-                if (f == floors - 1) { // Cornice
-                    Vector3 cornicePos = { currentPos2D.x + (wallNormal.x * 0.15f), visualHeight, currentPos2D.y + (wallNormal.y * 0.15f) };
-                    BakeCubeToSector(&sectors[sIdx], cornicePos, modelRotation, (Vector3){ moduleWidth * 1.05f, 0.3f, structuralDepth }, wallColor);
-                }
+                // NOTE: We DELETED the "Bake Beam" code here because the Solid Wall covers it!
             }
             currentPos2D = Vector2Add(currentPos2D, Vector2Scale(dir, moduleWidth));
-        }
-        
-        if (remainingSpace > 0.1f) {
-            Vector2 f1 = Vector2Add(p1, Vector2Scale(dir, remainingSpace/4.0f));
-            BakeCubeToSector(&sectors[sIdx], (Vector3){f1.x, visualHeight/2.0f, f1.y}, -angle, (Vector3){remainingSpace/2.0f, visualHeight, structuralDepth}, wallColor);
-            Vector2 f2 = Vector2Add(p2, Vector2Scale(dir, -remainingSpace/4.0f));
-            BakeCubeToSector(&sectors[sIdx], (Vector3){f2.x, visualHeight/2.0f, f2.y}, -angle, (Vector3){remainingSpace/2.0f, visualHeight, structuralDepth}, wallColor);
         }
     }
 }
@@ -651,6 +674,28 @@ void BakeMapElements(GameMap *map) {
 
 // --- INIT & LOAD ---
 
+// Helper to clean up the loading code
+void LoadAndSetupAsset(int enumIdx, const char* filename) {
+    char fullPath[256];
+    sprintf(fullPath, "resources/Buildings/%s", filename);
+    
+    // 1. Load
+    cityRenderer.models[enumIdx] = LoadModel(fullPath);
+    
+    // 2. Fallback
+    if (cityRenderer.models[enumIdx].meshCount == 0) {
+        cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
+    } else {
+        // 3. Shader Setup (Crucial for instancing)
+        for(int i=0; i<cityRenderer.models[enumIdx].materialCount; i++) {
+            cityRenderer.models[enumIdx].materials[i].shader = cityRenderer.instancingShader;
+            if(cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture.id > 0) {
+                GenTextureMipmaps(&cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture);
+            }
+        }
+    }
+}
+
 void LoadCityAssets() {
     if (cityRenderer.loaded) return;
     
@@ -660,14 +705,6 @@ void LoadCityAssets() {
     
     cityRenderer.sectors = calloc(SECTOR_WIDTH*SECTOR_WIDTH, sizeof(Sector));
 
-    // [OPTIMIZATION] Allocate Mega-Batches
-    for(int g=0; g<BATCH_GROUPS; g++) {
-        for(int m=0; m<ASSET_COUNT; m++) {
-            cityRenderer.globalBatches[g][m].transforms = malloc(MAX_VISIBLE_INSTANCES * sizeof(Matrix));
-            cityRenderer.globalBatches[g][m].count = 0;
-        }
-    }
-
     cityRenderer.instancingShader = LoadShaderFromMemory(INSTANCING_VSH, INSTANCING_FSH);
     cityRenderer.instancingShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(cityRenderer.instancingShader, "instanceTransform");
 
@@ -675,46 +712,32 @@ void LoadCityAssets() {
     cityRenderer.whiteTex = LoadTextureFromImage(whiteImg);
     UnloadImage(whiteImg);
 
-    #define LOAD_ASSET(enumIdx, filename) \
-        { \
-            char fullPath[256]; sprintf(fullPath, "resources/Buildings/%s", filename); \
-            cityRenderer.models[enumIdx] = LoadModel(fullPath); \
-            if (cityRenderer.models[enumIdx].meshCount == 0) cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f)); \
-            else { \
-                for(int i=0; i<cityRenderer.models[enumIdx].materialCount; i++) { \
-                    cityRenderer.models[enumIdx].materials[i].shader = cityRenderer.instancingShader; \
-                    if(cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture.id > 0) \
-                       GenTextureMipmaps(&cityRenderer.models[enumIdx].materials[i].maps[MATERIAL_MAP_DIFFUSE].texture); \
-                } \
-            } \
-        }
+    // Load Real Assets
+    LoadAndSetupAsset(ASSET_AC_A, "detail-ac-a.obj");
+    LoadAndSetupAsset(ASSET_AC_B, "detail-ac-b.obj");
+    LoadAndSetupAsset(ASSET_BALCONY, "balcony.obj");
+    LoadAndSetupAsset(ASSET_BALCONY_WHITE, "balcony_white.obj");
+    LoadAndSetupAsset(ASSET_DOOR_BROWN, "door-brown.obj");
+    LoadAndSetupAsset(ASSET_DOOR_BROWN_GLASS, "door-brown-glass.obj");
+    LoadAndSetupAsset(ASSET_DOOR_BROWN_WIN, "door-brown-window.obj");
+    LoadAndSetupAsset(ASSET_DOOR_WHITE, "door-white.obj"); 
+    LoadAndSetupAsset(ASSET_DOOR_WHITE_GLASS, "door-white-glass.obj");
+    LoadAndSetupAsset(ASSET_DOOR_WHITE_WIN, "door-white-window.obj");
+    LoadAndSetupAsset(ASSET_FRAME_DOOR1, "door1.obj");
+    LoadAndSetupAsset(ASSET_FRAME_SIMPLE, "simple_door.obj");
+    LoadAndSetupAsset(ASSET_FRAME_TENT, "doorframe_glass_tent.obj");
+    LoadAndSetupAsset(ASSET_FRAME_WIN, "window_door.obj");
+    LoadAndSetupAsset(ASSET_FRAME_WIN_WHITE, "window_door_white.obj");
+    LoadAndSetupAsset(ASSET_WIN_SIMPLE, "Windows_simple.obj");
+    LoadAndSetupAsset(ASSET_WIN_SIMPLE_W, "Windows_simple_white.obj");
+    LoadAndSetupAsset(ASSET_WIN_DET, "Windows_detailed.obj");
+    LoadAndSetupAsset(ASSET_WIN_DET_W, "Windows_detailed_white.obj");
+    LoadAndSetupAsset(ASSET_WIN_TWIN_TENT, "Twin_window_tents.obj");
+    LoadAndSetupAsset(ASSET_WIN_TWIN_TENT_W, "Twin_window_tents_white.obj");
+    LoadAndSetupAsset(ASSET_WIN_TALL, "windows_tall.obj");
+    LoadAndSetupAsset(ASSET_WIN_TALL_TOP, "windows_tall_top.obj");
 
-    // Load OBJs
-    LOAD_ASSET(ASSET_AC_A, "detail-ac-a.obj");
-    LOAD_ASSET(ASSET_AC_B, "detail-ac-b.obj");
-    LOAD_ASSET(ASSET_BALCONY, "balcony.obj");
-    LOAD_ASSET(ASSET_BALCONY_WHITE, "balcony_white.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN, "door-brown.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "door-brown-glass.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "door-brown-window.obj");
-    LOAD_ASSET(ASSET_DOOR_WHITE, "door-white.obj"); 
-    LOAD_ASSET(ASSET_DOOR_WHITE_GLASS, "door-white-glass.obj");
-    LOAD_ASSET(ASSET_DOOR_WHITE_WIN, "door-white-window.obj");
-    LOAD_ASSET(ASSET_FRAME_DOOR1, "door1.obj");
-    LOAD_ASSET(ASSET_FRAME_SIMPLE, "simple_door.obj");
-    LOAD_ASSET(ASSET_FRAME_TENT, "doorframe_glass_tent.obj");
-    LOAD_ASSET(ASSET_FRAME_WIN, "window_door.obj");
-    LOAD_ASSET(ASSET_FRAME_WIN_WHITE, "window_door_white.obj");
-    LOAD_ASSET(ASSET_WIN_SIMPLE, "Windows_simple.obj");
-    LOAD_ASSET(ASSET_WIN_SIMPLE_W, "Windows_simple_white.obj");
-    LOAD_ASSET(ASSET_WIN_DET, "Windows_detailed.obj");
-    LOAD_ASSET(ASSET_WIN_DET_W, "Windows_detailed_white.obj");
-    LOAD_ASSET(ASSET_WIN_TWIN_TENT, "Twin_window_tents.obj");
-    LOAD_ASSET(ASSET_WIN_TWIN_TENT_W, "Twin_window_tents_white.obj");
-    LOAD_ASSET(ASSET_WIN_TALL, "windows_tall.obj");
-    LOAD_ASSET(ASSET_WIN_TALL_TOP, "windows_tall_top.obj");
-
-    // Procedural Placeholders (Only for Prop instances now)
+    // Procedural Cubes
     Model cubeModel = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f));
     Material propMat = LoadMaterialDefault();
     propMat.shader = cityRenderer.instancingShader;
@@ -767,73 +790,120 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
 // --- RENDER PIPELINE ---
 
 void DrawGameMap(GameMap *map, Camera camera) {
+    // Add this static buffer at the top of map.c or inside DrawGameMap
+    // We use a static buffer to avoid malloc/free every frame.
+    // 20,000 instances max per draw call is plenty for a frame.
+    #define MAX_FRAME_INSTANCES 20000
+    static Matrix frameInstanceBuffer[MAX_FRAME_INSTANCES];
+
     rlDisableBackfaceCulling();
     Vector2 pPos = {camera.position.x, camera.position.z};
     
-    // 0. Floor
+    // --- 0. Floor & Basics ---
     DrawPlane((Vector3){0, -0.05f, 0}, (Vector2){10000.0f, 10000.0f}, (Color){80, 80, 80, 255});
 
     if (!cityRenderer.mapBaked) return;
 
-    // 1. Draw Static Sectors (Contains ROADS, WALLS, SIDEWALKS)
+    // --- 1. Draw Static Sectors (Baked Walls/Roads) ---
     int pSecIdx = GetSectorIndex(pPos);
-    int sx = pSecIdx % SECTOR_WIDTH; int sy = pSecIdx / SECTOR_WIDTH;
+    int sx = pSecIdx % SECTOR_WIDTH; 
+    int sy = pSecIdx / SECTOR_WIDTH;
     
-    // Draw 3x3 sectors (covers immediate area)
-    for(int y=-1; y<=1; y++) {
-        for(int x=-1; x<=1; x++) {
-            int tx = sx+x; int ty = sy+y;
-            if(tx>=0 && tx<SECTOR_WIDTH && ty>=0 && ty<SECTOR_WIDTH) {
-                Sector *s = &cityRenderer.sectors[ty*SECTOR_WIDTH+tx];
-                if(s->hasGeometry) DrawModel(s->staticModel, (Vector3){0,0,0}, 1.0f, WHITE);
-            }
-        }
-    }
+    // LOGIC FIX 1: Calculate loop range dynamically
+    // If we want to see 300m, and sectors are 128m, we need 300/128 = ~3 sectors.
+    // We add +1 for safety (so we see corners).
+    int sectorRange = (int)(LOD_DIST_STATIC / SECTOR_SIZE) + 1;
 
-    // 2. Clear Mega-Batch Buffers
-    for(int g=0; g<BATCH_GROUPS; g++) {
-        for(int m=0; m<ASSET_COUNT; m++) cityRenderer.globalBatches[g][m].count = 0;
-    }
-
-    // 3. Cull Chunks & Aggregate Instances
-    int pChunkIdx = GetChunkIndex(pPos);
-    int cx = pChunkIdx % GRID_WIDTH; int cy = pChunkIdx / GRID_WIDTH;
-    int range = 6; 
-    
-    for(int y=-range; y<=range; y++) {
-        for(int x=-range; x<=range; x++) {
-            int tx = cx+x; int ty = cy+y;
-            if(tx<0 || tx>=GRID_WIDTH || ty<0 || ty>=GRID_WIDTH) continue;
+    for(int y = -sectorRange; y <= sectorRange; y++) { 
+        for(int x = -sectorRange; x <= sectorRange; x++) {
+            int tx = sx + x; 
+            int ty = sy + y;
             
-            Chunk *c = &cityRenderer.chunks[ty*GRID_WIDTH+tx];
-            float dist = Vector2Distance(pPos, c->center);
-            
-            // Only process instances (Windows/Props) if relatively close
-            if (dist > LOD_DIST_WINDOWS) continue; 
-            
-            // Append this chunk's instances to global batch
-            for(int g=0; g<BATCH_GROUPS; g++) {
-                for(int m=0; m<ASSET_COUNT; m++) {
-                    ChunkBatch *b = &c->batches[g][m];
-                    if (b->count == 0) continue;
-                    
-                    GlobalBatch *gb = &cityRenderer.globalBatches[g][m];
-                    if (gb->count + b->count > MAX_VISIBLE_INSTANCES) continue; // safety
-                    
-                    memcpy(gb->transforms + gb->count, b->transforms, b->count * sizeof(Matrix));
-                    gb->count += b->count;
+            if(tx >= 0 && tx < SECTOR_WIDTH && ty >= 0 && ty < SECTOR_WIDTH) {
+                Sector *s = &cityRenderer.sectors[ty * SECTOR_WIDTH + tx];
+                
+                // Calculate Center
+                Vector2 secCenter = { 
+                    (tx * SECTOR_SIZE) + SECTOR_SIZE/2.0f, 
+                    (ty * SECTOR_SIZE) + SECTOR_SIZE/2.0f 
+                };
+                
+                // LOGIC FIX 2: Better Distance Check
+                // We check: Is the (Distance - Radius) < Limit?
+                // Sector Radius (center to corner) is approx SECTOR_SIZE * 0.71
+                float sectorRadius = SECTOR_SIZE * 0.71f; 
+                float distToCenter = Vector2Distance(pPos, secCenter);
+                
+                // If the CLOSEST point of the sector is within range, draw it.
+                if ((distToCenter - sectorRadius) < LOD_DIST_STATIC) {
+                    if(s->hasGeometry) DrawModel(s->staticModel, (Vector3){0,0,0}, 1.0f, WHITE);
                 }
             }
         }
     }
+    // --- 2. OPTIMIZED INSTANCING ---
+    // We calculate player chunk once
+    int pChunkIdx = GetChunkIndex(pPos);
+    int cx = pChunkIdx % GRID_WIDTH; 
+    int cy = pChunkIdx / GRID_WIDTH;
+    
+    // How many chunks radius to check? 
+    // If CHUNK_SIZE is 64 and Windows vanish at 120m, range 2 is enough (2*64 = 128).
+    int range = 3; 
 
-    // 4. DRAW Mega-Batches (Reduced Draw Calls)
-    for(int g=0; g<BATCH_GROUPS; g++) {
-        for(int m=0; m<ASSET_COUNT; m++) {
-            GlobalBatch *gb = &cityRenderer.globalBatches[g][m];
-            if (gb->count > 0) {
+    // Loop 1: ASSETS (Minimize State Changes)
+    for(int m=0; m<ASSET_COUNT; m++) {
+        if (cityRenderer.models[m].meshCount == 0) continue;
+
+        // Loop 2: GROUPS (Colors/Styles)
+        for(int g=0; g<BATCH_GROUPS; g++) {
+            
+            int instanceCount = 0;
+
+            // Loop 3: SPATIAL GATHERING (The "Fix")
+            // Instead of drawing immediately, we collect matrices from all nearby chunks
+            for(int y=-range; y<=range; y++) {
+                for(int x=-range; x<=range; x++) {
+                    int tx = cx+x; int ty = cy+y;
+                    
+                    // Grid bounds check
+                    if(tx<0 || tx>=GRID_WIDTH || ty<0 || ty>=GRID_WIDTH) continue;
+                    
+                    Chunk *c = &cityRenderer.chunks[ty*GRID_WIDTH+tx];
+
+                    // DISTANCE CULLING (Dynamic Objects)
+                    // We check distance to the CHUNK center, not individual objects (much faster)
+                    float dx = c->center.x - pPos.x;
+                    float dy = c->center.y - pPos.y;
+                    float distSqr = dx*dx + dy*dy;
+                    
+                    // If chunk is further than visual limit, skip gathering its data
+                    if (distSqr > LOD_DIST_WINDOWS * LOD_DIST_WINDOWS) continue;
+
+                    ChunkBatch *b = &c->batches[g][m];
+                    
+                    // Safety check to prevent buffer overflow
+                    if (instanceCount + b->count < MAX_FRAME_INSTANCES) {
+                        // Copy this chunk's matrices into our global frame buffer
+                        // memcpy is extremely fast
+                        if (b->count > 0 && b->transforms != NULL) {
+                            memcpy(&frameInstanceBuffer[instanceCount], b->transforms, b->count * sizeof(Matrix));
+                            instanceCount += b->count;
+                        }
+                    }
+                }
+            }
+
+            // Loop 3 Finished: We now have ONE list of all visible instances for this asset
+            if (instanceCount > 0) {
+                // Set Tint
                 cityRenderer.models[m].materials[0].maps[MATERIAL_MAP_DIFFUSE].color = cityRenderer.groupTints[g][m];
-                DrawMeshInstanced(cityRenderer.models[m].meshes[0], cityRenderer.models[m].materials[0], gb->transforms, gb->count);
+                
+                // SINGLE DRAW CALL for potentially thousands of objects
+                DrawMeshInstanced(cityRenderer.models[m].meshes[0], 
+                                  cityRenderer.models[m].materials[0], 
+                                  frameInstanceBuffer, 
+                                  instanceCount);
             }
         }
     }
@@ -981,79 +1051,159 @@ void BuildMapGraph(GameMap *map) {
             map->graph[u].capacity = (map->graph[u].capacity == 0) ? 4 : map->graph[u].capacity * 2;
             map->graph[u].connections = realloc(map->graph[u].connections, map->graph[u].capacity * sizeof(GraphConnection));
         }
-        map->graph[u].connections[map->graph[u].count++] = (GraphConnection){v, dist};
+        map->graph[u].connections[map->graph[u].count++] = (GraphConnection){v, dist, i};
         if (map->graph[v].count >= map->graph[v].capacity) {
             map->graph[v].capacity = (map->graph[v].capacity == 0) ? 4 : map->graph[v].capacity * 2;
             map->graph[v].connections = realloc(map->graph[v].connections, map->graph[v].capacity * sizeof(GraphConnection));
         }
-        map->graph[v].connections[map->graph[v].count++] = (GraphConnection){u, dist};
+        map->graph[v].connections[map->graph[v].count++] = (GraphConnection){u, dist, i};
     }
 }
 
 int GetClosestNode(GameMap *map, Vector2 position) {
-    int bestNode = -1; float minDst = FLT_MAX;
-    for (int i = 0; i < map->nodeCount; i++) {
-        if (map->graph && map->graph[i].count == 0) continue; 
-        if (fabsf(position.x - map->nodes[i].position.x) > 100.0f) continue;
-        if (fabsf(position.y - map->nodes[i].position.y) > 100.0f) continue;
-        float d = Vector2DistanceSqr(position, map->nodes[i].position);
-        if (d < minDst) { minDst = d; bestNode = i; }
+    int bestNode = -1; 
+    float minDst = FLT_MAX;
+    
+    // Identify which chunk the position is in
+    int centerIdx = GetChunkIndex(position);
+    int cx = centerIdx % GRID_WIDTH; 
+    int cy = centerIdx / GRID_WIDTH;
+
+    // Search 3x3 chunks around the point
+    for (int y = -1; y <= 1; y++) {
+        for (int x = -1; x <= 1; x++) {
+            int tx = cx + x; 
+            int ty = cy + y;
+            
+            if (tx >= 0 && tx < GRID_WIDTH && ty >= 0 && ty < GRID_WIDTH) {
+                Chunk *c = &cityRenderer.chunks[ty * GRID_WIDTH + tx];
+                
+                // Only check nodes inside these nearby chunks
+                for (int i = 0; i < c->nodeCount; i++) {
+                    int nodeIdx = c->nodeIndices[i];
+                    
+                    // Optional: Skip disconnected nodes if needed
+                    // if (map->graph && map->graph[nodeIdx].count == 0) continue; 
+
+                    float d = Vector2DistanceSqr(position, map->nodes[nodeIdx].position);
+                    
+                    // Hard limit: Don't snap to roads further than 100 meters
+                    if (d < 100.0f * 100.0f) { 
+                        if (d < minDst) { 
+                            minDst = d; 
+                            bestNode = nodeIdx; 
+                        }
+                    }
+                }
+            }
+        }
     }
     return bestNode;
 }
 
+// Define static buffers (reused every frame)
+// CAUTION: This makes FindPath NOT thread-safe, but standard Raylib is single-threaded anyway.
+static float gScore[MAX_NODES];
+static float fScore[MAX_NODES];
+static int comeFrom[MAX_NODES];
+static bool inOpenSet[MAX_NODES];
+static int openList[MAX_NODES];
+
 int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen) {
     if (!map->graph) BuildMapGraph(map);
+
+    // 1. Fast lookup using the new Grid system
     int startNode = GetClosestNode(map, startPos);
     int endNode = GetClosestNode(map, endPos);
+
     if (startNode == -1 || endNode == -1 || startNode == endNode) return 0;
-    
-    float *gScore = malloc(map->nodeCount * sizeof(float));
-    float *fScore = malloc(map->nodeCount * sizeof(float));
-    int *comeFrom = malloc(map->nodeCount * sizeof(int));
-    bool *inOpenSet = calloc(map->nodeCount, sizeof(bool)); 
-    for(int i=0; i<map->nodeCount; i++) { gScore[i] = FLT_MAX; fScore[i] = FLT_MAX; comeFrom[i] = -1; }
-    
-    int *openList = malloc(map->nodeCount * sizeof(int));
+
+    // 2. Initialize buffers (Resetting memory is faster than Allocating it)
+    // We only strictly need to reset gScore/fScore/inOpenSet for nodes we visit, 
+    // but resetting all is safer and likely fast enough (memset is optimized).
+    for (int i = 0; i < map->nodeCount; i++) {
+        gScore[i] = FLT_MAX;
+        fScore[i] = FLT_MAX;
+        // comeFrom and inOpenSet don't strictly need full reset if we manage them well,
+        // but let's be safe.
+        inOpenSet[i] = false;
+    }
+
     int openCount = 0;
+    
+    // Setup Start
     gScore[startNode] = 0;
     fScore[startNode] = Vector2Distance(map->nodes[startNode].position, map->nodes[endNode].position);
     openList[openCount++] = startNode;
     inOpenSet[startNode] = true;
-    
-    int found = 0;
+
+    bool found = false;
+
+    // A* Loop
     while (openCount > 0) {
+        // Find lowest fScore (Simple linear search is OK for low openCount, 
+        // but a Binary Heap would be better for massive paths. keeping it simple for now).
         int lowestIdx = 0;
-        for(int i=1; i<openCount; i++) { if (fScore[openList[i]] < fScore[openList[lowestIdx]]) lowestIdx = i; }
+        for (int i = 1; i < openCount; i++) {
+            if (fScore[openList[i]] < fScore[openList[lowestIdx]]) lowestIdx = i;
+        }
+
         int current = openList[lowestIdx];
-        if (current == endNode) { found = 1; break; }
+
+        if (current == endNode) {
+            found = true;
+            break;
+        }
+
+        // Remove current from OpenList
         openList[lowestIdx] = openList[openCount - 1];
         openCount--;
         inOpenSet[current] = false;
-        
+
+        // Check Neighbors
         for (int i = 0; i < map->graph[current].count; i++) {
             int neighbor = map->graph[current].connections[i].targetNodeIndex;
             float weight = map->graph[current].connections[i].distance;
+            
             float tentative_g = gScore[current] + weight;
+
             if (tentative_g < gScore[neighbor]) {
                 comeFrom[neighbor] = current;
                 gScore[neighbor] = tentative_g;
                 fScore[neighbor] = gScore[neighbor] + Vector2Distance(map->nodes[neighbor].position, map->nodes[endNode].position);
-                if (!inOpenSet[neighbor]) { openList[openCount++] = neighbor; inOpenSet[neighbor] = true; }
+                
+                if (!inOpenSet[neighbor]) {
+                    openList[openCount++] = neighbor;
+                    inOpenSet[neighbor] = true;
+                }
             }
         }
     }
+
+    // Reconstruct Path
     int pathLen = 0;
     if (found) {
         int curr = endNode;
-        Vector2 *tempPath = malloc(maxPathLen * sizeof(Vector2));
+        // We can reuse the static openList buffer as a temp stack for the path 
+        // to avoid another malloc, or just use a local small array.
+        // Let's use a local array since paths are usually short.
+        int *pathIndices = (int*)malloc(maxPathLen * sizeof(int)); 
         int count = 0;
-        while (curr != -1 && count < maxPathLen) { tempPath[count++] = map->nodes[curr].position; curr = comeFrom[curr]; }
-        for(int i=0; i<count; i++) outPath[i] = tempPath[count - 1 - i];
+        
+        while (curr != startNode && curr != -1 && count < maxPathLen) {
+            pathIndices[count++] = curr;
+            curr = comeFrom[curr];
+        }
+        pathIndices[count++] = startNode; // Add start node
+
+        // Reverse into outPath
+        for(int i=0; i<count; i++) {
+            outPath[i] = map->nodes[pathIndices[count - 1 - i]].position;
+        }
         pathLen = count;
-        free(tempPath);
+        free(pathIndices);
     }
-    free(gScore); free(fScore); free(comeFrom); free(inOpenSet); free(openList);
+
     return pathLen;
 }
 
@@ -1092,14 +1242,17 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
 void UnloadGameMap(GameMap *map) {
     if (cityRenderer.loaded) {
         UnloadTexture(cityRenderer.whiteTex);
-        // Free Global Batches
-        for(int g=0; g<BATCH_GROUPS; g++) {
-            for(int m=0; m<ASSET_COUNT; m++) if(cityRenderer.globalBatches[g][m].transforms) free(cityRenderer.globalBatches[g][m].transforms);
-        }
+        
+        // [DELETED] The loop freeing globalBatches is GONE.
+        
         // Free Chunks
         for(int i=0; i<GRID_WIDTH*GRID_WIDTH; i++) {
             Chunk *c = &cityRenderer.chunks[i];
             if(c->buildingIndices) free(c->buildingIndices);
+
+            // --- NEW: Free Nodes ---
+            if(c->nodeIndices) free(c->nodeIndices);
+            // -----------------------
             for(int g=0; g<BATCH_GROUPS; g++) 
                 for(int m=0; m<ASSET_COUNT; m++) if(c->batches[g][m].transforms) free(c->batches[g][m].transforms);
         }
@@ -1110,14 +1263,11 @@ void UnloadGameMap(GameMap *map) {
         }
         free(cityRenderer.sectors);
         
-        // Free Models (Skip ASSET_WALL, ASSET_CORNER etc because they weren't loaded as files)
-        // Only loadable assets
+        // Free Models
         for (int m = 0; m < ASSET_PROP_TREE; m++) {
-             // Only unload if it was a loaded model (checking vertex count > 0 is a rough heuristic, 
-             // but simpler: check index against enum)
              if (m < ASSET_WALL) UnloadModel(cityRenderer.models[m]);
         }
-        UnloadModel(cityRenderer.models[ASSET_PROP_TREE]); // Shared procedural model
+        UnloadModel(cityRenderer.models[ASSET_PROP_TREE]); 
         
         cityRenderer.loaded = false;
     }
@@ -1180,6 +1330,10 @@ GameMap LoadGameMap(const char *fileName) {
                     map.nodes[map.nodeCount].id = id;
                     map.nodes[map.nodeCount].position = (Vector2){x * MAP_SCALE, y * MAP_SCALE};
                     map.nodes[map.nodeCount].flags = flags;
+
+                    // --- NEW: Register to Grid immediately ---
+                    RegisterNodeToGrid(map.nodeCount, map.nodes[map.nodeCount].position);
+                    // -----------------------------------------
                     map.nodeCount++;
                 }
             } else if (mode == 2 && map.edgeCount < MAX_EDGES) {

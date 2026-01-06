@@ -8,12 +8,17 @@
             "type": "process",
             "command": "make",
             "windows": {
-                "command": "mingw32-make.exe",
+                "command": "mingw32-make.exe"
+            },
+            "linux": {
+                "args": [
+                    "config=debug_x64"
+                ]
             },
             "osx": {
                 "args": [
                     "config=debug_arm64"
-                ],
+                ]
             },
             "group": {
                 "kind": "build",
@@ -22,19 +27,26 @@
             "problemMatcher": [
                 "$gcc"
             ],
-            "dependsOn":["UpdateMake"]
+            "dependsOn": [
+                "UpdateMake"
+            ]
         },
         {
             "label": "build debug no premake",
             "type": "process",
             "command": "make",
             "windows": {
-                "command": "mingw32-make.exe",
+                "command": "mingw32-make.exe"
+            },
+            "linux": {
+                "args": [
+                    "config=debug_x64"
+                ]
             },
             "osx": {
                 "args": [
                     "config=debug_arm64"
-                ],
+                ]
             },
             "group": {
                 "kind": "build",
@@ -52,23 +64,25 @@
                 "command": "mingw32-make.exe",
                 "args": [
                     "config=release_x64"
-                ],
+                ]
             },
             "linux": {
                 "args": [
                     "config=release_x64"
-                ],
+                ]
             },
             "osx": {
                 "args": [
                     "config=release_arm64"
-                ],
+                ]
             },
             "group": "build",
             "problemMatcher": [
                 "$gcc"
             ],
-            "dependsOn":["UpdateMake"]
+            "dependsOn": [
+                "UpdateMake"
+            ]
         },
         {
             "label": "Clean",
@@ -78,23 +92,25 @@
                 "command": "mingw32-make.exe",
                 "args": [
                     "clean"
-                ],
+                ]
             },
             "linux": {
                 "args": [
                     "clean"
-                ],
+                ]
             },
             "osx": {
                 "args": [
                     "clean"
-                ],
+                ]
             },
             "group": "build",
             "problemMatcher": [
                 "$gcc"
             ],
-            "dependsOn":["UpdateMake"]
+            "dependsOn": [
+                "UpdateMake"
+            ]
         },
         {
             "label": "UpdateMake",
@@ -113,10 +129,12 @@
                 "command": "./premake5"
             },
             "osx": {
-                "command": "premake5.osx"
+                "command": "./premake5.osx"
             },
             "group": "build",
-            "dependsOn": ["Generate compile_commands.json"]
+            "dependsOn": [
+                "Generate compile_commands.json"
+            ]
         },
         {
             "label": "Generate compile_commands.json",
@@ -135,7 +153,7 @@
                 "command": "./premake5"
             },
             "osx": {
-                "command": "premake5.osx"
+                "command": "./premake5.osx"
             },
             "group": "build",
             "problemMatcher": []

@@ -80,6 +80,7 @@ typedef struct {
 typedef struct {
     int targetNodeIndex;
     float distance;
+    int edgeIndex;
 } GraphConnection;
 
 typedef struct {
