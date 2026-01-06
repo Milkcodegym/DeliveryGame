@@ -541,43 +541,121 @@ void BakeBuildingGeometry(Building *b, SectorBuilder *sectors) {
     }
 }
 
-// [OPTIMIZATION] Bakes sidewalks into static mesh. Instances props.
+void BakeIntersections(GameMap *map, SectorBuilder *sectors) {
+    for (int i = 0; i < map->nodeCount; i++) {
+        Vector2 nodePos = map->nodes[i].position;
+        
+        // 1. Calculate the required size
+        // We find the widest road connected to this node
+        float maxHalfWidth = 0.0f;
+        int connections = 0;
+        for (int e = 0; e < map->edgeCount; e++) {
+            if (map->edges[e].startNode == i || map->edges[e].endNode == i) {
+                float w = (map->edges[e].width * MAP_SCALE); 
+                if (w > maxHalfWidth) maxHalfWidth = w;
+                connections++;
+            }
+        }
+        if (connections == 0) continue;
+
+        int sIdx = GetSectorIndex(nodePos);
+        int segments = 8;
+        
+        // [FIX] Radius Scale: 1.45x ensures the flat edge of the octagon 
+        // completely covers the corners of the incoming square road.
+        float roadRadius = maxHalfWidth * 1.45f;         
+        float sidewalkRadius = roadRadius + 2.5f; 
+        
+        // [FIX] Height: Lowered to 0.025f (Just 5mm above the road).
+        // This stops the "Floating" look while preventing Z-fighting.
+        Vector3 rCenter = {nodePos.x, 0.025f, nodePos.y};
+        Vector3 swCenter = {nodePos.x, 0.022f, nodePos.y}; 
+        Color swColor = (Color){180, 180, 180, 255};
+
+        for (int j = 0; j < segments; j++) {
+            // [FIX] Winding Order
+            // Previous code calculated angles in a way that produced Clockwise triangles.
+            // We swap the order here to ensure they face UP.
+            float ang1 = (j * 360.0f / segments) * DEG2RAD;
+            float ang2 = ((j + 1) * 360.0f / segments) * DEG2RAD;
+            
+            // Calc points for Road
+            Vector3 rp1 = { rCenter.x + cosf(ang1)*roadRadius, rCenter.y, rCenter.z + sinf(ang1)*roadRadius };
+            Vector3 rp2 = { rCenter.x + cosf(ang2)*roadRadius, rCenter.y, rCenter.z + sinf(ang2)*roadRadius };
+
+            // Calc points for Sidewalk
+            Vector3 swp1 = { swCenter.x + cosf(ang1)*sidewalkRadius, swCenter.y, swCenter.z + sinf(ang1)*sidewalkRadius };
+            Vector3 swp2 = { swCenter.x + cosf(ang2)*sidewalkRadius, swCenter.y, swCenter.z + sinf(ang2)*sidewalkRadius };
+            
+            // DRAW: Note the order is now Center -> P1 -> P2 (Counter-Clockwise)
+            PushSectorTri(&sectors[sIdx], rCenter, rp1, rp2, COLOR_ROAD);
+            PushSectorTri(&sectors[sIdx], swCenter, swp1, swp2, swColor);
+        }
+    }
+}
+
+// [FIX] Improved Road Details
+// Shortens sidewalks so they don't stab into the intersection
 void BakeRoadDetails(GameMap *map, SectorBuilder *sectors) {
-    float sidewalkW = 2.5f; float propSpacing = 15.0f; 
+    float sidewalkW = 2.5f; 
+    float propSpacing = 15.0f; 
+
     for(int i=0; i<map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
+        
         Vector2 s = map->nodes[e.startNode].position;
         Vector2 en = map->nodes[e.endNode].position;
         float finalRoadW = (e.width * MAP_SCALE) * 2.0f;
+        float len = Vector2Distance(s, en);
+
+        // [FIX] Skip tiny roads to prevent visual glitches
+        if (len < 5.0f) continue; 
+
         Vector2 dir = Vector2Normalize(Vector2Subtract(en, s));
         Vector2 right = { -dir.y, dir.x };
-        float len = Vector2Distance(s, en);
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
+        
+        // [FIX] Determine offsets
+        // We stop the sidewalk 'gap' meters before the node to let BakeIntersections handle the corner.
+        float gap = finalRoadW * 0.5f; 
+        float effLen = len - (gap * 2.0f); // Shorten from both ends
+        if (effLen < 1.0f) continue;       // Road too short for sidewalk
+
         float offsetDist = (finalRoadW / 2.0f) + (sidewalkW / 2.0f);
         
         for(int side=-1; side<=1; side+=2) {
-            Vector2 swStart = Vector2Add(Vector2Add(s, Vector2Scale(right, offsetDist * side)), Vector2Scale(dir, 0));
-            float swLen = len;
-            if (swLen < 0.1f) continue;
-            Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, swLen/2.0f));
+            // Calculate start point adjusted by 'gap'
+            Vector2 swStartRaw = Vector2Add(s, Vector2Scale(right, offsetDist * side));
+            Vector2 swStart = Vector2Add(swStartRaw, Vector2Scale(dir, gap));
+
+            Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, effLen/2.0f));
             int sIdx = GetSectorIndex(swMid);
             
-            // BAKE SIDEWALK CUBE
-            BakeCubeToSector(&sectors[sIdx], (Vector3){ swMid.x, 0.10f, swMid.y }, -angle, (Vector3){swLen, 0.10f, sidewalkW}, (Color){180, 180, 180, 255});
+            // [FIX] Layer Height: 0.05f to match Intersection curb
+            BakeCubeToSector(&sectors[sIdx], 
+                             (Vector3){ swMid.x, 0.05f, swMid.y }, 
+                             -angle, 
+                             (Vector3){effLen, 0.15f, sidewalkW}, 
+                             (Color){180, 180, 180, 255});
 
             // INSTANCE PROPS
-            int propCount = (int)(swLen / propSpacing);
+            int propCount = (int)(effLen / propSpacing);
             for(int p=0; p<propCount; p++) {
                 float distAlong = (p * propSpacing) + (propSpacing * 0.5f);
                 Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, distAlong));
                 
+                // Collision Check for Props
                 bool blocked = false;
-                for(int L=0; L<map->locationCount; L++) if(Vector2Distance(propPos2D, map->locations[L].position) < 8.0f) blocked = true;
+                for(int L=0; L<map->locationCount; L++) 
+                    if(Vector2Distance(propPos2D, map->locations[L].position) < 8.0f) blocked = true;
                 if (blocked) continue;
 
-                Vector3 propPos = { propPos2D.x, 0.2f, propPos2D.y };
+                // [FIX] Prop height relative to sidewalk
+                Vector3 propPos = { propPos2D.x, 0.15f, propPos2D.y }; 
                 float rot = (side == 1) ? -angle : -angle + 180.0f; 
+                
+                // ... (Prop generation logic remains the same) ...
                 int roll = GetRandomValue(0, 100);
                 if (roll < 40) { 
                       AddInstanceToGrid(5, ASSET_PROP_TREE, propPos, rot, (Vector3){ 0.8f, 3.5f, 0.8f });
@@ -590,7 +668,6 @@ void BakeRoadDetails(GameMap *map, SectorBuilder *sectors) {
     }
 }
 
-// [OPTIMIZATION] Main baking entry point
 void BakeMapElements(GameMap *map) {
     if (cityRenderer.mapBaked) return;
     printf("Baking Massive Static Sectors...\n");
@@ -599,26 +676,38 @@ void BakeMapElements(GameMap *map) {
     SectorBuilder *sectors = calloc(sectorCount, sizeof(SectorBuilder));
     int *tempIndices = (int*)malloc(1024 * sizeof(int));
     
-    // 1. Bake Roads
+    // --- STEP 1: BAKE ROADS (The Asphalt) ---
+    // CRITICAL: These go Center-to-Center. NO GAPS allowed here.
     for (int i = 0; i < map->edgeCount; i++) {
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
+        
         Vector2 s = map->nodes[e.startNode].position;
         Vector2 en = map->nodes[e.endNode].position;
         int sIdx = GetSectorIndex(s);
         
         float width = (e.width * MAP_SCALE) * 2.0f;
-        Vector3 start = {s.x, 0.02f, s.y}; Vector3 end = {en.x, 0.02f, en.y};
+        
+        // HEIGHT: 0.02f (Base Layer)
+        Vector3 start = {s.x, 0.02f, s.y}; 
+        Vector3 end = {en.x, 0.02f, en.y};
+        
         Vector3 diff = Vector3Subtract(end, start);
         if (Vector3Length(diff) < 0.1f) continue;
+        
         Vector3 right = Vector3Normalize(Vector3CrossProduct((Vector3){0,1,0}, diff));
         Vector3 halfW = Vector3Scale(right, width * 0.5f);
         
-        PushSectorTri(&sectors[sIdx], Vector3Subtract(start, halfW), Vector3Add(end, halfW), Vector3Add(start, halfW), (Color){40,40,40,255});
-        PushSectorTri(&sectors[sIdx], Vector3Subtract(start, halfW), Vector3Subtract(end, halfW), Vector3Add(end, halfW), (Color){40,40,40,255});
+        // Draw Rectangle (Start -> End)
+        PushSectorTri(&sectors[sIdx], Vector3Subtract(start, halfW), Vector3Add(end, halfW), Vector3Add(start, halfW), COLOR_ROAD);
+        PushSectorTri(&sectors[sIdx], Vector3Subtract(start, halfW), Vector3Subtract(end, halfW), Vector3Add(end, halfW), COLOR_ROAD);
     }
 
-    // 2. Bake Buildings (Walls & Roofs)
+    // --- STEP 2: BAKE INTERSECTIONS (The Cap) ---
+    // This draws the octagon ON TOP of the messy joints from Step 1
+    BakeIntersections(map, sectors);
+
+    // --- STEP 3: BAKE BUILDINGS ---
     for (int i = 0; i < map->buildingCount; i++) {
         RegisterBuildingToGrid(i, map->buildings[i].footprint, map->buildings[i].pointCount);
         BakeBuildingGeometry(&map->buildings[i], sectors);
@@ -636,7 +725,7 @@ void BakeMapElements(GameMap *map) {
         }
     }
 
-    // 3. Bake Areas/Foliage
+    // --- STEP 4: BAKE AREAS ---
     for (int i = 0; i < map->areaCount; i++) {
         if(map->areas[i].pointCount < 3) continue;
         Color col = map->areas[i].color;
@@ -651,11 +740,12 @@ void BakeMapElements(GameMap *map) {
             Vector2 p1 = map->areas[i].points[j];
             Vector2 p2 = map->areas[i].points[(j+1)%map->areas[i].pointCount];
             PushSectorTri(&sectors[sIdx], (Vector3){center.x, 0.01f, center.y}, 
-                         (Vector3){p2.x, 0.01f, p2.y}, (Vector3){p1.x, 0.01f, p1.y}, col);
+                          (Vector3){p2.x, 0.01f, p2.y}, (Vector3){p1.x, 0.01f, p1.y}, col);
         }
     }
 
-    // 4. Bake Sidewalks
+    // --- STEP 5: BAKE SIDEWALKS ---
+    // This function (BakeRoadDetails) *DOES* have gaps, which is correct for sidewalks.
     BakeRoadDetails(map, sectors);
 
     // Finalize
@@ -671,7 +761,6 @@ void BakeMapElements(GameMap *map) {
     free(sectors); free(tempIndices);
     cityRenderer.mapBaked = true;
 }
-
 // --- INIT & LOAD ---
 
 // Helper to clean up the loading code
