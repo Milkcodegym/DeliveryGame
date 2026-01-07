@@ -29,6 +29,16 @@ const float RENDER_DIST_SQUARED = 100.0f * 100.0f; // Pre-calculated for fast ch
 #define SECTOR_GRID_COLS 60
 #define SECTOR_WORLD_OFFSET 3000.0f // Offset to handle negative coordinates
 
+// --- COLLISION OPTIMIZATION ---
+typedef struct {
+    int *indices;   // List of building indices in this cell
+    int count;
+    int capacity;
+} CollisionCell;
+
+static CollisionCell colGrid[SECTOR_GRID_ROWS][SECTOR_GRID_COLS] = {0};
+static bool colGridLoaded = false;
+
 typedef enum {
     ASSET_AC_A = 0, ASSET_AC_B, ASSET_BALCONY, ASSET_BALCONY_WHITE,
     ASSET_DOOR_BROWN, ASSET_DOOR_BROWN_GLASS, ASSET_DOOR_BROWN_WIN,
@@ -131,6 +141,40 @@ bool IsValidEar(Vector2 a, Vector2 b, Vector2 c, Vector2 *poly, int count, int *
         if (CheckCollisionPointTriangle(p, a, b, c)) return false;
     }
     return true;
+}
+
+void BuildCollisionGrid(GameMap *map) {
+    if (colGridLoaded) return;
+
+    // Initialize Grid
+    for(int y=0; y<SECTOR_GRID_ROWS; y++) {
+        for(int x=0; x<SECTOR_GRID_COLS; x++) {
+            colGrid[y][x].count = 0;
+            colGrid[y][x].capacity = 0;
+            colGrid[y][x].indices = NULL;
+        }
+    }
+
+    // Populate Grid
+    for (int i = 0; i < map->buildingCount; i++) {
+        Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
+        
+        int gx = (int)((center.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int gy = (int)((center.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
+        // Safety Check
+        if (gx < 0 || gx >= SECTOR_GRID_COLS || gy < 0 || gy >= SECTOR_GRID_ROWS) continue;
+
+        // Add to cell
+        CollisionCell *cell = &colGrid[gy][gx];
+        if (cell->count >= cell->capacity) {
+            cell->capacity = (cell->capacity == 0) ? 4 : cell->capacity * 2;
+            cell->indices = (int*)realloc(cell->indices, cell->capacity * sizeof(int));
+        }
+        cell->indices[cell->count++] = i;
+    }
+    colGridLoaded = true;
+    printf("Collision Grid Built.\n");
 }
 
 int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
@@ -1139,7 +1183,7 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
 
 // --- RENDER ---
 void DrawGameMap(GameMap *map, Camera camera) {
-    rlDisableBackfaceCulling(); 
+    //rlDisableBackfaceCulling(); commented out for performance boost
     Vector2 pPos2D = { camera.position.x, camera.position.z };
 
     // Infinite Floor (Regular Gray)
@@ -1153,25 +1197,28 @@ void DrawGameMap(GameMap *map, Camera camera) {
         DrawModel(cityRenderer.roofModel, (Vector3){0,0,0}, 1.0f, WHITE); 
     } 
 
-    // 2. Baked Sectors (Replaces Instanced Buildings)
-    // [OPTIMIZATION] Simple Frustum Culling / Distance Check
-    for (int y = 0; y < SECTOR_GRID_ROWS; y++) {
-        for (int x = 0; x < SECTOR_GRID_COLS; x++) {
+    // 2. Baked Sectors (OPTIMIZED: Only loop through visible range)
+    // Calculate render range in grid coordinates
+    int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE) + 2; // +2 buffer
+    
+    // Convert Camera Pos to Grid Pos
+    int camGridX = (int)((pPos2D.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int camGridY = (int)((pPos2D.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
+    // Clamp values to grid bounds
+    int minX = camGridX - range; if (minX < 0) minX = 0;
+    int maxX = camGridX + range; if (maxX >= SECTOR_GRID_COLS) maxX = SECTOR_GRID_COLS - 1;
+    int minY = camGridY - range; if (minY < 0) minY = 0;
+    int maxY = camGridY + range; if (maxY >= SECTOR_GRID_ROWS) maxY = SECTOR_GRID_ROWS - 1;
+
+    // Loop ONLY through the relevant square of sectors
+    for (int y = minY; y <= maxY; y++) {
+        for (int x = minX; x <= maxX; x++) {
              Sector *sec = &cityRenderer.sectors[y][x];
              if (!sec->active || sec->isEmpty) continue;
-
-             // Fast distance check to sector center (approx)
-             Vector2 secCenter = { (x * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET + (GRID_CELL_SIZE/2), 
-                                   (y * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET + (GRID_CELL_SIZE/2) };
              
-             float dx = secCenter.x - pPos2D.x;
-             float dy = secCenter.y - pPos2D.y;
-             float distSq = dx*dx + dy*dy;
-             
-             // Expand render distance slightly for sectors to avoid popping
-             if (distSq < (RENDER_DIST_SQUARED * 1.5f)) {
-                 DrawModel(sec->model, (Vector3){0,0,0}, 1.0f, WHITE);
-             }
+             // We can skip the distance check now because the loop IS the distance check
+             DrawModel(sec->model, (Vector3){0,0,0}, 1.0f, WHITE);
         }
     }
     
@@ -1280,20 +1327,39 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
 
 // [OPTIMIZATION] Fast Collision Check
 bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
-    Vector2 p = { x, z };
-    
-    for (int i = 0; i < map->buildingCount; i++) {
-        Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
-        if (fabsf(p.x - center.x) > 60.0f) continue; 
-        if (fabsf(p.y - center.y) > 60.0f) continue;
+    // 1. Determine which cell the object is in
+    int gx = (int)((x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int gy = (int)((z + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
-        if (CheckCollisionPointPoly(p, map->buildings[i].footprint, map->buildings[i].pointCount)) return true;
+    Vector2 p = { x, z };
+
+    // 2. Check 3x3 grid around player (to handle straddling borders)
+    for (int y = gy - 1; y <= gy + 1; y++) {
+        for (int x = gx - 1; x <= gx + 1; x++) {
+            
+            // Bounds check
+            if (x < 0 || x >= SECTOR_GRID_COLS || y < 0 || y >= SECTOR_GRID_ROWS) continue;
+
+            CollisionCell *cell = &colGrid[y][x];
+            
+            // 3. Check ONLY buildings in this cell
+            for (int k = 0; k < cell->count; k++) {
+                int bIdx = cell->indices[k];
+                Building *b = &map->buildings[bIdx];
+
+                // Precise Poly Check
+                if (CheckCollisionPointPoly(p, b->footprint, b->pointCount)) return true;
+            }
+        }
     }
+
+    // 4. Check Events (Keep this global as there are few of them)
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
             if (Vector2Distance(p, map->events[i].position) < (map->events[i].radius + radius)) return true;
         }
     }
+
     return false;
 }
 
@@ -1340,6 +1406,14 @@ void UnloadGameMap(GameMap *map) {
         }
         
         cityRenderer.loaded = false;
+    }
+    if (colGridLoaded) {
+        for(int y=0; y<SECTOR_GRID_ROWS; y++) {
+            for(int x=0; x<SECTOR_GRID_COLS; x++) {
+                if (colGrid[y][x].indices) free(colGrid[y][x].indices);
+            }
+        }
+        colGridLoaded = false;
     }
 }
 
@@ -1576,6 +1650,6 @@ GameMap LoadGameMap(const char *fileName) {
         }
     }
     printf("Baking Complete. Total Static Vertices: %d\n", totalVerts);
-
+    BuildCollisionGrid(&map);
     return map;
 }
