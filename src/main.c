@@ -92,7 +92,6 @@ int main(void)
 
         while (!WindowShouldClose()){
             float dt = GetFrameTime();
-            
             // 1. UPDATE PHASE
             if (frameCounter > WARMUP_FRAMES) {
                 // --- DEATH CHECK ---
@@ -188,7 +187,7 @@ int main(void)
                 BeginMode3D(camera);
                     DrawGrid(100, 1.0f);
                     DrawGameMap(&map, camera);
-                    
+                    UpdateRuntimeParks(&map, camera.position);
                     // Draw Deliveries
                     for(int i=0; i<5; i++) {
                         DeliveryTask *t = &phone.tasks[i];

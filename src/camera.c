@@ -14,8 +14,8 @@ void InitCamera(){
 
 void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
     // 1. Target Position
-    float camDist = 7.0f;       
-    float camHeight = 3.5f;     
+    float camDist = 3.2f;       
+    float camHeight = 1.5f;     
 
     Vector3 desiredPos;
     desiredPos.x = player_position.x - camDist * sinf(player_angle * DEG2RAD);

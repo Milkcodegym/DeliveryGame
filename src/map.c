@@ -40,6 +40,7 @@ static CollisionCell colGrid[SECTOR_GRID_ROWS][SECTOR_GRID_COLS] = {0};
 static bool colGridLoaded = false;
 
 typedef enum {
+    // --- Existing Building Parts ---
     ASSET_AC_A = 0, ASSET_AC_B, ASSET_BALCONY, ASSET_BALCONY_WHITE,
     ASSET_DOOR_BROWN, ASSET_DOOR_BROWN_GLASS, ASSET_DOOR_BROWN_WIN,
     ASSET_DOOR_WHITE, ASSET_DOOR_WHITE_GLASS, ASSET_DOOR_WHITE_WIN,
@@ -48,10 +49,31 @@ typedef enum {
     ASSET_WIN_SIMPLE, ASSET_WIN_SIMPLE_W, ASSET_WIN_DET, ASSET_WIN_DET_W,
     ASSET_WIN_TWIN_TENT, ASSET_WIN_TWIN_TENT_W,
     ASSET_WIN_TALL, ASSET_WIN_TALL_TOP,
-    ASSET_WALL, ASSET_CORNER,
-    ASSET_SIDEWALK,
-    ASSET_PROP_TREE, ASSET_PROP_BENCH, ASSET_PROP_HYDRANT, ASSET_PROP_LIGHT,
-    ASSET_PROP_PARK_TREE, 
+    ASSET_WALL, ASSET_CORNER, ASSET_SIDEWALK,
+    
+    // --- New Vegetation ---
+    ASSET_PROP_TREE_LARGE, 
+    ASSET_PROP_TREE_SMALL,
+    ASSET_PROP_FLOWERS,
+    ASSET_PROP_GRASS,
+
+    // --- New Props ---
+    ASSET_PROP_BENCH, 
+    ASSET_PROP_TRASH,
+    ASSET_PROP_LIGHT_CURVED, 
+    ASSET_PROP_BOX,
+    ASSET_PROP_CONE,
+    ASSET_PROP_CONE_FLAT,
+    ASSET_PROP_BARRIER,
+    ASSET_PROP_CONST_LIGHT, 
+
+    // --- Vehicles ---
+    ASSET_CAR_DELIVERY,
+    ASSET_CAR_HATCHBACK,
+    ASSET_CAR_SEDAN,
+    ASSET_CAR_SUV,
+    ASSET_CAR_VAN,
+
     ASSET_COUNT
 } AssetType;
 
@@ -478,6 +500,38 @@ Model BakeStaticGeometryLegacy(float *vertices, float *colors, int triangleCount
     return LoadModelFromMesh(mesh);
 }
 
+// Helper: Check if a point is reasonably close to the city (prevents void spawning)
+bool IsInsideCityContext(GameMap *map, Vector2 pos) {
+    // 1. Simple Bounding Box Check (Fast)
+    // You should cache these values in the map struct ideally, but calculating them here is okay for now
+    static float minX = 10000.0f, maxX = -10000.0f, minY = 10000.0f, maxY = -10000.0f;
+    static bool boundsCalculated = false;
+
+    if (!boundsCalculated && map->buildingCount > 0) {
+        for(int i=0; i<map->buildingCount; i++) {
+             if (map->buildings[i].footprint[0].x < minX) minX = map->buildings[i].footprint[0].x;
+             if (map->buildings[i].footprint[0].x > maxX) maxX = map->buildings[i].footprint[0].x;
+             if (map->buildings[i].footprint[0].y < minY) minY = map->buildings[i].footprint[0].y;
+             if (map->buildings[i].footprint[0].y > maxY) maxY = map->buildings[i].footprint[0].y;
+        }
+        // Add buffer
+        minX -= 20.0f; maxX += 20.0f; minY -= 20.0f; maxY += 20.0f;
+        boundsCalculated = true;
+    }
+
+    if (pos.x < minX || pos.x > maxX || pos.y < minY || pos.y > maxY) return false;
+
+    // 2. Proximity Check (Slower but accurate)
+    // Must be within 60 meters of a building to be considered "City"
+    for (int i=0; i<map->buildingCount; i++) {
+         // Fast dist check to first point of building
+         if (Vector2DistanceSqr(pos, map->buildings[i].footprint[0]) < 60.0f*60.0f) return true;
+    }
+
+    return false;
+}
+
+
 void GenerateParkFoliage(GameMap *map, MapArea *area) {
     if (area->pointCount < 3) return;
     
@@ -491,12 +545,14 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
     
     float areaW = maxX - minX;
     float areaH = maxY - minY;
-    int treeCount = (int)((areaW * areaH) / 150.0f);
-    if(treeCount > 30) treeCount = 30; 
+    int itemPoints = (int)((areaW * areaH) / 60.0f);
+    if(itemPoints > 80) itemPoints = 80; 
     
-    Color treeTint = (Color){10, 90, 20, 255};
+    Color treeTint = (Color){20, 90, 40, 255};
+    Color grassTint = (Color){60, 110, 20, 255};
+    Color flowerTint = (Color){200, 200, 200, 255};
 
-    for(int k=0; k<treeCount; k++) {
+    for(int k=0; k<itemPoints; k++) {
         float tx = GetRandomValue((int)minX, (int)maxX);
         float ty = GetRandomValue((int)minY, (int)maxY);
         Vector2 tPos = {tx, ty};
@@ -504,14 +560,246 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
         if (CheckCollisionPointPoly(tPos, area->points, area->pointCount)) {
             Vector3 pos = {tPos.x, 0.0f, tPos.y};
             float rot = GetRandomValue(0, 360);
-            Vector3 scale = { 1.5f, 4.0f, 1.5f }; 
-            BakeObjectToSector(ASSET_PROP_PARK_TREE, pos, rot, scale, treeTint);
             
-            Vector3 lPos = {tPos.x, 3.5f, tPos.y};
-            Vector3 lScale = { 3.5f, 3.0f, 3.5f };
-            BakeObjectToSector(ASSET_PROP_PARK_TREE, lPos, rot, lScale, treeTint);
+            int typeRoll = GetRandomValue(0, 100);
+            
+            if (typeRoll < 20) {
+                // Large Tree (5x Scale)
+                Vector3 scale = { 7.5f, 7.5f, 7.5f };
+                BakeObjectToSector(ASSET_PROP_TREE_LARGE, pos, rot, scale, treeTint);
+            } else if (typeRoll < 50) {
+                // Small Tree (5x Scale)
+                Vector3 scale = { 5.0f, 5.0f, 5.0f };
+                BakeObjectToSector(ASSET_PROP_TREE_SMALL, pos, rot, scale, treeTint);
+            } else if (typeRoll < 80) {
+                Vector3 scale = { 2.0f, 1.0f, 2.0f };
+                BakeObjectToSector(ASSET_PROP_GRASS, pos, rot, scale, grassTint);
+            } else {
+                Vector3 scale = { 1.5f, 1.0f, 1.5f };
+                BakeObjectToSector(ASSET_PROP_FLOWERS, pos, rot, scale, flowerTint);
+            }
         }
     }
+}
+
+// --- HELPER FOR GENERATION ---
+// Checks if a grid cell is close to a line segment (Roads)
+bool IsPointNearSegment(Vector2 p, Vector2 a, Vector2 b, float threshold) {
+    Vector2 pa = Vector2Subtract(p, a);
+    Vector2 ba = Vector2Subtract(b, a);
+    float lenSq = Vector2DotProduct(ba, ba);
+    
+    // Fix: Prevent division by zero if startNode == endNode
+    if (lenSq < 0.0001f) return (Vector2DistanceSqr(p, a) < threshold * threshold);
+
+    float h = Clamp(Vector2DotProduct(pa, ba) / lenSq, 0.0f, 1.0f);
+    Vector2 distVec = Vector2Subtract(pa, Vector2Scale(ba, h));
+    return (Vector2LengthSqr(distVec) < threshold * threshold);
+}
+
+// Math helper: Intersection of Ray (Origin, Dir) vs Segment (P1, P2)
+// Returns distance, or FLT_MAX if no hit
+float GetRaySegmentIntersection(Vector2 rayOrigin, Vector2 rayDir, Vector2 p1, Vector2 p2) {
+    Vector2 v1 = Vector2Subtract(rayOrigin, p1);
+    Vector2 v2 = Vector2Subtract(p2, p1);
+    Vector2 v3 = {-rayDir.y, rayDir.x};
+
+    float dot = Vector2DotProduct(v2, v3);
+    if (fabs(dot) < 0.000001f) return FLT_MAX; // Parallel
+
+    float t1 = Vector2CrossProduct(v2, v1) / dot;
+    float t2 = Vector2DotProduct(v1, v3) / dot;
+
+    if (t1 >= 0.0f && (t2 >= 0.0f && t2 <= 1.0f)) {
+        return t1;
+    }
+    return FLT_MAX;
+}
+
+// Find nearest obstacle distance in a specific direction
+float CastParkRay(GameMap *map, Vector2 origin, Vector2 dir, float maxDist) {
+    float closest = maxDist;
+
+    // 1. Check Buildings
+    // Using the sector grid for speed
+    int gx = (int)((origin.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int gy = (int)((origin.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
+    for (int y = gy - 1; y <= gy + 1; y++) {
+        for (int x = gx - 1; x <= gx + 1; x++) {
+            if (x < 0 || x >= SECTOR_GRID_COLS || y < 0 || y >= SECTOR_GRID_ROWS) continue;
+            
+            CollisionCell *cell = &colGrid[y][x];
+            for (int k = 0; k < cell->count; k++) {
+                Building *b = &map->buildings[cell->indices[k]];
+                for (int p = 0; p < b->pointCount; p++) {
+                    Vector2 w1 = b->footprint[p];
+                    Vector2 w2 = b->footprint[(p+1) % b->pointCount];
+                    float d = GetRaySegmentIntersection(origin, dir, w1, w2);
+                    if (d < closest) closest = d;
+                }
+            }
+        }
+    }
+
+    // 2. Check Roads
+    // Critical: Park must stop BEFORE the road curb.
+    for (int i = 0; i < map->edgeCount; i++) {
+        if (map->edges[i].startNode >= map->nodeCount || map->edges[i].endNode >= map->nodeCount) continue;
+        
+        Vector2 n1 = map->nodes[map->edges[i].startNode].position;
+        Vector2 n2 = map->nodes[map->edges[i].endNode].position;
+
+        // Bounding box optimization
+        if (origin.x < fminf(n1.x, n2.x) - maxDist || origin.x > fmaxf(n1.x, n2.x) + maxDist) continue;
+        if (origin.y < fminf(n1.y, n2.y) - maxDist || origin.y > fmaxf(n1.y, n2.y) + maxDist) continue;
+
+        float distToCenter = GetRaySegmentIntersection(origin, dir, n1, n2);
+        
+        if (distToCenter < closest) {
+            // Subtract Road Half Width + Sidewalk Width (approx 5.0m + 2.5m = ~7.5m)
+            // If we are closer than that, we are INSIDE the road -> invalid park
+            float safeDistance = (map->edges[i].width * MAP_SCALE) + 3.5f; 
+            
+            if (distToCenter < safeDistance) {
+                return 0.0f; // Invalid, we are inside road/sidewalk
+            }
+            closest = distToCenter - safeDistance;
+        }
+    }
+
+    return closest;
+}
+
+void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
+    int cx = (int)((playerPos.x + PARK_OFFSET) / PARK_CHUNK_SIZE);
+    int cy = (int)((playerPos.z + PARK_OFFSET) / PARK_CHUNK_SIZE);
+
+    for (int y = cy - 1; y <= cy + 1; y++) {
+        for (int x = cx - 1; x <= cx + 1; x++) {
+            
+            if (x < 0 || x >= PARK_GRID_COLS || y < 0 || y >= PARK_GRID_ROWS) continue;
+            if (parkSystem.chunks[y][x].generated) continue;
+
+            parkSystem.chunks[y][x].generated = true;
+            parkSystem.chunks[y][x].parkCount = 0;
+
+            float chunkWorldX = (x * PARK_CHUNK_SIZE) - PARK_OFFSET;
+            float chunkWorldY = (y * PARK_CHUNK_SIZE) - PARK_OFFSET;
+
+            int attempts = 15;
+            for (int k = 0; k < attempts; k++) {
+                if (parkSystem.totalParks >= MAX_DYNAMIC_PARKS) break;
+                if (parkSystem.chunks[y][x].parkCount >= PARK_MAX_PER_CHUNK) break;
+
+                Vector2 seed = {
+                    chunkWorldX + GetRandomValue(5, PARK_CHUNK_SIZE - 5),
+                    chunkWorldY + GetRandomValue(5, PARK_CHUNK_SIZE - 5)
+                };
+
+                // [FIX] VOID CHECK: Don't generate if we aren't near buildings
+                if (!IsInsideCityContext(map, seed)) continue;
+
+                // [FIX] COLLISION CHECK: Ensure seed isn't already inside something
+                if (CastParkRay(map, seed, (Vector2){1,0}, 2.0f) < 0.5f) continue;
+
+                DynamicPark park;
+                park.center = seed;
+                park.active = true;
+                bool validPark = true;
+                float minRayLen = FLT_MAX;
+                float maxRayLen = 0.0f;
+
+                for (int r = 0; r < PARK_RAYS; r++) {
+                    float angle = (r / (float)PARK_RAYS) * 360.0f * DEG2RAD;
+                    Vector2 dir = { cosf(angle), sinf(angle) };
+                    
+                    float dist = CastParkRay(map, seed, dir, 35.0f); // 35m Max Radius
+                    
+                    // If Ray is tiny, we are pinched against a wall
+                    if (dist < 0.2f) { validPark = false; break; }
+                    
+                    if (dist < minRayLen) minRayLen = dist;
+                    if (dist > maxRayLen) maxRayLen = dist;
+                    
+                    park.vertices[r] = Vector2Add(seed, Vector2Scale(dir, dist));
+                }
+
+                // Only allow parks that have decent open space (at least 3m radius in smallest dir)
+                if (validPark && minRayLen > 0.5f) {
+                    int pIdx = parkSystem.totalParks++;
+                    parkSystem.parks[pIdx] = park;
+                    parkSystem.chunks[y][x].parkIndices[parkSystem.chunks[y][x].parkCount++] = pIdx;
+                }
+            }
+        }
+    }
+}
+
+void DrawRuntimeParks(Vector3 playerPos) {
+    int cx = (int)((playerPos.x + PARK_OFFSET) / PARK_CHUNK_SIZE);
+    int cy = (int)((playerPos.z + PARK_OFFSET) / PARK_CHUNK_SIZE);
+    
+    int viewDist = 3; 
+
+    // Enable double-sided drawing so we see the floor regardless of winding order
+    rlDisableBackfaceCulling();
+
+    for (int y = cy - viewDist; y <= cy + viewDist; y++) {
+        for (int x = cx - viewDist; x <= cx + viewDist; x++) {
+            if (x < 0 || x >= PARK_GRID_COLS || y < 0 || y >= PARK_GRID_ROWS) continue;
+            
+            ParkChunk *chunk = &parkSystem.chunks[y][x];
+            if (!chunk->generated) continue;
+
+            for (int i = 0; i < chunk->parkCount; i++) {
+                DynamicPark *p = &parkSystem.parks[chunk->parkIndices[i]];
+                if (!p->active) continue;
+
+                // 1. Draw Green Floor (Manual 3D Fan)
+                // We draw individual triangles connecting Center -> Vertex A -> Vertex B
+                Vector3 center = {p->center.x, 0.04f, p->center.y};
+                Color parkColor = (Color){30, 90, 40, 255};
+
+                for (int v = 0; v < PARK_RAYS; v++) {
+                    int next = (v + 1) % PARK_RAYS;
+                    
+                    Vector3 v1 = {p->vertices[v].x, 0.04f, p->vertices[v].y};
+                    Vector3 v2 = {p->vertices[next].x, 0.04f, p->vertices[next].y};
+                    
+                    // Draw the wedge
+                    DrawTriangle3D(center, v1, v2, parkColor);
+                    // Draw duplicate flipped to ensure visibility if culling is weird
+                    DrawTriangle3D(center, v2, v1, parkColor);
+                }
+                
+                // 2. Draw Trees (Deterministic)
+                // Use seed based on position
+                int seed = (int)(p->center.x * 100) + (int)(p->center.y * 100);
+                SetRandomSeed(seed);
+                
+                float approxRadius = Vector2Distance(p->center, p->vertices[0]);
+                int treeCount = (int)(approxRadius / 2.0f);
+                if (treeCount < 1) treeCount = 1;
+                if (treeCount > 8) treeCount = 8;
+
+                for(int k=0; k<treeCount; k++) {
+                    int vIdx = GetRandomValue(0, PARK_RAYS-1);
+                    float lerp = GetRandomValue(20, 70) / 100.0f;
+                    
+                    Vector2 pos2D = Vector2Lerp(p->center, p->vertices[vIdx], lerp);
+                    Vector3 pos = { pos2D.x, 0.0f, pos2D.y };
+                    
+                    if (GetRandomValue(0,10) > 3) {
+                         DrawModelEx(cityRenderer.models[ASSET_PROP_TREE_SMALL], pos, (Vector3){0,1,0}, GetRandomValue(0,360), (Vector3){5.0f,5.0f,5.0f}, (Color){40,110,40,255});
+                    } else {
+                         DrawModelEx(cityRenderer.models[ASSET_PROP_GRASS], pos, (Vector3){0,1,0}, GetRandomValue(0,360), (Vector3){1.5f,1.0f,1.5f}, (Color){60,110,20,255});
+                    }
+                }
+            }
+        }
+    }
+    rlEnableBackfaceCulling();
 }
 
 void BakeMapElements(GameMap *map) {
@@ -709,79 +997,101 @@ void LoadCityAssets() {
         cityRenderer.whiteTex = LoadTexture("resources/Buildings/Textures/colormap.png");
         SetTextureFilter(cityRenderer.whiteTex, TEXTURE_FILTER_BILINEAR); 
     } else {
-        // Fallback if file missing
         Image whiteImg = GenImageColor(1, 1, WHITE);
         cityRenderer.whiteTex = LoadTextureFromImage(whiteImg);
         UnloadImage(whiteImg);
     }
 
-    // --- 2. Load Windows & Doors (KEEP UVs INT ACT) ---
-    // Do NOT apply SetMeshUVs here. These models use the atlas layout.
-    #define LOAD_ASSET(enumIdx, filename) \
+    // Helper macro
+    #define LOAD_ASSET(enumIdx, path) \
         { \
-            char fullPath[256]; \
-            sprintf(fullPath, "resources/Buildings/%s", filename); \
-            cityRenderer.models[enumIdx] = LoadModel(fullPath); \
+            cityRenderer.models[enumIdx] = LoadModel(path); \
             if (cityRenderer.models[enumIdx].meshCount == 0) { \
+                printf("Failed to load: %s\n", path); \
                 cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f)); \
             } \
         }
 
-    LOAD_ASSET(ASSET_AC_A, "detail-ac-a.obj");
-    LOAD_ASSET(ASSET_AC_B, "detail-ac-b.obj");
-    LOAD_ASSET(ASSET_BALCONY, "balcony.obj");
-    LOAD_ASSET(ASSET_BALCONY_WHITE, "balcony_white.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN, "door-brown.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "door-brown-glass.obj");
-    LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "door-brown-window.obj");
-    LOAD_ASSET(ASSET_DOOR_WHITE, "door-white.obj"); 
-    LOAD_ASSET(ASSET_DOOR_WHITE_GLASS, "door-white-glass.obj");
-    LOAD_ASSET(ASSET_DOOR_WHITE_WIN, "door-white-window.obj");
-    LOAD_ASSET(ASSET_FRAME_DOOR1, "door1.obj");
-    LOAD_ASSET(ASSET_FRAME_SIMPLE, "simple_door.obj");
-    LOAD_ASSET(ASSET_FRAME_TENT, "doorframe_glass_tent.obj");
-    LOAD_ASSET(ASSET_FRAME_WIN, "window_door.obj");
-    LOAD_ASSET(ASSET_FRAME_WIN_WHITE, "window_door_white.obj");
-    LOAD_ASSET(ASSET_WIN_SIMPLE, "Windows_simple.obj");
-    LOAD_ASSET(ASSET_WIN_SIMPLE_W, "Windows_simple_white.obj");
-    LOAD_ASSET(ASSET_WIN_DET, "Windows_detailed.obj");
-    LOAD_ASSET(ASSET_WIN_DET_W, "Windows_detailed_white.obj");
-    LOAD_ASSET(ASSET_WIN_TWIN_TENT, "Twin_window_tents.obj");
-    LOAD_ASSET(ASSET_WIN_TWIN_TENT_W, "Twin_window_tents_white.obj");
-    LOAD_ASSET(ASSET_WIN_TALL, "windows_tall.obj");
-    LOAD_ASSET(ASSET_WIN_TALL_TOP, "windows_tall_top.obj");
+    // --- Buildings ---
+    LOAD_ASSET(ASSET_AC_A, "resources/Buildings/detail-ac-a.obj");
+    LOAD_ASSET(ASSET_AC_B, "resources/Buildings/detail-ac-b.obj");
+    LOAD_ASSET(ASSET_BALCONY, "resources/Buildings/balcony.obj");
+    LOAD_ASSET(ASSET_BALCONY_WHITE, "resources/Buildings/balcony_white.obj");
+    LOAD_ASSET(ASSET_DOOR_BROWN, "resources/Buildings/door-brown.obj");
+    LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "resources/Buildings/door-brown-glass.obj");
+    LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "resources/Buildings/door-brown-window.obj");
+    LOAD_ASSET(ASSET_DOOR_WHITE, "resources/Buildings/door-white.obj"); 
+    LOAD_ASSET(ASSET_DOOR_WHITE_GLASS, "resources/Buildings/door-white-glass.obj");
+    LOAD_ASSET(ASSET_DOOR_WHITE_WIN, "resources/Buildings/door-white-window.obj");
+    LOAD_ASSET(ASSET_FRAME_DOOR1, "resources/Buildings/door1.obj");
+    LOAD_ASSET(ASSET_FRAME_SIMPLE, "resources/Buildings/simple_door.obj");
+    LOAD_ASSET(ASSET_FRAME_TENT, "resources/Buildings/doorframe_glass_tent.obj");
+    LOAD_ASSET(ASSET_FRAME_WIN, "resources/Buildings/window_door.obj");
+    LOAD_ASSET(ASSET_FRAME_WIN_WHITE, "resources/Buildings/window_door_white.obj");
+    LOAD_ASSET(ASSET_WIN_SIMPLE, "resources/Buildings/Windows_simple.obj");
+    LOAD_ASSET(ASSET_WIN_SIMPLE_W, "resources/Buildings/Windows_simple_white.obj");
+    LOAD_ASSET(ASSET_WIN_DET, "resources/Buildings/Windows_detailed.obj");
+    LOAD_ASSET(ASSET_WIN_DET_W, "resources/Buildings/Windows_detailed_white.obj");
+    LOAD_ASSET(ASSET_WIN_TWIN_TENT, "resources/Buildings/Twin_window_tents.obj");
+    LOAD_ASSET(ASSET_WIN_TWIN_TENT_W, "resources/Buildings/Twin_window_tents_white.obj");
+    LOAD_ASSET(ASSET_WIN_TALL, "resources/Buildings/windows_tall.obj");
+    LOAD_ASSET(ASSET_WIN_TALL_TOP, "resources/Buildings/windows_tall_top.obj");
 
-    // --- 3. Procedural Assets (APPLY UV FIX HERE) ---
-    // These are just cubes, so we must force them to look at the single white pixel.
+    // --- Props & Vegetation ---
+    LOAD_ASSET(ASSET_PROP_TREE_LARGE, "resources/trees/tree-large.obj");
+    LOAD_ASSET(ASSET_PROP_TREE_SMALL, "resources/trees/tree-small.obj");
+    LOAD_ASSET(ASSET_PROP_BENCH, "resources/random/bench.obj");
+    LOAD_ASSET(ASSET_PROP_FLOWERS, "resources/random/flowers.obj");
+    LOAD_ASSET(ASSET_PROP_GRASS, "resources/random/grass.obj");
+    LOAD_ASSET(ASSET_PROP_TRASH, "resources/random/trash.obj");
     
-    // REPLACE 1024.0f with your actual texture width/height!
+    LOAD_ASSET(ASSET_PROP_BOX, "resources/Props/box.obj");
+    LOAD_ASSET(ASSET_PROP_CONE, "resources/Props/cone.obj");
+    LOAD_ASSET(ASSET_PROP_CONE_FLAT, "resources/Props/cone-flat.obj");
+    LOAD_ASSET(ASSET_PROP_BARRIER, "resources/Props/construction-barrier.obj");
+    LOAD_ASSET(ASSET_PROP_CONST_LIGHT, "resources/Props/construction-light.obj");
+    LOAD_ASSET(ASSET_PROP_LIGHT_CURVED, "resources/Props/light-curved.obj");
+
+    // --- Vehicles ---
+    LOAD_ASSET(ASSET_CAR_DELIVERY, "resources/Playermodels/delivery.obj");
+    LOAD_ASSET(ASSET_CAR_HATCHBACK, "resources/Playermodels/hatchback-sport.obj");
+    LOAD_ASSET(ASSET_CAR_SEDAN, "resources/Playermodels/sedan.obj");
+    LOAD_ASSET(ASSET_CAR_SUV, "resources/Playermodels/suv.obj");
+    LOAD_ASSET(ASSET_CAR_VAN, "resources/Playermodels/van.obj");
+
+    // --- Fix UVs for Procedural/Color-Tinted Objects ---
     float atlasW = 512.0f; 
     float atlasH = 512.0f;
-    
-    // Calculate normalized UV (0.0 to 1.0) based on your pixel coordinates (200, 400)
-    // We add 0.5f to the pixel to sample the exact center of that pixel.
     float whitePixelU = (200.0f + 0.5f) / atlasW;
     float whitePixelV = (400.0f + 0.5f) / atlasH;
 
+    // 1. Procedural Cubes
     Mesh cubeMesh = GenMeshCube(1.0f, 1.0f, 1.0f);
-    
-    // This function collapses the entire cube's texture mapping to that one pixel
     SetMeshUVs(&cubeMesh, whitePixelU, whitePixelV);
-
     Model cubeModel = LoadModelFromMesh(cubeMesh);
     Material propMat = LoadMaterialDefault();
     propMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
     cubeModel.materials[0] = propMat;
 
-    // Assign the "Solid Color" cube ONLY to these assets
     cityRenderer.models[ASSET_WALL] = cubeModel;
     cityRenderer.models[ASSET_CORNER] = cubeModel;
     cityRenderer.models[ASSET_SIDEWALK] = cubeModel;
-    cityRenderer.models[ASSET_PROP_TREE] = cubeModel;
-    cityRenderer.models[ASSET_PROP_BENCH] = cubeModel;
-    cityRenderer.models[ASSET_PROP_HYDRANT] = cubeModel;
-    cityRenderer.models[ASSET_PROP_LIGHT] = cubeModel;
-    cityRenderer.models[ASSET_PROP_PARK_TREE] = cubeModel;
+
+    // 2. Apply Atlas Fix to Props so we can Tint them (Green trees, etc)
+    // We iterate the specific props that need simple coloring
+    AssetType tintableProps[] = { 
+        ASSET_PROP_TREE_LARGE, ASSET_PROP_TREE_SMALL, ASSET_PROP_GRASS, 
+        ASSET_PROP_FLOWERS, ASSET_PROP_BENCH, ASSET_PROP_TRASH, 
+        ASSET_PROP_LIGHT_CURVED, ASSET_PROP_CONE, ASSET_PROP_CONE_FLAT 
+    };
+    
+    for (int i=0; i < 9; i++) {
+        AssetType t = tintableProps[i];
+        if (cityRenderer.models[t].meshCount > 0) {
+            SetMeshUVs(&cityRenderer.models[t].meshes[0], whitePixelU, whitePixelV);
+            cityRenderer.models[t].materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
+        }
+    }
 
     // Initialize Sector Builders
     for (int y = 0; y < SECTOR_GRID_ROWS; y++) {
@@ -955,22 +1265,106 @@ void BakeBuildingGeometry(Building *b) {
     }
 }
 
+// Helper to draw a cluster of objects based on event type
+void DrawEventCluster(MapEvent *evt) {
+    if (!evt->active) return;
+
+    // Use the integer position as a seed so the event looks consistent every frame
+    // without storing model indices in the struct.
+    int seed = (int)(evt->position.x * 100) + (int)(evt->position.y * 100);
+    SetRandomSeed(seed); 
+
+    Vector3 center = { evt->position.x, 0.0f, evt->position.y };
+
+    if (evt->type == EVENT_CRASH) {
+        // --- CAR CRASH CLUSTER ---
+        
+        // Car 1
+        int car1Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
+        float rot1 = GetRandomValue(0, 360);
+        Vector3 pos1 = { center.x + GetRandomValue(-2,2), 0.0f, center.z + GetRandomValue(-2,2) };
+        DrawModelEx(cityRenderer.models[car1Type], pos1, (Vector3){0,1,0}, rot1, (Vector3){1,1,1}, WHITE);
+
+        // Car 2
+        int car2Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
+        float rot2 = GetRandomValue(0, 360);
+        Vector3 pos2 = { center.x + GetRandomValue(-2,2), 0.0f, center.z + GetRandomValue(-2,2) };
+        DrawModelEx(cityRenderer.models[car2Type], pos2, (Vector3){0,1,0}, rot2, (Vector3){1,1,1}, GRAY); // Tinted slightly to look damaged/different
+
+        // Scattered Cones
+        for (int i = 0; i < 5; i++) {
+            Vector3 conePos = { center.x + GetRandomValue(-6,6), 0.0f, center.z + GetRandomValue(-6,6) };
+            if (Vector3Distance(conePos, center) < 3.0f) continue; // Don't spawn inside cars
+            
+            // Randomly flat or standing
+            AssetType coneType = (GetRandomValue(0, 10) > 8) ? ASSET_PROP_CONE_FLAT : ASSET_PROP_CONE;
+            DrawModel(cityRenderer.models[coneType], conePos, 1.5f, WHITE);
+        }
+
+    } else if (evt->type == EVENT_ROADWORK) {
+        // --- ROADWORK CLUSTER ---
+        
+        // Construction Light
+        DrawModel(cityRenderer.models[ASSET_PROP_CONST_LIGHT], center, 1.5f, WHITE);
+
+        // Barriers forming a square or line
+        for (int i = 0; i < 4; i++) {
+            float angle = i * 90.0f;
+            float rad = 4.0f;
+            Vector3 barPos = { center.x + cosf(angle*DEG2RAD)*rad, 0.0f, center.z + sinf(angle*DEG2RAD)*rad };
+            // Rotate barrier to face center
+            DrawModelEx(cityRenderer.models[ASSET_PROP_BARRIER], barPos, (Vector3){0,1,0}, -angle + 90, (Vector3){1.5f, 1.5f, 1.5f}, WHITE);
+        }
+
+        // Cones around
+        for (int i = 0; i < 6; i++) {
+            float angle = GetRandomValue(0, 360);
+            float dist = GetRandomValue(5, 7);
+            Vector3 conePos = { center.x + cosf(angle*DEG2RAD)*dist, 0.0f, center.z + sinf(angle*DEG2RAD)*dist };
+            DrawModel(cityRenderer.models[ASSET_PROP_CONE], conePos, 1.5f, WHITE);
+        }
+        
+        // Maybe a box of supplies
+        Vector3 boxPos = { center.x + 1.5f, 0.0f, center.z + 1.0f };
+        DrawModel(cityRenderer.models[ASSET_PROP_BOX], boxPos, 1.2f, WHITE);
+    }
+}
+
+// Helper to prevent props from clipping into building walls
+bool IsTooCloseToBuilding(GameMap *map, Vector2 pos, float minDistance) {
+    // Optimization: Only check buildings within a rough distance first
+    for (int i = 0; i < map->buildingCount; i++) {
+        Building *b = &map->buildings[i];
+        
+        // Quick bounding box check
+        if (pos.x < b->footprint[0].x - 50 && pos.x > b->footprint[0].x + 50) continue;
+        
+        // Detailed check
+        if (CheckCollisionPointPoly(pos, b->footprint, b->pointCount)) return true;
+        
+        // Distance check to edges (simplified as checking point distance to vertices)
+        for(int k=0; k<b->pointCount; k++) {
+             if (Vector2Distance(pos, b->footprint[k]) < minDistance) return true;
+        }
+    }
+    return false;
+}
+
 void BakeRoadDetails(GameMap *map) {
     float sidewalkW = 2.5f; 
-    float propSpacing = 15.0f; 
+    float lightSpacing = 16.0f; 
 
-    // 1. Calculate Node Degrees to identify intersections
+    // 1. Calculate Node Degrees
     int *nodeDegree = (int*)calloc(map->nodeCount, sizeof(int));
     for(int i=0; i<map->edgeCount; i++) {
         if(map->edges[i].startNode < map->nodeCount) nodeDegree[map->edges[i].startNode]++;
         if(map->edges[i].endNode < map->nodeCount) nodeDegree[map->edges[i].endNode]++;
     }
 
-    // Tints for props
-    Color treeTint = (Color){30, 100, 30, 255};
+    Color treeTint = (Color){40, 110, 40, 255};
     Color benchTint = (Color){100, 70, 40, 255};
-    Color hydrantTint = (Color){200, 40, 40, 255};
-    Color lightTint = (Color){80, 80, 90, 255};
+    Color trashTint = (Color){50, 50, 60, 255};
+    Color lightTint = WHITE; 
     Color sidewalkTint = (Color){180, 180, 180, 255};
 
     for(int i=0; i<map->edgeCount; i++) {
@@ -986,22 +1380,15 @@ void BakeRoadDetails(GameMap *map) {
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
 
         float offsetDist = (finalRoadW / 2.0f) + (sidewalkW / 2.0f);
-
-        // [FIX] Reduced cutFactor from 0.85 to 0.55 to close gaps at corners
+        
+        // Corner cutting
         float cutFactor = finalRoadW * 0.55f; 
-        float startCut = 0.0f;
-        float endCut = 0.0f;
+        float startCut = (nodeDegree[e.startNode] > 2) ? cutFactor : 0.0f;
+        float endCut = (nodeDegree[e.endNode] > 2) ? cutFactor : 0.0f;
         
-        // Only cut back sidewalks at actual intersections (Degree > 2)
-        // Straight roads (Degree 2) or dead ends (Degree 1) should connect fully
-        if (nodeDegree[e.startNode] > 2) startCut = cutFactor;
-        if (nodeDegree[e.endNode] > 2) endCut = cutFactor;
-        
-        // Safety check for very short roads
         if (startCut + endCut > len * 0.9f) {
             float factor = (len * 0.9f) / (startCut + endCut);
-            startCut *= factor;
-            endCut *= factor;
+            startCut *= factor; endCut *= factor;
         }
 
         for(int side=-1; side<=1; side+=2) {
@@ -1012,56 +1399,92 @@ void BakeRoadDetails(GameMap *map) {
             
             if (swLen < 0.1f) continue;
 
+            // Bake Sidewalk Mesh
             Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, swLen/2.0f));
-            
-            // [FIX] Adjusted Y from 0.10f to 0.07f.
-            // Calculation: Road Y is 0.02f. Sidewalk Height is 0.10f (Half-extent 0.05f).
-            // Center 0.07f - 0.05f = 0.02f (Flush with road)
             Vector3 swPos = { swMid.x, 0.07f, swMid.y }; 
             Vector3 swScale = { swLen, 0.10f, sidewalkW };
-            
             BakeObjectToSector(ASSET_SIDEWALK, swPos, -angle, swScale, sidewalkTint);
 
-            // Prop Generation (Unchanged)
-            int propCount = (int)(swLen / propSpacing);
-            for(int p=0; p<propCount; p++) {
-                float distAlong = (p * propSpacing) + (propSpacing * 0.5f);
-                Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, distAlong));
+            // --- Organized Prop Generation ---
+            float currentDist = 0.0f;
+            float nextLight = lightSpacing * 0.5f; 
+
+            while (currentDist < swLen) {
+                Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, currentDist));
+                Vector3 propPos = { propPos2D.x, 0.2f, propPos2D.y };
                 
+                // 1. Check Location Collisions (Fuel/Mech)
                 bool blocked = false;
                 for(int L=0; L<map->locationCount; L++) {
                     if(map->locations[L].type != LOC_HOUSE && map->locations[L].type != LOC_FUEL) {
-                          if(Vector2Distance(propPos2D, map->locations[L].position) < 8.0f) {
-                              blocked = true;
-                              break;
-                          }
+                          if(Vector2Distance(propPos2D, map->locations[L].position) < 6.0f) blocked = true;
                     }
                 }
-                if (blocked) continue;
 
-                Vector3 propPos = { propPos2D.x, 0.2f, propPos2D.y };
-                float rot = (side == 1) ? -angle : -angle + 180.0f; 
+                // 2. Check Building Clipping (New Check)
+                if (!blocked && IsTooCloseToBuilding(map, propPos2D, 3.0f)) {
+                    blocked = true;
+                }
+                
+                if (!blocked) {
+                    // Street Lights
+                    if (currentDist >= nextLight) {
+                        float lightRot = -angle; 
+                        if (side == 1) lightRot += 90.0f; 
+                        else lightRot -= 90.0f; 
+                        
+                        // User Request: Rotate 90 clockwise (-90)
+                        lightRot -= 90.0f;
 
-                int roll = GetRandomValue(0, 100);
-                if (roll < 40) { 
-                      Vector3 scale = { 0.8f, 3.5f, 0.8f }; 
-                      BakeObjectToSector(ASSET_PROP_TREE, propPos, rot, scale, treeTint);
-                      Vector3 leavesPos = { propPos.x, 3.0f, propPos.z };
-                      Vector3 leavesScale = { 2.5f, 2.0f, 2.5f };
-                      BakeObjectToSector(ASSET_PROP_TREE, leavesPos, rot, leavesScale, treeTint);
+                        // User Request: "Just a touch larger" (was 2.4f)
+                        Vector3 lScale = { 2.8f, 2.8f, 2.8f }; 
+                        BakeObjectToSector(ASSET_PROP_LIGHT_CURVED, propPos, lightRot, lScale, lightTint);
+                        
+                        nextLight += lightSpacing;
+                    } 
+                    // Random Clutter
+                    else {
+                        int roll = GetRandomValue(0, 100);
+                        float baseRot = (side == 1) ? -angle : -angle + 180.0f;
+
+                        if (roll < 3) { 
+                            // Trash Can
+                            Vector3 tScale = { 1.2f, 1.2f, 1.2f };
+                            BakeObjectToSector(ASSET_PROP_TRASH, propPos, baseRot, tScale, trashTint);
+                        }
+                        else if (roll < 8) {
+                            // Bench
+                            // User Request: Rotate 180 (So we remove the +180 offset, or add 180 to it)
+                            // Previous was: baseRot + 180.0f. New: baseRot.
+                            Vector3 bScale = { 1.5f, 1.5f, 1.5f };
+                            BakeObjectToSector(ASSET_PROP_BENCH, propPos, baseRot, bScale, benchTint);
+                        }
+                        else if (roll < 9) {
+                            // Cone Cluster (Probability reduced from 12 to 9)
+                            Vector3 cScale = { 1.0f, 1.0f, 1.0f };
+                            BakeObjectToSector(ASSET_PROP_CONE, propPos, 0, cScale, WHITE);
+                            Vector3 c2 = {propPos.x + 0.5f, propPos.y, propPos.z + 0.5f};
+                            BakeObjectToSector(ASSET_PROP_CONE, c2, 0, cScale, WHITE);
+                        }
+                        else if (roll < 20) {
+                            // Small Tree
+                            // User Request: 5x Larger (Prev 0.9f -> 4.5f)
+                            Vector3 tScale = { 4.5f, 4.5f, 4.5f };
+                            BakeObjectToSector(ASSET_PROP_TREE_SMALL, propPos, GetRandomValue(0,360), tScale, treeTint);
+                        }
+                        else if (roll < 35) {
+                            // Grass/Flowers
+                            if (GetRandomValue(0,1) == 0) {
+                                Vector3 gScale = { 1.5f, 1.0f, 1.5f };
+                                BakeObjectToSector(ASSET_PROP_GRASS, propPos, GetRandomValue(0,360), gScale, treeTint);
+                            } else {
+                                Vector3 fScale = { 1.2f, 1.0f, 1.2f };
+                                BakeObjectToSector(ASSET_PROP_FLOWERS, propPos, GetRandomValue(0,360), fScale, WHITE);
+                            }
+                        }
+                    }
                 }
-                else if (roll < 60) {
-                      Vector3 scale = { 2.0f, 0.5f, 0.8f };
-                      BakeObjectToSector(ASSET_PROP_BENCH, propPos, rot, scale, benchTint);
-                }
-                else if (roll < 70) {
-                      Vector3 scale = { 0.5f, 0.8f, 0.5f };
-                      BakeObjectToSector(ASSET_PROP_HYDRANT, propPos, rot, scale, hydrantTint);
-                }
-                else if (roll < 85) {
-                      Vector3 scale = { 0.3f, 5.0f, 0.3f };
-                      BakeObjectToSector(ASSET_PROP_LIGHT, propPos, rot, scale, lightTint);
-                }
+                currentDist += 2.0f;
             }
         }
     }
@@ -1183,9 +1606,8 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
 
 // --- RENDER ---
 void DrawGameMap(GameMap *map, Camera camera) {
-    //rlDisableBackfaceCulling(); commented out for performance boost
+    //rlDisableBackfaceCulling(); 
     Vector2 pPos2D = { camera.position.x, camera.position.z };
-
     // Infinite Floor (Regular Gray)
     DrawPlane((Vector3){0, -0.05f, 0}, (Vector2){10000.0f, 10000.0f}, (Color){80, 80, 80, 255});
 
@@ -1196,28 +1618,22 @@ void DrawGameMap(GameMap *map, Camera camera) {
         DrawModel(cityRenderer.markingsModel, (Vector3){0,0,0}, 1.0f, WHITE);
         DrawModel(cityRenderer.roofModel, (Vector3){0,0,0}, 1.0f, WHITE); 
     } 
-
+    DrawRuntimeParks(camera.position);
     // 2. Baked Sectors (OPTIMIZED: Only loop through visible range)
-    // Calculate render range in grid coordinates
-    int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE) + 2; // +2 buffer
+    int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE) + 2; 
     
-    // Convert Camera Pos to Grid Pos
     int camGridX = (int)((pPos2D.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int camGridY = (int)((pPos2D.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
-    // Clamp values to grid bounds
     int minX = camGridX - range; if (minX < 0) minX = 0;
     int maxX = camGridX + range; if (maxX >= SECTOR_GRID_COLS) maxX = SECTOR_GRID_COLS - 1;
     int minY = camGridY - range; if (minY < 0) minY = 0;
     int maxY = camGridY + range; if (maxY >= SECTOR_GRID_ROWS) maxY = SECTOR_GRID_ROWS - 1;
 
-    // Loop ONLY through the relevant square of sectors
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
              Sector *sec = &cityRenderer.sectors[y][x];
              if (!sec->active || sec->isEmpty) continue;
-             
-             // We can skip the distance check now because the loop IS the distance check
              DrawModel(sec->model, (Vector3){0,0,0}, 1.0f, WHITE);
         }
     }
@@ -1234,15 +1650,12 @@ void DrawGameMap(GameMap *map, Camera camera) {
             Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f };
             DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
             DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
-            DrawCube((Vector3){pumpPos.x + 0.51f, pumpPos.y + 0.5f, pumpPos.z}, 0.1f, 0.5f, 0.6f, BLACK); 
         }
         else if(map->locations[i].type == LOC_MECHANIC) {
             poiColor = DARKBLUE;
             Vector3 mechPos = { pos.x + 2.0f, 0.5f, pos.z + 2.0f }; 
             DrawCube(mechPos, 1.5f, 1.0f, 1.5f, BLUE); 
             DrawCubeWires(mechPos, 1.5f, 1.0f, 1.5f, BLACK);
-            DrawCube((Vector3){mechPos.x, 1.5f, mechPos.z}, 1.0f, 1.0f, 1.0f, SKYBLUE); 
-            DrawCubeWires((Vector3){mechPos.x, 1.5f, mechPos.z}, 1.0f, 1.0f, 1.0f, WHITE);
         }
         else if(map->locations[i].type == LOC_FOOD) poiColor = GREEN;
         else if(map->locations[i].type == LOC_MARKET) poiColor = BLUE;
@@ -1251,14 +1664,16 @@ void DrawGameMap(GameMap *map, Camera camera) {
         DrawLine3D(pos, (Vector3){pos.x, 4.0f, pos.z}, BLACK);
     }
     
-    // Draw Events
+    // 4. Draw Events (Using New Cluster Logic)
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
             if (Vector2Distance(pPos2D, map->events[i].position) > RENDER_DIST_BASE) continue;
             
-            Vector3 pos = { map->events[i].position.x, 1.5f, map->events[i].position.y };
-            DrawCube(pos, 3.0f, 3.0f, 3.0f, COLOR_EVENT_PROP);
-            DrawCubeWires(pos, 3.1f, 3.1f, 3.1f, BLACK);
+            // REPLACED: Old debug cube drawing with high quality models
+            DrawEventCluster(&map->events[i]);
+            
+            // Debug radius wire (optional)
+            // DrawCircle3D((Vector3){map->events[i].position.x, 0.1f, map->events[i].position.y}, map->events[i].radius, (Vector3){1,0,0}, 90.0f, RED);
         }
     }
     
@@ -1270,7 +1685,7 @@ void DrawGameMap(GameMap *map, Camera camera) {
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
             if (Vector2Distance(pPos2D, map->events[i].position) > RENDER_DIST_BASE) continue;
-            Vector3 pos = { map->events[i].position.x, 1.5f, map->events[i].position.y };
+            Vector3 pos = { map->events[i].position.x, 3.5f, map->events[i].position.y };
             DrawCenteredLabel(camera, pos, map->events[i].label, COLOR_EVENT_TEXT);
         }
     }
@@ -1334,13 +1749,13 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
     Vector2 p = { x, z };
 
     // 2. Check 3x3 grid around player (to handle straddling borders)
-    for (int y = gy - 1; y <= gy + 1; y++) {
-        for (int x = gx - 1; x <= gx + 1; x++) {
+    for (int cy = gy - 1; cy <= gy + 1; cy++) {
+        for (int cx = gx - 1; cx <= gx + 1; cx++) {
             
             // Bounds check
-            if (x < 0 || x >= SECTOR_GRID_COLS || y < 0 || y >= SECTOR_GRID_ROWS) continue;
+            if (cx < 0 || cx >= SECTOR_GRID_COLS || cy < 0 || cy >= SECTOR_GRID_ROWS) continue;
 
-            CollisionCell *cell = &colGrid[y][x];
+            CollisionCell *cell = &colGrid[cy][cx];
             
             // 3. Check ONLY buildings in this cell
             for (int k = 0; k < cell->count; k++) {
@@ -1614,7 +2029,7 @@ GameMap LoadGameMap(const char *fileName) {
     for (int i = 0; i < map.buildingCount; i++) {
         BakeBuildingGeometry(&map.buildings[i]);
     }
-    BakeRoadDetails(&map); 
+    BakeRoadDetails(&map);     
     BakeMapElements(&map); 
 
     // Finalize Sectors

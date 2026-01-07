@@ -4,7 +4,7 @@
 #include "raylib.h"
 #include "map.h"
 
-#define MAX_VEHICLES 0
+#define MAX_VEHICLES 100
 
 typedef struct Vehicle {
     bool active;

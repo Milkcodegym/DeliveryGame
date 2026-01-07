@@ -35,6 +35,39 @@ typedef enum {
     LOC_COUNT
 } LocationType;
 
+// --- DYNAMIC PARK SYSTEM DEFS ---
+
+#define PARK_CHUNK_SIZE 100.0f  // Size of generation chunks (match grid size usually)
+#define PARK_RAYS 16            // How many vertices the park polygon has (more = smoother)
+#define PARK_MAX_PER_CHUNK 5    // Max parks to generate per chunk
+
+typedef struct {
+    Vector2 center;
+    Vector2 vertices[PARK_RAYS]; // The outline of the park
+    float radius;
+    bool active;
+} DynamicPark;
+
+typedef struct {
+    bool generated;
+    int parkCount;
+    int parkIndices[PARK_MAX_PER_CHUNK]; // Indices into the global pool
+} ParkChunk;
+
+#define MAX_DYNAMIC_PARKS 2048
+#define PARK_GRID_ROWS 100
+#define PARK_GRID_COLS 100
+#define PARK_OFFSET 3000.0f // To handle negative coordinates
+
+typedef struct {
+    DynamicPark parks[MAX_DYNAMIC_PARKS];
+    int totalParks;
+    ParkChunk chunks[PARK_GRID_ROWS][PARK_GRID_COLS];
+    bool initialized;
+} RuntimeParkSystem;
+
+static RuntimeParkSystem parkSystem = {0};
+
 typedef enum {
     EVENT_NONE = 0,
     EVENT_CRASH,
@@ -149,5 +182,8 @@ void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd);
 // Helpers
 void SetMapDestination(GameMap *map, Vector2 dest); // Used by Delivery App
 void ResetMapCamera(Vector2 pos); // Required by main.c respawn logic
+
+void UpdateRuntimeParks(GameMap *map, Vector3 playerPos);
+void DrawRuntimeParks(Vector3 playerPos);
 
 #endif
