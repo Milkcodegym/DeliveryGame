@@ -92,3 +92,63 @@ Systems that cost money or add strategic depth.
 
   fix map app building issues
   game not saving on exit? (needs testing)
+
+
+
+map.c:80: multiple definition of `CalculateWallNormal'; obj/x64/Debug/DeliveryGame/main.main.c:95: first defined here
+in function `GetBuildingCenter':
+map.c:87: multiple definition of `GetBuildingCenter'; obj/x64/Debug/DeliveryGame/main.o:main.c:102: first defined here
+  in function `GetPolygonSignedArea':
+map.c:96: multiple definition of `GetPolygonSignedArea'; obj/x64/Debug/DeliveryGame/main.o:main.c:111: first defined here
+  in function `IsValidEar':
+map.c:105: multiple definition of `IsValidEar'; obj/x64/Debug/DeliveryGame/main.o:main.c:120: first defined here
+  in function `TriangulatePolygon':
+map.c:121: multiple definition of `TriangulatePolygon'; obj/x64/Debug/DeliveryGame/main.o:main.c:136: first defined here
+  in function `GenerateParkFoliage':
+map.c:258: multiple definition of `GenerateParkFoliage'; obj/x64/Debug/DeliveryGame/main.o:main.c:427: first defined here
+  in function `BakeMapElements':
+map.c:291: multiple definition of `BakeMapElements'; obj/x64/Debug/DeliveryGame/main.o:main.c:463: first defined here
+  in function `LoadCityAssets':
+map.c:467: multiple definition of `LoadCityAssets'; obj/x64/Debug/DeliveryGame/main.o:main.c:639: first defined here
+  in function `GetBuildingStyle':
+map.c:552: multiple definition of `GetBuildingStyle'; obj/x64/Debug/DeliveryGame/main.o:main.c:707: first defined here
+  in function `BakeBuildingGeometry':
+map.c:577: multiple definition of `BakeBuildingGeometry'; obj/x64/Debug/DeliveryGame/main.o:main.c:732: first defined here
+  in function `BakeRoadDetails':
+map.c:676: multiple definition of `BakeRoadDetails'; obj/x64/Debug/DeliveryGame/main.o:main.c:839: first defined here
+  in function `ClearEvents':
+map.c:770: multiple definition of `ClearEvents'; obj/x64/Debug/DeliveryGame/main.o:main.c:940: first defined here
+  in function `TriggerSpecificEvent':
+map.c:777: multiple definition of `TriggerSpecificEvent'; obj/x64/Debug/DeliveryGame/main.o:main.c:947: first defined here
+  in function `TriggerRandomEvent':
+map.c:804: multiple definition of `TriggerRandomEvent'; obj/x64/Debug/DeliveryGame/main.o:main.c:974: first defined here
+  in function `UpdateDevControls':
+map.c:852: multiple definition of `UpdateDevControls'; obj/x64/Debug/DeliveryGame/main.o:main.c:1022: first defined here
+  in function `DrawGameMap':
+map.c:884: multiple definition of `DrawGameMap'; obj/x64/Debug/DeliveryGame/main.o:main.c:1054: first defined here
+  in function `UpdateMapEffects':
+map.c:1041: multiple definition of `UpdateMapEffects'; obj/x64/Debug/DeliveryGame/main.o:main.c:1160: first defined here
+  in function `DrawZoneMarker':
+map.c:1050: multiple definition of `DrawZoneMarker'; obj/x64/Debug/DeliveryGame/main.o:main.c:1169: first defined here
+  in function `SearchLocations':
+map.c:1061: multiple definition of `SearchLocations'; obj/x64/Debug/DeliveryGame/main.o:main.c:1180: first defined here
+  in function `CheckMapCollision':
+map.c:1076: multiple definition of `CheckMapCollision'; obj/x64/Debug/DeliveryGame/main.o:main.c:1195: first defined here
+  in function `UnloadGameMap':
+map.c:1094: multiple definition of `UnloadGameMap'; obj/x64/Debug/DeliveryGame/main.o:main.c:1213: first defined here
+  in function `BuildMapGraph':
+map.c:1133: multiple definition of `BuildMapGraph'; obj/x64/Debug/DeliveryGame/main.o:main.c:1259: first defined here
+  in function `GetClosestNode':
+map.c:1153: multiple definition of `GetClosestNode'; obj/x64/Debug/DeliveryGame/main.o:main.c:1279: first defined here
+  in function `FindPath':
+map.c:1171: multiple definition of `FindPath'; obj/x64/Debug/DeliveryGame/main.o:main.c:1297: first defined here
+  in function `LoadGameMap':
+map.c:1223: multiple definition of `LoadGameMap'; obj/x64/Debug/DeliveryGame/main.o:main.c:1349: first defined here
+ map.c:11: multiple definition of `MAP_SCALE'; obj/x64/Debug/DeliveryGame/main.o:main.c:11: first defined here
+ map.c:14: multiple definition of `RENDER_DIST_BASE'; obj/x64/Debug/DeliveryGame/main.o:main.c:14: first defined here
+ map.c:15: multiple definition of `RENDER_DIST_SQUARED'; obj/x64/Debug/DeliveryGame/main.o:main.c:15: first defined here
+ map.c:73: multiple definition of `cityPalette'; obj/x64/Debug/DeliveryGame/main.o:main.c:88: first defined here
+ C:/raylib/w64devkit/bin/../lib/gcc/x86_64-w64-mingw32/14.2.0/../../../../x86_64-w64-mingw32/lib/../lib/libmingw32.a(lib64_libmingw32_a-crtexewin.o):crtexewin.c:(.text.startup+0xb1): undefined reference to `WinMain'
+collect2.exe: error: ld returned 1 exit status
+make[1]: *** [DeliveryGame.make:157: ../../bin/Debug/DeliveryGame.exe] Error 1
+make: *** [Makefile:48: DeliveryGame] Error 2

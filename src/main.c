@@ -296,7 +296,8 @@ int main(void)
                     // Debug HUD
                     DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
                     DrawText(TextFormat("Speed: %.1f", player.current_speed), 10, 30, 20, BLACK); // DEBUG SPEED
-                    DrawText(TextFormat("FPS: %d", GetFPS()), 10, 50, 20, DARKGRAY);
+                    DrawText(TextFormat("FPS: %d", GetFPS()), 10, 50, 50, WHITE);
+                    DrawText(TextFormat("FPS: %d", GetFPS()), 10, 50, 50, BLACK);
                     
                     if (map.nodeCount == 0) DrawText("MAP FAILED TO LOAD", 10, 70, 20, RED);
                 }
