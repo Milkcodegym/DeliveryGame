@@ -2,7 +2,7 @@
 #include "raymath.h"
 #include <stdio.h>
 #include <stdlib.h> 
-#include <time.h> // [NEW] Required for Real-Time Clock
+#include <time.h> 
 #include "save.h"
 #include "player.h" 
 #include "map.h"
@@ -94,7 +94,6 @@ void InitPhone(PhoneState *phone, GameMap *map) {
 
 // --- App Draw Functions ---
 
-// Helper to draw a clickable icon with Shortcut Number
 bool DrawAppIcon(Texture2D icon, const char* label, int shortcutKey, float x, float y, float size, Vector2 mouse, bool click) {
     Rectangle bounds = { x, y, size, size + 25 }; 
     bool hover = CheckCollisionPointRec(mouse, bounds);
@@ -107,11 +106,9 @@ bool DrawAppIcon(Texture2D icon, const char* label, int shortcutKey, float x, fl
     
     DrawTextureEx(icon, (Vector2){drawX, drawY}, 0.0f, scale, WHITE);
 
-    // Label
     int txtW = MeasureText(label, 20);
     DrawText(label, x + (size - txtW)/2, y + size + 5, 20, BLACK);
 
-    // Shortcut Number Badge
     if (shortcutKey > 0) {
         DrawCircle(x + size - 5, y + 5, 12, Fade(BLACK, 0.6f));
         DrawText(TextFormat("%d", shortcutKey), x + size - 8, y - 2, 14, WHITE);
@@ -133,32 +130,26 @@ void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
     float startX = (SCREEN_WIDTH - totalW) / 2;
     float startY = 100;
 
-    // App 1: Jobs
     if (DrawAppIcon(iconJob, "Jobs", 1, startX, startY, iconSize, mouse, click)) {
         phone->currentApp = APP_DELIVERY;
     }
     
-    // App 2: Maps
     if (DrawAppIcon(iconMap, "Maps", 2, startX + iconSize + gapX, startY, iconSize, mouse, click)) {
         phone->currentApp = APP_MAP;
     }
 
-    // App 3: Bank
     if (DrawAppIcon(iconBank, "Bank", 3, startX, startY + iconSize + gapY, iconSize, mouse, click)) {
         phone->currentApp = APP_BANK;
     }
 
-    // App 4: Music
     if (DrawAppIcon(iconMusic, "Music", 4, startX + iconSize + gapX, startY + iconSize + gapY, iconSize, mouse, click)) {
         phone->currentApp = APP_MUSIC;
     }
 
-    // App 5: Settings
     if (DrawAppIcon(iconSettings, "Settings", 5, startX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
         phone->currentApp = APP_SETTINGS;
     }
 
-    // App 6: Car Monitor
     if (player->hasCarMonitorApp) {
         if (DrawAppIcon(iconCar, "CarMon", 6, startX + iconSize + gapX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
             phone->currentApp = APP_CAR_MONITOR;
@@ -268,9 +259,16 @@ void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool clic
     DrawLine(20, 260, SCREEN_WIDTH-20, 260, DARKGRAY);
     DrawText("GAME DATA", 20, 270, 20, DARKGRAY);
 
-    Rectangle saveBtn = { 20, 300, 110, 50 };
-    Rectangle loadBtn = { 150, 300, 110, 50 };
-    Rectangle resetBtn = { 20, 370, 240, 40 };
+    // [NEW] Help Button
+    Rectangle helpBtn = { 20, 300, 240, 40 };
+    if (GuiButton(helpBtn, "OPEN APP GUIDE", DARKPURPLE, mouse, click)) {
+        ShowTutorialHelp(); // Call tutorial helper
+    }
+
+    // Moved these down
+    Rectangle saveBtn = { 20, 360, 110, 50 };
+    Rectangle loadBtn = { 150, 360, 110, 50 };
+    Rectangle resetBtn = { 20, 430, 240, 40 };
 
     if (GuiButton(saveBtn, "SAVE", BLUE, mouse, click)) {
         if (SaveGame(player, phone)) ShowPhoneNotification("Game Saved!", GREEN);
@@ -296,20 +294,13 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
 
     // --- KEYBOARD SHORTCUTS ---
     if (phone->isOpen) {
-        // Space -> Home
         if (IsKeyPressed(KEY_SPACE)) phone->currentApp = APP_HOME;
-
-        // Number Keys -> Apps
         if (IsKeyPressed(KEY_ONE))   phone->currentApp = APP_DELIVERY;
         if (IsKeyPressed(KEY_TWO))   phone->currentApp = APP_MAP;
         if (IsKeyPressed(KEY_THREE)) phone->currentApp = APP_BANK;
         if (IsKeyPressed(KEY_FOUR))  phone->currentApp = APP_MUSIC;
         if (IsKeyPressed(KEY_FIVE))  phone->currentApp = APP_SETTINGS;
-        
-        // App 6 only if unlocked
-        if (IsKeyPressed(KEY_SIX) && player->hasCarMonitorApp) {
-             phone->currentApp = APP_CAR_MONITOR;
-        }
+        if (IsKeyPressed(KEY_SIX) && player->hasCarMonitorApp) phone->currentApp = APP_CAR_MONITOR;
     }
 
     if (phone->music.isPlaying) {
@@ -333,7 +324,6 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     float phoneX = screenW - currentPhoneW - (50 * scale);
     float phoneY = screenH - (currentPhoneH * phone->slideAnim) + (20 * scale);
 
-    // Render Destination Logic
     Rectangle renderDest = { 
         phoneX + currentOffX, 
         phoneY + currentOffY, 
@@ -365,7 +355,6 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
 }
 
 void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMouse, bool click) {
-    // --- SCALING CALCULATIONS ---
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
     
@@ -393,7 +382,6 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
     BeginTextureMode(phone->screenTexture);
         ClearBackground(RAYWHITE);
         
-        // Background for non-home apps
         if (phone->currentApp != APP_HOME) {
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RAYWHITE);
         }
@@ -411,21 +399,19 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
         }
 
         // 2. DRAW STATUS BAR (Layer 1 - Always on Top)
-        DrawRectangle(0, 0, SCREEN_WIDTH, 20, Fade(BLACK, 0.4f)); // Semi-transparent bar
+        DrawRectangle(0, 0, SCREEN_WIDTH, 20, Fade(BLACK, 0.4f)); 
         
-        // Real Time Clock
         time_t t;
         struct tm *tm_info;
         time(&t);
         tm_info = localtime(&t);
         DrawText(TextFormat("%02d:%02d", tm_info->tm_hour, tm_info->tm_min), 10, 4, 10, WHITE);
 
-        // Battery & Percentage
         int battX = SCREEN_WIDTH - 35;
         DrawText("84%", battX - 30, 4, 10, WHITE); 
-        DrawRectangleLines(battX, 5, 20, 10, WHITE); // Body
-        DrawRectangle(battX + 20, 7, 2, 6, WHITE);   // Nub
-        DrawRectangle(battX + 2, 7, 14, 6, GREEN);   // Fill
+        DrawRectangleLines(battX, 5, 20, 10, WHITE);
+        DrawRectangle(battX + 20, 7, 2, 6, WHITE);
+        DrawRectangle(battX + 2, 7, 14, 6, GREEN);
 
         // 3. HOME BUTTON (Layer 2)
         Rectangle homeBtn = { SCREEN_WIDTH/2 - 50, SCREEN_HEIGHT - 30, 100, 10 };

@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h> // Added for fmax/fmin if needed
+#include <math.h>
 
 // --- EXTERNAL ---
 extern void ShowPhoneNotification(const char *text, Color color);
@@ -104,8 +104,13 @@ static void GenerateJobDetails(DeliveryTask *t, int locationType) {
 
 void InitDeliveryApp(PhoneState *phone, GameMap *map) {
     for(int i=0; i<5; i++) {
+        // Initialize as Delivered (Hidden)
         phone->tasks[i].status = JOB_DELIVERED; 
         phone->tasks[i].creationTime = -9999;
+        // Zero out data
+        phone->tasks[i].restaurant[0] = '\0';
+        phone->tasks[i].description[0] = '\0';
+        phone->tasks[i].pay = 0;
     }
 }
 
@@ -215,6 +220,8 @@ static void DrawHomeScreen(PhoneState *phone, Player *player, Rectangle screenRe
     for (int i = 0; i < 5; i++) {
         DeliveryTask *t = &phone->tasks[i];
         if (t->status == JOB_DELIVERED && GetTime() - t->creationTime < 3.0) continue; 
+        if (t->status == JOB_DELIVERED) continue; 
+        if (strlen(t->restaurant) == 0 && t->pay == 0) continue;
         Rectangle cardRect = { 10, y, SCREEN_WIDTH - 20, 90 };
         Color cardColor = (t->status == JOB_ACCEPTED || t->status == JOB_PICKED_UP) ? (Color){30, 50, 30, 255} : COLOR_CARD_BG;
         DrawRectangleRounded(cardRect, 0.2f, 4, cardColor);
@@ -261,20 +268,29 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         DeliveryTask *t = &phone->tasks[i];
         
         if (t->status == JOB_DELIVERED) {
-             int storeIdx = GetRandomStoreIndex(map);
-             int houseIdx = GetRandomHouseIndex(map);
-             if (storeIdx != -1 && houseIdx != -1) {
-                snprintf(t->restaurant, 32, "%s", map->locations[storeIdx].name);
-                t->restaurantPos = map->locations[storeIdx].position;
-                snprintf(t->customer, 32, "House #%d", houseIdx);
-                t->customerPos = map->locations[houseIdx].position;
-                t->distance = Vector2Distance(t->restaurantPos, t->customerPos);
-                t->status = JOB_AVAILABLE;
-                GenerateJobDetails(t, map->locations[storeIdx].type);
+             // [FIX] ONLY RECYCLE JOBS IF TUTORIAL IS FINISHED
+             // This prevents the tutorial script from losing track of the completed job
+             if (player->tutorialFinished) {
+                 int storeIdx = GetRandomStoreIndex(map);
+                 int houseIdx = GetRandomHouseIndex(map);
+                 if (storeIdx != -1 && houseIdx != -1) {
+                    snprintf(t->restaurant, 32, "%s", map->locations[storeIdx].name);
+                    t->restaurantPos = map->locations[storeIdx].position;
+                    snprintf(t->customer, 32, "House #%d", houseIdx);
+                    t->customerPos = map->locations[houseIdx].position;
+                    t->distance = Vector2Distance(t->restaurantPos, t->customerPos);
+                    t->status = JOB_AVAILABLE;
+                    GenerateJobDetails(t, map->locations[storeIdx].type);
+                 }
              }
+             // If tutorial NOT finished, do nothing. Job stays "Delivered".
         }
+        
         if (t->status == JOB_AVAILABLE && (currentTime - t->creationTime > t->refreshTimer)) {
-            if (GetRandomValue(0, 100) < 2) t->status = JOB_DELIVERED; 
+            // Also prevent random job expiration during tutorial
+            if (player->tutorialFinished) {
+                if (GetRandomValue(0, 100) < 2) t->status = JOB_DELIVERED; 
+            }
         }
 
         if (t->status == JOB_PICKED_UP) {
@@ -300,20 +316,14 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             
             // --- HEAVY LOAD LOGIC [NEW] ---
             if (t->isHeavy) {
-                // If the player's car has high Load Sensitivity (e.g. 1.0+), they take damage/penalty for driving recklessly
-                // Trucks have 0.1 sensitivity, so this block rarely triggers for them.
                 if (player->loadResistance > 0.5f) {
-                    // Penalty scales with speed for unsuited vehicles
                     float heavyPenalty = (fabs(player->current_speed) * 0.05f) * player->loadResistance * dt;
-                    // Deduct from pay (cargo damage) 
                     t->pay -= heavyPenalty * 0.1f; 
                 }
             }
 
             // --- TEMPERATURE & INSULATION LOGIC [NEW] ---
             if (t->timeLimit > 0) {
-                // Determine how much "Food Time" has passed relative to "Real Time"
-                // InsulationFactor: 1.0 = Normal, 0.5 = Keeps hot twice as long
                 double realElapsed = currentTime - t->creationTime; 
                 double foodElapsed = realElapsed * player->insulationFactor;
 
@@ -339,11 +349,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
 
                 if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit) {
                     float tip = t->pay * 0.2f;
-                    
-                    // Bonus tip for Fragile goods handled well
                     if (t->fragility > 0.5f) tip += 15.0f;
-                    
-                    // Bonus tip if delivered VERY fast (or with great insulation)
                     if (effectiveElapsed < t->timeLimit * 0.5f) tip += 10.0f;
 
                     player->money += tip;

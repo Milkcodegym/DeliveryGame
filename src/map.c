@@ -2,7 +2,7 @@
 #include "raymath.h"
 #include "rlgl.h"
 #include "player.h" 
-//#include "dealership.h"
+#include "dealership.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -1501,6 +1501,10 @@ void ClearEvents(GameMap *map) {
 }
 
 void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Vector3 playerFwd) {
+    // [AMENDMENT 1] Clear all other events first.
+    // This ensures the Tutorial event is the only one the player sees.
+    ClearEvents(map); 
+
     int slot = -1;
     for (int i = 0; i < MAX_EVENTS; i++) {
         if (!map->events[i].active) {
@@ -1511,14 +1515,17 @@ void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Ve
     if (slot == -1) return;
 
     Vector2 spawnPos;
-    spawnPos.x = playerPos.x + (playerFwd.x * 15.0f);
-    spawnPos.y = playerPos.z + (playerFwd.z * 15.0f);
+    // [AMENDMENT 2] Increased distance to 20.0f to give player reaction time
+    spawnPos.x = playerPos.x + (playerFwd.x * 20.0f);
+    spawnPos.y = playerPos.z + (playerFwd.z * 20.0f);
 
     map->events[slot].active = true;
     map->events[slot].type = type;
     map->events[slot].position = spawnPos;
     map->events[slot].radius = 8.0f; 
-    map->events[slot].timer = 30.0f; 
+    
+    // [AMENDMENT 3] Increased duration to 60s so it persists during tutorial reading
+    map->events[slot].timer = 60.0f; 
 
     if (type == EVENT_CRASH) {
         snprintf(map->events[slot].label, 64, "ACCIDENT ALERT");
@@ -1600,7 +1607,7 @@ void UpdateDevControls(GameMap *map, Player *player) {
 
     // F7: Open Dealership [NEW]
     if (IsKeyPressed(KEY_F7)) {
-        //EnterDealership(player);
+        EnterDealership(player);
         TraceLog(LOG_INFO, "DEV: Forced Dealership Entry");
     }
 }

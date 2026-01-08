@@ -15,10 +15,10 @@
 #include "screen_visuals.h"
 #include "mechanic.h" 
 #include "save.h"
-#include "dealership.h" // [REQUIRED] Include Dealership
+#include "dealership.h"
+#include "tutorial.h"
 
 void FixPath(void) {
-    // 1. Loop 5 times trying to find the "resources" folder
     for (int i = 0; i < 5; i++) {
         if (DirectoryExists("resources")) {
             TraceLog(LOG_INFO, "PATH FIX: Found resources folder.");
@@ -28,14 +28,10 @@ void FixPath(void) {
     }
 }
 
-// Forward declaration if not in map.h
-void DrawZoneMarker(Vector3 pos, Color color);
-
 int main(void)
 {
     FixPath();
-    // Initialize Window
-    InitWindow(1280, 720, "Delivery Game - v0.4");
+    InitWindow(1280, 720, "Delivery Game - v0.5");
 
     int monitorWidth = GetMonitorWidth(0);
     int monitorHeight = GetMonitorHeight(0);
@@ -70,7 +66,10 @@ int main(void)
         PhoneState phone = {0};
         InitPhone(&phone, &map); 
         
-        // [NEW] Initialize Dealership System
+        // [TUTORIAL] Initialize
+        InitTutorial();
+        
+        // [DEALERSHIP] Initialize
         InitDealership();
 
         // [SAVE SYSTEM] Attempt Auto-Load
@@ -96,9 +95,9 @@ int main(void)
             float dt = GetFrameTime();
             
             // --- 1. UPDATE PHASE ---
-            
-            // [NEW] Check Dealership State First
-            // If shopping, skip world updates
+            bool lockInput = UpdateTutorial(&player, &phone, &map, dt, isRefueling, isMechanicOpen);
+
+            // [DEALERSHIP CHECK]
             if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                 UpdateDealership(&player);
             }
@@ -113,7 +112,7 @@ int main(void)
                     player.money -= penalty;
                     AddMoney(&player, "Hospital Bills", -penalty); 
 
-                    // Find Nearest Mechanic for Respawn
+                    // Find Nearest Mechanic
                     float minDst = 999999.0f;
                     Vector2 pPos2 = { player.position.x, player.position.z };
                     respawnPoint = startPos; 
@@ -122,7 +121,6 @@ int main(void)
                         if (map.locations[i].type == LOC_MECHANIC) {
                             Vector2 mechPos = map.locations[i].position;
                             float dst = Vector2Distance(pPos2, mechPos);
-                            
                             if (dst < minDst) {
                                 minDst = dst;
                                 respawnPoint = (Vector3){ mechPos.x, 0.5f, mechPos.y }; 
@@ -138,49 +136,47 @@ int main(void)
                         player.position = respawnPoint;
                         player.health = 100.0f;
                         player.current_speed = 0.0f;
-                        player.fuel = MAX_FUEL;
+                        player.fuel = player.maxFuel;
                         isDead = false;
                         ResetMapCamera((Vector2){player.position.x, player.position.z});
                     }
                 } 
                 else {
                     // --- NORMAL GAME LOOP ---
-                    UpdatePlayer(&player, &map, &traffic, dt);
-                    UpdateVisuals(dt); 
                     
-                    // Dev Controls (Now passes &player for F7 support)
-                    UpdateDevControls(&map, &player);
+                    // [TUTORIAL LOCK] If tutorial window is open, stop car and traffic
+                    if (lockInput) {
+                        // Apply friction to stop car if a window popped up while driving
+                        if (player.current_speed > 0) player.current_speed -= 10.0f * dt;
+                        if (player.current_speed < 0) player.current_speed = 0;
+                    } 
+                    else {
+                        // Allow driving
+                        UpdatePlayer(&player, &map, &traffic, dt);
+                        UpdateTraffic(&traffic, player.position, &map, dt);
+                        UpdateDevControls(&map, &player);
+                    }
 
-                    UpdateTraffic(&traffic, player.position, &map, dt);
+                    UpdateVisuals(dt); 
                     UpdateMapEffects(&map, player.position);
                     UpdatePhone(&phone, &player, &map); 
                     Update_Camera(player.position, &map, player.angle, dt);
                     
                     if (IsKeyPressed(KEY_F3)) isMechanicOpen = true;
 
-                    // --- INTERACTION LOGIC (UPDATE) ---
+                    // --- INTERACTION LOGIC ---
                     if (!isRefueling && !isMechanicOpen && fabs(player.current_speed) < 5.0f) {
-                        
                         Vector2 playerPos2D = { player.position.x, player.position.z };
-
                         for(int i=0; i<map.locationCount; i++) {
                             Vector2 locPos2D = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
                             float dist = Vector2Distance(playerPos2D, locPos2D);
 
                             if (dist < 12.0f) {
-                                // FUEL
                                 if (map.locations[i].type == LOC_FUEL) {
-                                    if (IsKeyPressed(KEY_E)) {
-                                        printf("DEBUG: Opening Fuel Window\n");
-                                        isRefueling = true;
-                                    }
+                                    if (IsKeyPressed(KEY_E)) isRefueling = true;
                                 }
-                                // MECHANIC
                                 else if (map.locations[i].type == LOC_MECHANIC) {
-                                    if (IsKeyPressed(KEY_E)) {
-                                        printf("DEBUG: Opening Mechanic Window\n");
-                                        isMechanicOpen = true;
-                                    }
+                                    if (IsKeyPressed(KEY_E)) isMechanicOpen = true;
                                 }
                             }
                         }
@@ -192,9 +188,10 @@ int main(void)
             BeginDrawing();
                 ClearBackground(RAYWHITE);
 
-                // [NEW] Draw Dealership instead of World if Active
                 if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                     DrawDealership(&player);
+                    // Draw Tutorial Overlay on top of Dealership if needed (e.g. "Buy a car")
+                    DrawTutorial(&player, &phone);
                 }
                 else {
                     BeginMode3D(camera);
@@ -215,7 +212,7 @@ int main(void)
                             }
                         }
 
-                        // Interaction Markers
+                        // Draw Interaction Markers
                         if (!isDead && !isRefueling && !isMechanicOpen) {
                             Vector3 pPos3D = player.position;
                             for(int i=0; i<map.locationCount; i++) {
@@ -224,13 +221,8 @@ int main(void)
                                  
                                  if (Vector2Distance(pPos2D, locPos2D) < 144.0f) { 
                                      Vector3 labelPos = { locPos2D.x, 2.5f, locPos2D.y }; 
-                                     
-                                     if (map.locations[i].type == LOC_FUEL) {
-                                         DrawCube(labelPos, 0.5f, 0.5f, 0.5f, YELLOW); 
-                                     } 
-                                     else if (map.locations[i].type == LOC_MECHANIC) {
-                                         DrawCube(labelPos, 0.5f, 0.5f, 0.5f, BLUE); 
-                                     }
+                                     if (map.locations[i].type == LOC_FUEL) DrawCube(labelPos, 0.5f, 0.5f, 0.5f, YELLOW); 
+                                     else if (map.locations[i].type == LOC_MECHANIC) DrawCube(labelPos, 0.5f, 0.5f, 0.5f, BLUE); 
                                  }
                             }
                         }
@@ -238,14 +230,13 @@ int main(void)
                         Vector3 drawPos = player.position;
                         DrawModelEx(player.model, drawPos, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.35f, 0.35f, 0.35f}, WHITE);
                         DrawTraffic(&traffic);
-                        
                     EndMode3D();
                     
                     // --- 2D UI LAYER ---
                     DrawVisualsWithPinned(&player,&phone); 
                     DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
                     
-                    // Interaction Text (2D)
+                    // Interaction Text
                     if (!isDead && !isRefueling && !isMechanicOpen && fabs(player.current_speed) < 5.0f) {
                           Vector2 pPos2 = { player.position.x, player.position.z };
                           for(int i=0; i<map.locationCount; i++) {
@@ -280,49 +271,31 @@ int main(void)
                                 DrawText("Press TAB to open Phone", GetScreenWidth() - 273, GetScreenHeight() - 30, 20, DARKGRAY);
                             }
                         }
-                        
                         DrawHealthBar(&player);
 
-                        // DEATH SCREEN
                         if (isDead) {
+                            // ... Death Screen Drawing (Same as before) ...
                             DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(MAROON, 0.8f));
-                            const char* text = "WASTED";
-                            int fontSize = 80;
-                            int txtW = MeasureText(text, fontSize);
-                            DrawText(text, GetScreenWidth()/2 - txtW/2, GetScreenHeight()/3, fontSize, WHITE);
-                            DrawText(TextFormat("You lost 40%% of your cash."), GetScreenWidth()/2 - 150, GetScreenHeight()/2, 30, LIGHTGRAY);
-                            if (deathTimer > 3.0f) {
-                                if ((int)(GetTime() * 2) % 2 == 0) {
-                                    DrawText("Press [ENTER] to Respawn", GetScreenWidth()/2 - 180, GetScreenHeight()/2 + 60, 30, WHITE);
-                                }
-                            }
+                            DrawText("WASTED", GetScreenWidth()/2 - MeasureText("WASTED", 80)/2, GetScreenHeight()/3, 80, WHITE);
+                            if (deathTimer > 3.0f) DrawText("Press [ENTER] to Respawn", GetScreenWidth()/2 - 180, GetScreenHeight()/2 + 60, 30, WHITE);
                         }
 
                         // Debug HUD
-                        DrawText(TextFormat("Pos: %.1f, %.1f", player.position.x, player.position.z), 10, 10, 20, BLACK);
-                        DrawText(TextFormat("Speed: %.1f", player.current_speed), 10, 30, 20, BLACK); 
-                        DrawText(TextFormat("FPS: %d", GetFPS()), 10, 50, 50, WHITE);
-                        DrawText(TextFormat("FPS: %d", GetFPS()), 10, 50, 50, BLACK);
-                        
-                        if (map.nodeCount == 0) DrawText("MAP FAILED TO LOAD", 10, 70, 20, RED);
+                        DrawText(TextFormat("FPS: %d", GetFPS()), 10, 10, 20, BLACK);
                     }
-                } // End Else (Not Dealership)
-
+                    
+                    // [TUTORIAL OVERLAY] Drawn Last
+                    DrawTutorial(&player, &phone);
+                }
             EndDrawing();
         }
 
-        if (player.health > 0) {
-            printf("EXIT: Saving Game Data...\n");
-            SaveGame(&player, &phone);
-        } else {
-            printf("EXIT: Player dead, skipping save.\n");
-        }
+        if (player.health > 0) SaveGame(&player, &phone);
         
-        // Clean up
         UnloadModel(player.model);
         UnloadGameMap(&map);
         UnloadPhone(&phone);
-        UnloadDealershipSystem(); // [NEW] Cleanup Dealership Assets
+        UnloadDealershipSystem(); 
     }
     
     CloseAudioDevice();

@@ -104,5 +104,6 @@ void DrawPhone(PhoneState *phone, Player *player, struct GameMap *map, Vector2 m
 void UnloadPhone(PhoneState *phone);
 // Added notification helper to header so other files can use it
 void ShowPhoneNotification(const char *text, Color color); 
-
+// Add this to the bottom of phone.h
+void ShowTutorialHelp(void); // From tutorial.c
 #endif

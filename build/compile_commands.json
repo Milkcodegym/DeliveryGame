@@ -367,6 +367,31 @@
       "-std=c++17",
       "-c",
       "-o",
+      "obj/x64/Debug/DeliveryGame/tutorial.o",
+      "../../src/tutorial.h"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/tutorial.h",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/tutorial.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
       "obj/x64/Debug/DeliveryGame/camera.o",
       "../../src/camera.c"
     ],
@@ -698,6 +723,31 @@
     "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
     "file": "C:/Users/micha/Desktop/DeliveryGame/src/traffic.c",
     "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/traffic.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "obj/x64/Debug/DeliveryGame/tutorial.o",
+      "../../src/tutorial.c"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/tutorial.c",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/tutorial.o"
   },
   {
     "arguments": [

@@ -60,10 +60,10 @@ Player InitPlayer(Vector3 startPos) {
     p.money = 0.0f;
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
-    AddMoney(&p, "DEVELOPER MONEY", 450.00f);
+    AddMoney(&p, "DEVELOPER MONEY", 50450.00f);
 
     // Init Fuel
-    p.fuel = p.maxFuel * 0.45f; // Start with ~45% to demonstrate refueling
+    p.fuel = p.maxFuel * 0.85f; // Start with ~45% to demonstrate refueling
 
     return p;
 }
