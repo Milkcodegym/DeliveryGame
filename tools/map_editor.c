@@ -10,7 +10,7 @@
 
 // --- CONFIGURATION ---
 const float EDITOR_MAP_SCALE = 0.4f; 
-const char* MAP_FILE = "resources/maps/whole_city.map"; 
+const char* MAP_FILE = "resources/maps/expanded_city.map"; 
 
 #define LOC_DELETED -1 
 

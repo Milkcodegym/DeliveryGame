@@ -5,8 +5,8 @@ import os
 
 # --- CONFIGURATION ---
 OUTPUT_DIR = os.path.join("..", "resources", "maps") 
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "whole_city.map")
-INPUT_FILE = "wholemap.osm" 
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "smaller_city.map")
+INPUT_FILE = "smaller.osm" 
 
 SCALE = 111139.0 
 
@@ -271,7 +271,7 @@ def convert_osm():
         f.write("\nBUILDINGS:\n")
         for b in final_buildings:
             f.write(f"{b['h']:.1f} {b['col'][0]} {b['col'][1]} {b['col'][2]}")
-            for p in b['pts']: f.write(f" {p[0]:.1f} {p[1]:.1f}")
+            for p in b['pts']: f.write(f" {int(p[0])} {int(p[1])}")
             f.write("\n")
             
         f.write("\nAREAS:\n\nL:\n") 
