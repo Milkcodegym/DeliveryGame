@@ -1,9 +1,8 @@
 #include "save.h"
 #include <stdio.h>
-#include <string.h> // for memset
+#include <string.h> 
 
-// Simple XOR Encryption Key
-const unsigned char KEY = 0xAA; // 10101010
+const unsigned char KEY = 0xAA; 
 
 void Obfuscate(unsigned char* data, size_t size) {
     for (size_t i = 0; i < size; i++) {
@@ -14,44 +13,58 @@ void Obfuscate(unsigned char* data, size_t size) {
 bool SaveGame(Player *player, PhoneState *phone) {
     GameSaveData data = {0};
     
-    // 1. PACK DATA (Copy from Game Objects to Save Struct)
+    // 1. PACK DATA
     data.version = SAVE_VERSION;
     
-    // Player Physics/Pos
+    // Position
     data.position = player->position;
     data.angle = player->angle;
-    data.fuel = player->fuel;
     
-    // Player Economy
+    // Car Stats (Critical for Dealership Persistence)
+    strcpy(data.modelFileName, player->currentModelFileName);
+    data.max_speed = player->max_speed;
+    data.acceleration = player->acceleration;
+    data.brake_power = player->brake_power;
+    data.maxFuel = player->maxFuel;
+    data.fuelConsumption = player->fuelConsumption;
+    data.insulationFactor = player->insulationFactor;
+    data.loadResistance = player->loadResistance;
+
+    // Resources
+    data.fuel = player->fuel;
+    data.health = player->health;
+    
+    // Economy
     data.money = player->money;
     data.totalDeliveries = player->totalDeliveries;
     data.totalEarnings = player->totalEarnings;
     data.transactionCount = player->transactionCount;
     
-    // Copy the history array safely
     for(int i=0; i<MAX_TRANSACTIONS; i++) {
         data.history[i] = player->history[i];
     }
 
-    // Player Upgrades
+    // Upgrades
     data.hasCarMonitorApp = player->hasCarMonitorApp;
     data.unlockGForce = player->unlockGForce;
     data.unlockThermometer = player->unlockThermometer;
     
-    // Player UI Pins
+    // UI Pins
     data.pinSpeed = player->pinSpeed;
     data.pinFuel = player->pinFuel;
     data.pinAccel = player->pinAccel;
     data.pinGForce = player->pinGForce;
     data.pinThermometer = player->pinThermometer;
 
-    // Phone Settings
+    // Game Progress
+    data.tutorialFinished = player->tutorialFinished;
+
+    // Phone
     data.settings = phone->settings;
 
-    // 2. ENCRYPT
+    // 2. ENCRYPT & WRITE
     Obfuscate((unsigned char*)&data, sizeof(GameSaveData));
 
-    // 3. WRITE TO FILE
     FILE *file = fopen(SAVE_FILE_NAME, "wb");
     if (!file) {
         TraceLog(LOG_ERROR, "SAVE: Could not open file for writing.");
@@ -63,7 +76,6 @@ bool SaveGame(Player *player, PhoneState *phone) {
 
     if (written == 1) {
         TraceLog(LOG_INFO, "SAVE: Game saved successfully.");
-        // Optional: Trigger a phone notification here if you had access to the function
         return true;
     } else {
         TraceLog(LOG_ERROR, "SAVE: Write failed.");
@@ -82,26 +94,57 @@ bool LoadGame(Player *player, PhoneState *phone) {
     size_t read = fread(&data, sizeof(GameSaveData), 1, file);
     fclose(file);
 
-    if (read != 1) {
-        TraceLog(LOG_WARNING, "SAVE: File empty or corrupted.");
-        return false;
-    }
+    if (read != 1) return false;
 
     // 1. DECRYPT
     Obfuscate((unsigned char*)&data, sizeof(GameSaveData));
 
     // 2. VERSION CHECK
+    // If version mismatches, we usually reset to avoid garbage data
     if (data.version != SAVE_VERSION) {
-        TraceLog(LOG_WARNING, "SAVE: Version mismatch. Starting fresh to prevent crash.");
+        TraceLog(LOG_WARNING, "SAVE: Save version mismatch (Old file?). Starting fresh.");
         return false;
     }
 
-    // 3. UNPACK DATA (Copy from Save Struct to Game Objects)
+    // 3. UNPACK DATA
     
-    // Physics
+    // Position
     player->position = data.position;
     player->angle = data.angle;
+    
+    // --- CAR MODEL RESTORATION ---
+    // Check if the saved model is different from current default
+    if (strlen(data.modelFileName) > 0) {
+        TraceLog(LOG_INFO, "SAVE: Restoring vehicle model: %s", data.modelFileName);
+        
+        // Unload default/previous model
+        UnloadModel(player->model);
+        
+        // Load Saved Car
+        char path[128];
+        sprintf(path, "resources/Playermodels/%s", data.modelFileName);
+        player->model = LoadModel(path);
+        
+        // Store filename in player struct for next save
+        strcpy(player->currentModelFileName, data.modelFileName);
+        
+        // Recalculate bounds
+        BoundingBox box = GetModelBoundingBox(player->model);
+        player->radius = (box.max.x - box.min.x) * 0.4f;
+    }
+    
+    // Physics Constants
+    player->max_speed = data.max_speed;
+    player->acceleration = data.acceleration;
+    player->brake_power = data.brake_power;
+    player->maxFuel = data.maxFuel;
+    player->fuelConsumption = data.fuelConsumption;
+    player->insulationFactor = data.insulationFactor;
+    player->loadResistance = data.loadResistance;
+
+    // Resources
     player->fuel = data.fuel;
+    player->health = data.health;
     
     // Economy
     player->money = data.money;
@@ -124,8 +167,11 @@ bool LoadGame(Player *player, PhoneState *phone) {
     player->pinAccel = data.pinAccel;
     player->pinGForce = data.pinGForce;
     player->pinThermometer = data.pinThermometer;
+    
+    // Game State
+    player->tutorialFinished = data.tutorialFinished;
 
-    // Settings
+    // Phone
     phone->settings = data.settings;
 
     TraceLog(LOG_INFO, "SAVE: Game Loaded Successfully.");
@@ -133,20 +179,25 @@ bool LoadGame(Player *player, PhoneState *phone) {
 }
 
 void ResetSaveGame(Player *player, PhoneState *phone) {
-    // 1. Delete the file
     remove(SAVE_FILE_NAME);
     
-    // 2. Reset Player Stats (Keep position or reset it? Let's reset money/stats)
+    // Reset Critical Logic
     player->money = 0;
     player->fuel = MAX_FUEL;
     player->totalDeliveries = 0;
     player->transactionCount = 0;
     player->hasCarMonitorApp = false;
+    player->tutorialFinished = false; // Reset tutorial
     
-    // Note: We usually DON'T reset Settings (Volume) as that's annoying for users.
-    // But if you want a hard factory reset:
-    phone->settings.masterVolume = 0.8f;
-    phone->settings.mute = false;
+    // Reset to Default Van Stats (Hardcoded default)
+    player->max_speed = 60.0f;
+    player->acceleration = 0.3f;
+    player->brake_power = 2.0f;
+    player->maxFuel = 80.0f;
+    player->fuelConsumption = 0.04f;
+    
+    // Note: Model reset usually requires reloading the scene or restarting app, 
+    // as we don't want to load models in the middle of a reset function.
     
     TraceLog(LOG_INFO, "SAVE: Save file deleted and state reset.");
 }

@@ -6,14 +6,12 @@
 static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mouse, bool disabled) {
     bool hover = CheckCollisionPointRec(mouse, rect);
     
-    // Visuals
     Color drawColor = disabled ? GRAY : color;
     if (hover && !disabled) drawColor = Fade(color, 0.8f);
     
     DrawRectangleRec(rect, drawColor);
     DrawRectangleLinesEx(rect, 2, disabled ? DARKGRAY : BLACK);
     
-    // Centered Text scaling attempt
     int fontSize = (int)(rect.height * 0.5f);
     if (fontSize < 10) fontSize = 10;
     int txtW = MeasureText(text, fontSize);
@@ -26,34 +24,28 @@ static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mo
 bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
-    // Scale UI
     float scale = (float)screenH / 720.0f;
     float w = 700 * scale; 
-    float h = 550 * scale; // Slightly taller to fit Fuel Upgrade
+    float h = 600 * scale; // Increased height for more options
     float x = (screenW - w) / 2;
     float y = (screenH - h) / 2;
     Vector2 mouse = GetMousePosition();
 
-    // Dim Background
     DrawRectangle(0, 0, screenW, screenH, Fade(BLACK, 0.6f));
-    
-    // Window Body
     DrawRectangle(x, y, w, h, RAYWHITE);
     DrawRectangleLines(x, y, w, h, BLACK);
     
     // Header
     DrawRectangle(x, y, w, 50 * scale, DARKBLUE);
     DrawText("JOE'S MECHANIC SHOP", x + 15*scale, y + 15*scale, 24*scale, WHITE);
-    
-    // Money Display
     DrawText(TextFormat("Cash: $%.0f", player->money), x + w - 150*scale, y + 15*scale, 20*scale, GREEN);
 
     float startY = y + 70 * scale;
     float col1X = x + 20 * scale;
-    float col2X = x + 360 * scale; // Second column
+    float col2X = x + 360 * scale; 
 
-    // --- COLUMN 1: VEHICLE PERFORMANCE ---
-    DrawText("Vehicle Service", col1X, startY, 20*scale, BLACK);
+    // --- COLUMN 1: PERFORMANCE ---
+    DrawText("Performance", col1X, startY, 20*scale, BLACK);
     startY += 30 * scale;
 
     // 1. REPAIR
@@ -63,22 +55,18 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     if (damage <= 0) repairCost = 0;
 
     DrawText(TextFormat("Health: %.0f%%", player->health), col1X, startY, 16*scale, (player->health < 50) ? RED : DARKGREEN);
-    
     const char* repairLabel = (repairCost == 0) ? "No Repairs Needed" : TextFormat("Repair ($%d)", repairCost);
-    bool canAffordRepair = (player->money >= repairCost);
-    
-    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, repairLabel, RED, mouse, (repairCost == 0 || !canAffordRepair))) {
+    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, repairLabel, RED, mouse, (repairCost == 0 || player->money < repairCost))) {
         AddMoney(player, "Car Repair", -repairCost);
         player->health = 100.0f;
     }
-    
     startY += 70 * scale;
 
     // 2. ACCELERATION
     DrawText(TextFormat("Engine Tune (Accel: %.1f)", player->acceleration), col1X, startY, 16*scale, DARKGRAY);
     if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Upgrade ($200)", ORANGE, mouse, player->money < 200)) {
         AddMoney(player, "Engine Upgrade", -200);
-        player->acceleration += 0.5f; // Increased increment slightly
+        player->acceleration += 0.5f;
     }
     startY += 70 * scale;
 
@@ -88,52 +76,58 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
         AddMoney(player, "Brake Upgrade", -150);
         player->brake_power += 1.0f;
     }
-    startY += 70 * scale;
 
-    // 4. FUEL TANK [NEW]
-    DrawText(TextFormat("Fuel Tank (Max: %.0fL)", player->maxFuel), col1X, startY, 16*scale, DARKGRAY);
-    // Cost increases with tank size logic could go here, keeping flat for now
-    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Expand Tank ($350)", ORANGE, mouse, player->money < 350)) {
-        AddMoney(player, "Tank Expansion", -350);
-        player->maxFuel += 10.0f; // Add 10 Liters capacity
-    }
-    
-    // --- COLUMN 2: DIGITAL UPGRADES ---
-    startY = y + 70 * scale; // Reset Y for col 2
-    DrawText("MyCarMonitor App", col2X, startY, 20*scale, BLACK);
+    // --- COLUMN 2: UTILITY & TECH ---
+    startY = y + 70 * scale; 
+    DrawText("Utility & Tech", col2X, startY, 20*scale, BLACK);
     startY += 30 * scale;
 
+    // 4. FUEL TANK
+    DrawText(TextFormat("Fuel Tank (Max: %.0fL)", player->maxFuel), col2X, startY, 16*scale, DARKGRAY);
+    if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, "Expand Tank ($350)", BLUE, mouse, player->money < 350)) {
+        AddMoney(player, "Tank Expansion", -350);
+        player->maxFuel += 10.0f;
+    }
+    startY += 70 * scale;
+
+    // 5. THERMAL INSULATION [NEW]
+    // Uses insulationFactor. 1.0 is default. Lower is better.
+    // Display as "Quality %" where 1.0 is 0% quality and 0.0 is 100% quality for UI clarity.
+    int insulationPct = (int)((1.0f - player->insulationFactor) * 100.0f);
+    if (insulationPct < 0) insulationPct = 0;
+
+    DrawText(TextFormat("Thermal Insulation (Qual: %d%%)", insulationPct), col2X, startY, 16*scale, DARKGRAY);
+    
+    bool maxedInsulation = (player->insulationFactor <= 0.2f); // Cap at 80% effectiveness
+    const char* insLabel = maxedInsulation ? "Maxed Out" : "Add Lining ($400)";
+    
+    if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, insLabel, BLUE, mouse, (maxedInsulation || player->money < 400))) {
+        AddMoney(player, "Insulation Upgrade", -400);
+        player->insulationFactor *= 0.85f; // Improve by 15% exponentially
+    }
+    startY += 70 * scale;
+
+    // 6. APPS
     if (!player->hasCarMonitorApp) {
-        DrawText("Install the app to see", col2X, startY, 16*scale, GRAY);
-        DrawText("live diagnostics.", col2X, startY+15*scale, 16*scale, GRAY);
-        
-        if (MechButton((Rectangle){col2X, startY + 40*scale, 280*scale, 50*scale}, "Buy App ($100)", BLUE, mouse, player->money < 100)) {
+        DrawText("MyCarMonitor App", col2X, startY, 16*scale, GRAY);
+        if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, "Buy App ($100)", PURPLE, mouse, player->money < 100)) {
             AddMoney(player, "Bought App", -100);
             player->hasCarMonitorApp = true;
         }
     } else {
-        DrawText("App Installed", col2X, startY, 16*scale, GREEN);
-        startY += 30 * scale;
-
-        // Sensor 1: Thermometer
-        const char* label1 = player->unlockThermometer ? "Owned" : "Buy Thermo ($300)";
-        Color c1 = player->unlockThermometer ? GRAY : PURPLE;
-        bool disabledT = player->unlockThermometer || player->money < 300;
+        // App Upgrades Mini-Section
+        DrawText("Sensor Modules", col2X, startY, 16*scale, DARKGRAY);
         
-        DrawText("Food Thermometer", col2X, startY, 16*scale, DARKGRAY);
-        if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, label1, c1, mouse, disabledT)) {
+        // Thermometer
+        const char* labelT = player->unlockThermometer ? "Owned" : "Thermo ($300)";
+        if (MechButton((Rectangle){col2X, startY + 20*scale, 135*scale, 40*scale}, labelT, PURPLE, mouse, (player->unlockThermometer || player->money < 300))) {
             AddMoney(player, "Thermometer", -300);
             player->unlockThermometer = true;
         }
-        startY += 75 * scale;
 
-        // Sensor 2: G-Force
-        const char* label2 = player->unlockGForce ? "Owned" : "Buy G-Meter ($500)";
-        Color c2 = player->unlockGForce ? GRAY : PURPLE;
-        bool disabledG = player->unlockGForce || player->money < 500;
-
-        DrawText("G-Force Sensor", col2X, startY, 16*scale, DARKGRAY);
-        if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, label2, c2, mouse, disabledG)) {
+        // G-Force
+        const char* labelG = player->unlockGForce ? "Owned" : "G-Meter ($500)";
+        if (MechButton((Rectangle){col2X + 145*scale, startY + 20*scale, 135*scale, 40*scale}, labelG, PURPLE, mouse, (player->unlockGForce || player->money < 500))) {
             AddMoney(player, "G-Force Meter", -500);
             player->unlockGForce = true;
         }

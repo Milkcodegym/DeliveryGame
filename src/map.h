@@ -177,7 +177,8 @@ void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Ve
 void ClearEvents(GameMap *map);
 
 // Dev Tools
-void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd);
+typedef struct Player Player;
+void UpdateDevControls(GameMap *map, Player *player);
 
 // Helpers
 void SetMapDestination(GameMap *map, Vector2 dest); // Used by Delivery App

@@ -1,6 +1,8 @@
 #include "map.h"
 #include "raymath.h"
 #include "rlgl.h"
+#include "player.h" 
+//#include "dealership.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -824,8 +826,8 @@ void BakeMapElements(GameMap *map) {
         Vector2 s = map->nodes[e.startNode].position;
         Vector2 en = map->nodes[e.endNode].position;
         float finalWidth = (e.width * MAP_SCALE) * 2.0f;
-        Vector3 start = {s.x, 0.02f, s.y}; 
-        Vector3 end = {en.x, 0.02f, en.y};
+        Vector3 start = {s.x, 0.15f, s.y}; 
+        Vector3 end = {en.x, 0.15f, en.y};
         Vector3 diff = Vector3Subtract(end, start);
         if (Vector3Length(diff) < 0.001f) continue;
 
@@ -847,8 +849,8 @@ void BakeMapElements(GameMap *map) {
         if (!e.oneway) {
             float lineWidth = finalWidth * 0.05f; 
             Vector3 lineOffset = Vector3Scale(right, lineWidth * 0.5f);
-            Vector3 mStart = { start.x, 0.035f, start.z }; 
-            Vector3 mEnd = { end.x, 0.035f, end.z };
+            Vector3 mStart = { start.x, 0.165f, start.z }; 
+            Vector3 mEnd = { end.x, 0.165f, end.z };
             Vector3 l1 = Vector3Subtract(mStart, lineOffset);
             Vector3 l2 = Vector3Add(mStart, lineOffset);
             Vector3 l3 = Vector3Add(mEnd, lineOffset);
@@ -1573,18 +1575,33 @@ void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
     }
 }
 
-void UpdateDevControls(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
+void UpdateDevControls(GameMap *map, Player *player) {
+    
+    // Calculate forward vector based on player angle (for spawning events in front)
+    Vector3 fwd = { sinf(player->angle * DEG2RAD), 0, cosf(player->angle * DEG2RAD) };
+
+    // F1: Spawn Crash
     if (IsKeyPressed(KEY_F1)) {
-        TriggerSpecificEvent(map, EVENT_CRASH, playerPos, playerFwd);
+        TriggerSpecificEvent(map, EVENT_CRASH, player->position, fwd);
         TraceLog(LOG_INFO, "DEV: Spawned Crash");
     }
+
+    // F2: Spawn Roadwork
     if (IsKeyPressed(KEY_F2)) {
-        TriggerSpecificEvent(map, EVENT_ROADWORK, playerPos, playerFwd);
+        TriggerSpecificEvent(map, EVENT_ROADWORK, player->position, fwd);
         TraceLog(LOG_INFO, "DEV: Spawned Roadwork");
     }
+
+    // F4: Clear All Events
     if (IsKeyPressed(KEY_F4)) {
         ClearEvents(map);
         TraceLog(LOG_INFO, "DEV: Cleared Events");
+    }
+
+    // F7: Open Dealership [NEW]
+    if (IsKeyPressed(KEY_F7)) {
+        //EnterDealership(player);
+        TraceLog(LOG_INFO, "DEV: Forced Dealership Entry");
     }
 }
 
@@ -1614,7 +1631,7 @@ void DrawGameMap(GameMap *map, Camera camera) {
     // 1. Static Global Geometry
     if (cityRenderer.mapBaked) {
         DrawModel(cityRenderer.areaModel, (Vector3){0,0,0}, 1.0f, WHITE);
-        DrawModel(cityRenderer.roadModel, (Vector3){0,0,0}, 1.0f, WHITE);
+        DrawModel(cityRenderer.roadModel, (Vector3){0,0,0}, 1.0f, DARKGRAY);
         DrawModel(cityRenderer.markingsModel, (Vector3){0,0,0}, 1.0f, WHITE);
         DrawModel(cityRenderer.roofModel, (Vector3){0,0,0}, 1.0f, WHITE); 
     } 

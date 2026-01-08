@@ -1,53 +1,60 @@
-#ifndef SAVE_SYSTEM_H
-#define SAVE_SYSTEM_H
+#ifndef SAVE_H
+#define SAVE_H
 
-#include "raylib.h"
-#include "player.h" // For Player struct and Transaction
-#include "phone.h"  // For SettingsState
+#include "player.h"
+#include "phone.h" // [FIX] This needs to be included to see PhoneSettings
 
-// Version control for your save file. Increment this if you change the struct later!
-#define SAVE_VERSION 1 
-#define SAVE_FILE_NAME "savegame.dat"
+#define SAVE_FILE_NAME "save_data.dat"
+#define SAVE_VERSION 2  
 
-typedef struct {
+typedef struct GameSaveData {
     int version;
     
-    // --- Player Data ---
+    // Physics & Pos
     Vector3 position;
     float angle;
-    float money;
-    float fuel;
     
-    // Stats
+    // Car Configuration
+    char modelFileName[64];
+    float max_speed;
+    float acceleration;
+    float brake_power;
+    float maxFuel;
+    float fuelConsumption;
+    float insulationFactor;
+    float loadResistance;
+
+    // Resource State
+    float fuel;
+    float health;
+
+    // Economy
+    float money;
     int totalDeliveries;
     float totalEarnings;
-    
-    // Transaction History (Fixed size array is safe to save directly)
-    Transaction history[MAX_TRANSACTIONS];
     int transactionCount;
+    Transaction history[MAX_TRANSACTIONS];
 
-    // Upgrades / Unlocks
+    // Upgrades
     bool hasCarMonitorApp;
     bool unlockGForce;
     bool unlockThermometer;
-    
-    // Visual Pins
+
+    // UI State
     bool pinSpeed;
     bool pinFuel;
     bool pinAccel;
     bool pinGForce;
     bool pinThermometer;
 
-    // --- Phone/Settings Data ---
-    SettingsState settings;
+    // Global State
+    bool tutorialFinished; // [CONFIRMED] Tutorial state saving
 
-    // (Optional) We could save active jobs here, 
-    // but for stability, we often only save "Home" state.
-    // Let's stick to core progression for stability first.
+    // Phone Settings
+    PhoneSettings settings; // Now defined because phone.h is included
 
 } GameSaveData;
 
-// Core Functions
 bool SaveGame(Player *player, PhoneState *phone);
 bool LoadGame(Player *player, PhoneState *phone);
 void ResetSaveGame(Player *player, PhoneState *phone);

@@ -67,6 +67,31 @@
       "-std=c++17",
       "-c",
       "-o",
+      "obj/x64/Debug/DeliveryGame/dealership.o",
+      "../../src/dealership.h"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/dealership.h",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/dealership.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
       "obj/x64/Debug/DeliveryGame/delivery_app.o",
       "../../src/delivery_app.h"
     ],
@@ -373,6 +398,31 @@
     "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
     "file": "C:/Users/micha/Desktop/DeliveryGame/src/car_monitor.c",
     "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/car_monitor.o"
+  },
+  {
+    "arguments": [
+      "g++",
+      "-MD",
+      "-MP",
+      "-DDEBUG",
+      "-DPLATFORM_DESKTOP",
+      "-DGRAPHICS_API_OPENGL_33",
+      "-D_WIN32",
+      "-I../../src",
+      "-I../../include",
+      "-I../external/raylib-master/src",
+      "-m64",
+      "-Wshadow",
+      "-g",
+      "-std=c++17",
+      "-c",
+      "-o",
+      "obj/x64/Debug/DeliveryGame/dealership.o",
+      "../../src/dealership.c"
+    ],
+    "directory": "C:/Users/micha/Desktop/DeliveryGame/build/build_files",
+    "file": "C:/Users/micha/Desktop/DeliveryGame/src/dealership.c",
+    "output": "C:/Users/micha/Desktop/DeliveryGame/build/build_files/obj/x64/Debug/DeliveryGame/dealership.o"
   },
   {
     "arguments": [

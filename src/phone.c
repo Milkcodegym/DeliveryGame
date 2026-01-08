@@ -2,16 +2,25 @@
 #include "raymath.h"
 #include <stdio.h>
 #include <stdlib.h> 
+#include <time.h> // [NEW] Required for Real-Time Clock
 #include "save.h"
 #include "player.h" 
 #include "map.h"
 #include "maps_app.h" 
 #include "delivery_app.h"
-#include "car_monitor.h" // [NEW]
+#include "car_monitor.h" 
 
 // --- CONSTANTS ---
 #define BASE_SCREEN_H 720.0f
 #define PHONE_SCALE_MOD 0.8f
+
+// --- STATIC ASSETS ---
+static Texture2D iconJob;
+static Texture2D iconMap;
+static Texture2D iconBank;
+static Texture2D iconMusic;
+static Texture2D iconSettings;
+static Texture2D iconCar;
 
 // --- NOTIFICATION STATE ---
 static char notifText[64] = "";
@@ -47,6 +56,21 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     phone->isOpen = false;
     phone->slideAnim = 0.0f;
     
+    // Load App Icons
+    iconJob      = LoadTexture("resources/Phoneicons/delivery-truck.png");
+    iconMap      = LoadTexture("resources/Phoneicons/treasure-map.png");
+    iconBank     = LoadTexture("resources/Phoneicons/atm-card.png");
+    iconMusic    = LoadTexture("resources/Phoneicons/music.png");
+    iconSettings = LoadTexture("resources/Phoneicons/cogwheel.png");
+    iconCar      = LoadTexture("resources/Phoneicons/customisation.png");
+
+    SetTextureFilter(iconJob, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(iconMap, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(iconBank, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(iconMusic, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(iconSettings, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(iconCar, TEXTURE_FILTER_BILINEAR);
+    
     InitMapsApp(); 
     InitDeliveryApp(phone, map);
 
@@ -70,32 +94,74 @@ void InitPhone(PhoneState *phone, GameMap *map) {
 
 // --- App Draw Functions ---
 
-void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
-    const char* icons[] = { "Jobs", "Maps", "Bank", "Music", "Settings", "Web", "CarMon" };
-    Color colors[] = { ORANGE, BLUE, GREEN, PURPLE, GRAY, SKYBLUE, BLACK };
+// Helper to draw a clickable icon with Shortcut Number
+bool DrawAppIcon(Texture2D icon, const char* label, int shortcutKey, float x, float y, float size, Vector2 mouse, bool click) {
+    Rectangle bounds = { x, y, size, size + 25 }; 
+    bool hover = CheckCollisionPointRec(mouse, bounds);
     
-    // Only show CarMon if bought
-    int totalApps = player->hasCarMonitorApp ? 7 : 6;
+    float scale = size / (float)icon.width;
+    if (hover) scale *= 1.1f; 
+    
+    float drawX = x + (size - (icon.width * scale)) / 2;
+    float drawY = y + (size - (icon.height * scale)) / 2;
+    
+    DrawTextureEx(icon, (Vector2){drawX, drawY}, 0.0f, scale, WHITE);
+
+    // Label
+    int txtW = MeasureText(label, 20);
+    DrawText(label, x + (size - txtW)/2, y + size + 5, 20, BLACK);
+
+    // Shortcut Number Badge
+    if (shortcutKey > 0) {
+        DrawCircle(x + size - 5, y + 5, 12, Fade(BLACK, 0.6f));
+        DrawText(TextFormat("%d", shortcutKey), x + size - 8, y - 2, 14, WHITE);
+    }
+    
+    return (hover && click);
+}
+
+void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
+    DrawRectangleGradientV(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SKYBLUE, RAYWHITE);
+    DrawRectangle(0, 0, SCREEN_WIDTH, 30, Fade(BLACK, 0.2f));
 
     int cols = 2;
-    float iconSize = 90;
-    float gap = 20;
-    float startX = (SCREEN_WIDTH - (cols*iconSize + (cols-1)*gap)) / 2;
-    float startY = 80;
+    float iconSize = 80;
+    float gapX = 60;
+    float gapY = 50;
+    
+    float totalW = (cols * iconSize) + ((cols - 1) * gapX);
+    float startX = (SCREEN_WIDTH - totalW) / 2;
+    float startY = 100;
 
-    for (int i = 0; i < totalApps; i++) {
-        int col = i % cols;
-        int row = i / cols;
-        Rectangle btn = { startX + col*(iconSize+gap), startY + row*(iconSize+gap), iconSize, iconSize };
-        
-        if (GuiButton(btn, icons[i], colors[i], mouse, click)) {
-            if (i == 0) phone->currentApp = APP_DELIVERY;
-            if (i == 1) phone->currentApp = APP_MAP; 
-            if (i == 2) phone->currentApp = APP_BANK;
-            if (i == 3) phone->currentApp = APP_MUSIC;
-            if (i == 4) phone->currentApp = APP_SETTINGS;
-            if (i == 5) phone->currentApp = APP_BROWSER;
-            if (i == 6) phone->currentApp = APP_CAR_MONITOR;
+    // App 1: Jobs
+    if (DrawAppIcon(iconJob, "Jobs", 1, startX, startY, iconSize, mouse, click)) {
+        phone->currentApp = APP_DELIVERY;
+    }
+    
+    // App 2: Maps
+    if (DrawAppIcon(iconMap, "Maps", 2, startX + iconSize + gapX, startY, iconSize, mouse, click)) {
+        phone->currentApp = APP_MAP;
+    }
+
+    // App 3: Bank
+    if (DrawAppIcon(iconBank, "Bank", 3, startX, startY + iconSize + gapY, iconSize, mouse, click)) {
+        phone->currentApp = APP_BANK;
+    }
+
+    // App 4: Music
+    if (DrawAppIcon(iconMusic, "Music", 4, startX + iconSize + gapX, startY + iconSize + gapY, iconSize, mouse, click)) {
+        phone->currentApp = APP_MUSIC;
+    }
+
+    // App 5: Settings
+    if (DrawAppIcon(iconSettings, "Settings", 5, startX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
+        phone->currentApp = APP_SETTINGS;
+    }
+
+    // App 6: Car Monitor
+    if (player->hasCarMonitorApp) {
+        if (DrawAppIcon(iconCar, "CarMon", 6, startX + iconSize + gapX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
+            phone->currentApp = APP_CAR_MONITOR;
         }
     }
 }
@@ -170,8 +236,6 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
 }
 
 void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
-    // Note: I added 'Player *player' to the arguments of this function in the switch statement below!
-    
     DrawRectangle(0, 0, SCREEN_WIDTH, 60, GRAY);
     DrawText("SETTINGS", 20, 20, 20, WHITE);
     
@@ -200,7 +264,7 @@ void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool clic
         phone->settings.mute = !phone->settings.mute;
     }
 
-    // --- DATA MANAGEMENT SECTION ---
+    // --- DATA MANAGEMENT ---
     DrawLine(20, 260, SCREEN_WIDTH-20, 260, DARKGRAY);
     DrawText("GAME DATA", 20, 270, 20, DARKGRAY);
 
@@ -208,25 +272,16 @@ void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool clic
     Rectangle loadBtn = { 150, 300, 110, 50 };
     Rectangle resetBtn = { 20, 370, 240, 40 };
 
-    // SAVE BUTTON
     if (GuiButton(saveBtn, "SAVE", BLUE, mouse, click)) {
-        if (SaveGame(player, phone)) {
-            ShowPhoneNotification("Game Saved!", GREEN);
-        } else {
-            ShowPhoneNotification("Save Failed!", RED);
-        }
+        if (SaveGame(player, phone)) ShowPhoneNotification("Game Saved!", GREEN);
+        else ShowPhoneNotification("Save Failed!", RED);
     }
 
-    // LOAD BUTTON
     if (GuiButton(loadBtn, "LOAD", ORANGE, mouse, click)) {
-        if (LoadGame(player, phone)) {
-            ShowPhoneNotification("Game Loaded!", ORANGE);
-        } else {
-            ShowPhoneNotification("No Save Found", GRAY);
-        }
+        if (LoadGame(player, phone)) ShowPhoneNotification("Game Loaded!", ORANGE);
+        else ShowPhoneNotification("No Save Found", GRAY);
     }
 
-    // RESET BUTTON
     if (GuiButton(resetBtn, "RESET DATA", RED, mouse, click)) {
         ResetSaveGame(player, phone);
         ShowPhoneNotification("Data Wiped", RED);
@@ -238,6 +293,24 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     if (IsKeyPressed(KEY_TAB)) phone->isOpen = !phone->isOpen;
     float target = phone->isOpen ? 1.0f : 0.0f;
     phone->slideAnim += (target - phone->slideAnim) * 0.1f;
+
+    // --- KEYBOARD SHORTCUTS ---
+    if (phone->isOpen) {
+        // Space -> Home
+        if (IsKeyPressed(KEY_SPACE)) phone->currentApp = APP_HOME;
+
+        // Number Keys -> Apps
+        if (IsKeyPressed(KEY_ONE))   phone->currentApp = APP_DELIVERY;
+        if (IsKeyPressed(KEY_TWO))   phone->currentApp = APP_MAP;
+        if (IsKeyPressed(KEY_THREE)) phone->currentApp = APP_BANK;
+        if (IsKeyPressed(KEY_FOUR))  phone->currentApp = APP_MUSIC;
+        if (IsKeyPressed(KEY_FIVE))  phone->currentApp = APP_SETTINGS;
+        
+        // App 6 only if unlocked
+        if (IsKeyPressed(KEY_SIX) && player->hasCarMonitorApp) {
+             phone->currentApp = APP_CAR_MONITOR;
+        }
+    }
 
     if (phone->music.isPlaying) {
         UpdateMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
@@ -268,7 +341,6 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         (float)SCREEN_HEIGHT * scale 
     };
     
-    // Mouse Mapping
     Vector2 globalMouse = GetMousePosition();
     Vector2 localMouse = { -1, -1 };
     
@@ -288,20 +360,6 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     if (phone->isOpen) {
         if (phone->currentApp == APP_MAP) {
             UpdateMapsApp(map, (Vector2){player->position.x, player->position.z}, player->angle, localMouse, isClicking);
-            //update 
-        }
-        
-        if (phone->currentApp == APP_HOME && isClicking) {
-            int cols = 2;
-            float iconSize = 90;
-            float gap = 20;
-            float startX = (SCREEN_WIDTH - (cols*iconSize + (cols-1)*gap)) / 2;
-            float startY = 80;
-            Rectangle mapBtn = { startX + 1*(iconSize+gap), startY + 0*(iconSize+gap), iconSize, iconSize };
-            
-            if (CheckCollisionPointRec(localMouse, mapBtn)) {
-                ResetMapCamera((Vector2){player->position.x, player->position.z});
-            }
         }
     }
 }
@@ -334,21 +392,42 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
 
     BeginTextureMode(phone->screenTexture);
         ClearBackground(RAYWHITE);
-        DrawRectangle(0, 0, SCREEN_WIDTH, 20, BLACK);
-        DrawText("12:00", SCREEN_WIDTH - 40, 2, 10, WHITE);
         
+        // Background for non-home apps
+        if (phone->currentApp != APP_HOME) {
+            DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RAYWHITE);
+        }
+
+        // 1. DRAW APPS (Layer 0)
         switch (phone->currentApp) {
             case APP_HOME: DrawAppHome(phone, player, localMouse, click); break;
             case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break;
             case APP_BANK: DrawAppBank(phone, player); break; 
             case APP_MAP: DrawMapsApp(map); break;
             case APP_MUSIC: DrawAppMusic(phone, localMouse, click); break;
-            case APP_SETTINGS: DrawAppSettings(phone, player, localMouse, click); break; // Added 'player'
-            case APP_BROWSER: DrawText("404 Error", 80, 250, 20, RED); break;
-            case APP_CAR_MONITOR: DrawCarMonitorApp(player, localMouse, click); break; // [NEW]
+            case APP_SETTINGS: DrawAppSettings(phone, player, localMouse, click); break; 
+            case APP_CAR_MONITOR: DrawCarMonitorApp(player, localMouse, click); break; 
             default: break;
         }
 
+        // 2. DRAW STATUS BAR (Layer 1 - Always on Top)
+        DrawRectangle(0, 0, SCREEN_WIDTH, 20, Fade(BLACK, 0.4f)); // Semi-transparent bar
+        
+        // Real Time Clock
+        time_t t;
+        struct tm *tm_info;
+        time(&t);
+        tm_info = localtime(&t);
+        DrawText(TextFormat("%02d:%02d", tm_info->tm_hour, tm_info->tm_min), 10, 4, 10, WHITE);
+
+        // Battery & Percentage
+        int battX = SCREEN_WIDTH - 35;
+        DrawText("84%", battX - 30, 4, 10, WHITE); 
+        DrawRectangleLines(battX, 5, 20, 10, WHITE); // Body
+        DrawRectangle(battX + 20, 7, 2, 6, WHITE);   // Nub
+        DrawRectangle(battX + 2, 7, 14, 6, GREEN);   // Fill
+
+        // 3. HOME BUTTON (Layer 2)
         Rectangle homeBtn = { SCREEN_WIDTH/2 - 50, SCREEN_HEIGHT - 30, 100, 10 };
         Color homeColor = (CheckCollisionPointRec(localMouse, homeBtn)) ? BLACK : LIGHTGRAY;
         DrawRectangleRec(homeBtn, homeColor);
@@ -357,7 +436,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             phone->currentApp = APP_HOME;
         }
         
-        // --- DRAW NOTIFICATION BANNER ---
+        // 4. NOTIFICATIONS (Layer 3)
         if (notifTimer > 0) {
             float alpha = (notifTimer > 0.5f) ? 1.0f : (notifTimer * 2.0f);
             Rectangle notifRect = { 10, 30, SCREEN_WIDTH - 20, 50 };
@@ -380,6 +459,14 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
 
 void UnloadPhone(PhoneState *phone) {
     UnloadRenderTexture(phone->screenTexture);
+    
+    UnloadTexture(iconJob);
+    UnloadTexture(iconMap);
+    UnloadTexture(iconBank);
+    UnloadTexture(iconMusic);
+    UnloadTexture(iconSettings);
+    UnloadTexture(iconCar);
+
     for(int i=0; i<3; i++) {
         UnloadMusicStream(phone->music.library[i].stream);
     }

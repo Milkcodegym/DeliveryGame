@@ -6,41 +6,34 @@
 #include "traffic.h"
 
 #define MAX_TRANSACTIONS 10
-// Fuel Constants
 #define MAX_FUEL 100.0f
-#define FUEL_CONSUMPTION_RATE 0.005f // Fuel lost per unit moved
-
-// Constants for the Health Bar
-#define BAR_WIDTH 220
-#define BAR_HEIGHT 25
-#define BAR_MARGIN_X 20
-#define BAR_MARGIN_Y 20
 
 // --- Economy Structures ---
 typedef struct Transaction {
     char description[32];
-    float amount; // Positive = Income, Negative = Expense
+    float amount; 
 } Transaction;
 
 // --- Player Structure ---
 typedef struct Player {
     Vector3 position;
     
-    // Physics
+    // Physics & Movement
     float health;
     float current_speed;
     float max_speed;
+    float acceleration;
+    float brake_power;
+    float friction;
     float radius;
     float rotationSpeed;
     float yVelocity;
     bool isGrounded;
     float angle;
-    float acceleration;
-    float brake_power;
-    float friction;
     
     // Rendering
     Model model;
+    char currentModelFileName[64]; // [NEW] To save/load the correct car mesh
 
     // ECONOMY
     float money;
@@ -51,7 +44,12 @@ typedef struct Player {
 
     // FUEL SYSTEM
     float fuel;
-    float maxFuel;
+    float maxFuel;          // [SAVE THIS]
+    float fuelConsumption;  // [SAVE THIS]
+
+    // CARGO & PHYSICS LOGIC
+    float insulationFactor; // [SAVE THIS]
+    float loadResistance;   // [SAVE THIS]
 
     // [NEW] APP & UPGRADES
     bool hasCarMonitorApp;
@@ -60,12 +58,15 @@ typedef struct Player {
     bool unlockGForce;
     bool unlockThermometer;
     
-    // Pinned Stats (Visuals)
+    // Visual Pins
     bool pinSpeed;
     bool pinFuel;
     bool pinAccel;
     bool pinGForce;
     bool pinThermometer;
+
+    // GAME STATE
+    bool tutorialFinished; // [NEW]
 
 } Player;
 
@@ -74,8 +75,6 @@ Player InitPlayer(Vector3 startPos);
 void LoadPlayerContent(Player *player);
 void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt);
 void DrawHealthBar(Player *player);
-
-// Helper: Safely add money and log it to history
 void AddMoney(Player *player, const char* desc, float amount);
 
 #endif

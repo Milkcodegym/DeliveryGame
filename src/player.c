@@ -1,9 +1,16 @@
 #include "player.h"
 #include "maps_app.h"
 #include "save.h"
+#include "raymath.h" // Added for vector math
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+
+// --- RESTORED UI CONSTANTS ---
+#define BAR_WIDTH 220
+#define BAR_HEIGHT 25
+#define BAR_MARGIN_X 20
+#define BAR_MARGIN_Y 20
 
 // --- HELPER FUNCTIONS ---
 
@@ -40,20 +47,38 @@ Player InitPlayer(Vector3 startPos) {
     p.isGrounded = false;
     p.angle = 0.0f;
 
+    // Default Model Filename (Critical for Save System)
+    // Assuming default is the SUV or Van. Let's set a default safe value.
+    strcpy(p.currentModelFileName, "delivery.obj"); 
+
+    // Default Stats (Will be overwritten if loading a save)
+    p.maxFuel = 80.0f;
+    p.fuelConsumption = 0.04f;
+    p.insulationFactor = 1.0f;
+    p.loadResistance = 1.0f;
+
     p.money = 0.0f;
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
     AddMoney(&p, "DEVELOPER MONEY", 450.00f);
 
-    // [NEW] Init Fuel
-    p.maxFuel = MAX_FUEL;
-    p.fuel = MAX_FUEL * 0.45f; // Start with ~45% to demonstrate refueling
+    // Init Fuel
+    p.fuel = p.maxFuel * 0.45f; // Start with ~45% to demonstrate refueling
 
     return p;
 }
 
 void LoadPlayerContent(Player *player) {
-    player->model = LoadModel("resources/vehicle-suv.obj");
+    // If a model filename was loaded from save, use it. Otherwise default.
+    char path[128];
+    if (strlen(player->currentModelFileName) > 0) {
+        sprintf(path, "resources/Playermodels/%s", player->currentModelFileName);
+    } else {
+        strcpy(player->currentModelFileName, "delivery.obj");
+        sprintf(path, "resources/Playermodels/delivery.obj");
+    }
+    
+    player->model = LoadModel(path);
 }
 
 bool checkcamera_collision=false;
@@ -143,7 +168,7 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     // --- 2. Determine Target Speed ---
     float target_speed = 0.0f;
 
-    // [NEW] Check fuel before allowing acceleration
+    // Check fuel before allowing acceleration
     if (!inputBlocked && player->fuel > 0) {
         if (IsKeyDown(KEY_W)) {
             target_speed = player->max_speed;
@@ -183,19 +208,24 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     move.x += sinf(player->angle * DEG2RAD) * moveDist;
     move.z += cosf(player->angle * DEG2RAD) * moveDist;
 
-    // [NEW] Fuel Consumption
-    if (fabs(moveDist) > 0.001f) {
-        player->fuel -= fabs(moveDist) * FUEL_CONSUMPTION_RATE;
+    // [UPDATED] Dynamic Fuel Consumption using Player Stats
+    if (fabs(moveDist) > 0.001f && player->fuel > 0) {
+        float consumption = player->fuelConsumption;
+        if (consumption <= 0.0f) consumption = 0.01f; // Safety fallback
+        
+        player->fuel -= fabs(moveDist) * consumption;
         if (player->fuel < 0) player->fuel = 0;
+    } 
+    // Out of fuel deceleration logic
+    else if (player->fuel <= 0 && fabs(player->current_speed) > 0) {
+        if (player->current_speed > 0) player->current_speed -= 5.0f * dt;
+        else player->current_speed += 5.0f * dt;
+        
+        if (fabs(player->current_speed) < 0.5f) player->current_speed = 0;
     }
 
     // --- 4. Gravity ---
     player->yVelocity -= 20.0f * dt;
-    
-    if (player->isGrounded && IsKeyPressed(KEY_SPACE)) {
-        player->yVelocity = 8.0f;
-        player->isGrounded = false;
-    }
     
     player->position.y += player->yVelocity * dt;
 

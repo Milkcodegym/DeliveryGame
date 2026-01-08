@@ -1,4 +1,5 @@
 #include "screen_visuals.h"
+#include "player.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -7,7 +8,7 @@ static float targetFuelAmount = 0.0f;
 static float fuelPricePerUnit = 1.50f; 
 static float priceTimer = 0.0f;
 
-// [NEW] Helper to find the active job (Picked Up)
+// [NEW] Helper to find th  e active job (Picked Up)
 static DeliveryTask* GetActiveTask(PhoneState *phone) {
     for (int i = 0; i < 5; i++) {
         if (phone->tasks[i].status == JOB_PICKED_UP) {
@@ -304,20 +305,21 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     if (targetFuelAmount < 0) targetFuelAmount = 0;
     
     float scale = (float)screenH / 720.0f;
-    float w = 400 * scale;
-    float h = 300 * scale;
-    float x = (screenW - w) / 2;
-    float y = (screenH - h) / 2;
+    float w = 400 * scale; float h = 300 * scale;
+    float x = (screenW - w) / 2; float y = (screenH - h) / 2;
     
     DrawRectangle(0, 0, screenW, screenH, Fade(BLACK, 0.5f)); 
     DrawRectangle(x, y, w, h, RAYWHITE);
     DrawRectangleLines(x, y, w, h, BLACK);
-    
     DrawRectangle(x, y, w, 40 * scale, ORANGE);
     DrawText("GAS STATION", x + 10*scale, y + 10*scale, 20*scale, WHITE);
     
     float currentCost = targetFuelAmount * fuelPricePerUnit;
-    float rangeAdded = targetFuelAmount / FUEL_CONSUMPTION_RATE;
+    
+    // [FIX] Use player->fuelConsumption instead of undefined macro
+    float consumption = player->fuelConsumption; 
+    if (consumption <= 0.0f) consumption = 0.01f; // Safety
+    float rangeAdded = targetFuelAmount / consumption;
     
     DrawText(TextFormat("Price: $%.2f / L", fuelPricePerUnit), x + 20*scale, y + 60*scale, 20*scale, DARKGRAY);
     DrawText(TextFormat("Your Cash: $%.0f", player->money), x + 20*scale, y + 90*scale, 20*scale, GREEN);
@@ -336,19 +338,16 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
         if (CheckCollisionPointRec(mouse, touchArea)) {
             float relativeX = mouse.x - sliderBar.x;
             float newPct = relativeX / sliderBar.width;
-            if (newPct < 0) newPct = 0;
-            if (newPct > 1) newPct = 1;
+            if (newPct < 0) newPct = 0; if (newPct > 1) newPct = 1;
             targetFuelAmount = newPct * maxAddable;
-            
             if (targetFuelAmount * fuelPricePerUnit > player->money) {
                 targetFuelAmount = player->money / fuelPricePerUnit;
             }
         }
     }
-    
     DrawText(TextFormat("+ %.1f L", targetFuelAmount), x + 20*scale, y + 190*scale, 20*scale, BLUE);
     DrawText(TextFormat("Cost: $%.2f", currentCost), x + 200*scale, y + 190*scale, 20*scale, RED);
-    DrawText(TextFormat("+ %.0f m", rangeAdded), x + 20*scale, y + 215*scale, 18*scale, GRAY);
+    DrawText(TextFormat("+ %.0f m range", rangeAdded), x + 20*scale, y + 215*scale, 18*scale, GRAY);
 
     Rectangle btnBuy = { x + 50*scale, y + 250*scale, 120*scale, 35*scale };
     Rectangle btnCancel = { x + 230*scale, y + 250*scale, 120*scale, 35*scale };
@@ -356,7 +355,6 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     Color buyColor = (currentCost <= player->money && currentCost > 0) ? GREEN : GRAY;
     DrawRectangleRec(btnBuy, buyColor);
     DrawText("FILL UP", btnBuy.x + 25*scale, btnBuy.y + 8*scale, 20*scale, WHITE);
-    
     DrawRectangleRec(btnCancel, RED);
     DrawText("CANCEL", btnCancel.x + 20*scale, btnCancel.y + 8*scale, 20*scale, WHITE);
     
@@ -371,6 +369,5 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
             }
         }
     }
-
     return true; 
 }

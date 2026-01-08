@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h> // Added for fmax/fmin if needed
 
 // --- EXTERNAL ---
 extern void ShowPhoneNotification(const char *text, Color color);
@@ -129,26 +130,41 @@ static void DrawProfileScreen(Player *player, Rectangle screenRect, Vector2 mous
     if (GuiButton(btnBack, "BACK", COLOR_BUTTON, mouse, click)) currentScreen = SCREEN_HOME;
 }
 
-static void DrawJobDetails(PhoneState *phone, GameMap *map, Rectangle screenRect, Vector2 mouse, bool click) {
+static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rectangle screenRect, Vector2 mouse, bool click) {
     DeliveryTask *t = &phone->tasks[selectedJobIndex];
     DrawRectangleRec(screenRect, COLOR_APP_BG);
     DrawText(t->restaurant, screenRect.x + 20, screenRect.y + 40, 26, COLOR_TEXT_MAIN);
     DrawText(t->description, screenRect.x + 20, screenRect.y + 75, 16, COLOR_WARN);
     
-    Rectangle detailCard = { screenRect.x + 20, screenRect.y + 110, screenRect.width - 40, 200 };
+    Rectangle detailCard = { screenRect.x + 20, screenRect.y + 110, screenRect.width - 40, 220 }; // Slightly taller
     DrawRectangleRounded(detailCard, 0.1f, 6, COLOR_CARD_BG);
     float tx = detailCard.x + 15; float ty = detailCard.y + 15;
     DrawText(TextFormat("Pay: $%.2f", t->pay), tx, ty, 22, COLOR_ACCENT); ty += 35;
     DrawText(TextFormat("Dist: %.0fm", t->distance), tx, ty, 18, COLOR_TEXT_MAIN); ty += 35;
     DrawLine(tx, ty, detailCard.x + detailCard.width - 15, ty, GRAY); ty += 15;
+    
+    // --- DETAILS ---
     if (t->fragility > 0.0f) {
         Color riskColor = (t->fragility > 0.6f) ? COLOR_DANGER : COLOR_WARN;
         DrawText(TextFormat("Spill Risk: %d%%", (int)(t->fragility*100)), tx, ty, 18, riskColor); ty += 25;
     }
-    if (t->isHeavy) { DrawText("HEAVY LOAD", tx, ty, 18, COLOR_WARN); ty += 25; }
+    
+    if (t->isHeavy) { 
+        DrawText("HEAVY LOAD", tx, ty, 18, COLOR_WARN); 
+        // Warning if player car is weak
+        if (player->loadResistance > 0.6f) {
+            DrawText("(Vehicle not suited!)", tx + 120, ty, 16, COLOR_DANGER);
+        }
+        ty += 25; 
+    }
+    
     if (t->timeLimit > 0) {
         int min = (int)t->timeLimit / 60;
         DrawText(TextFormat("Target: %d min", min), tx, ty, 18, COLOR_ACCENT);
+        // Insulation bonus info
+        if (player->insulationFactor < 0.9f) {
+             DrawText("(Insulated)", tx + 120, ty, 16, SKYBLUE);
+        }
     }
 
     float btnY = screenRect.height - 130;
@@ -225,7 +241,7 @@ void DrawDeliveryApp(PhoneState *phone, Player *player, GameMap *map, Vector2 mo
     Rectangle screenRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
     switch(currentScreen) {
         case SCREEN_HOME: DrawHomeScreen(phone, player, screenRect, mouse, click); break;
-        case SCREEN_DETAILS: DrawJobDetails(phone, map, screenRect, mouse, click); break;
+        case SCREEN_DETAILS: DrawJobDetails(phone, player, map, screenRect, mouse, click); break; // Updated to pass Player
         case SCREEN_PROFILE: DrawProfileScreen(player, screenRect, mouse, click); break;
     }
 }
@@ -264,13 +280,12 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         if (t->status == JOB_PICKED_UP) {
             Vector2 playerPos2D = { player->position.x, player->position.z };
 
-            // --- G-FORCE PENALTY LOGIC ---
+            // --- G-FORCE & FRAGILITY LOGIC ---
             if (t->fragility > 0.0f) {
                 float turnG = (fabs(player->current_speed) * 0.02f) * (IsKeyDown(KEY_A) || IsKeyDown(KEY_D) ? 1.0f : 0.0f);
                 float brakeG = (player->brake_power > 0) ? 0.8f : 0.0f;
                 float currentG = turnG + brakeG;
 
-                // Threshold must match visual gauge logic
                 float gLimit = 1.5f * (1.0f - t->fragility);
                 if (gLimit < 0.3f) gLimit = 0.3f;
 
@@ -282,12 +297,27 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                     }
                 }
             }
+            
+            // --- HEAVY LOAD LOGIC [NEW] ---
+            if (t->isHeavy) {
+                // If the player's car has high Load Sensitivity (e.g. 1.0+), they take damage/penalty for driving recklessly
+                // Trucks have 0.1 sensitivity, so this block rarely triggers for them.
+                if (player->loadResistance > 0.5f) {
+                    // Penalty scales with speed for unsuited vehicles
+                    float heavyPenalty = (fabs(player->current_speed) * 0.05f) * player->loadResistance * dt;
+                    // Deduct from pay (cargo damage) 
+                    t->pay -= heavyPenalty * 0.1f; 
+                }
+            }
 
-            // --- TEMPERATURE PENALTY LOGIC ---
+            // --- TEMPERATURE & INSULATION LOGIC [NEW] ---
             if (t->timeLimit > 0) {
-                // Real creationTime = Pickup Time here
-                double elapsed = currentTime - t->creationTime; 
-                if (elapsed > t->timeLimit) {
+                // Determine how much "Food Time" has passed relative to "Real Time"
+                // InsulationFactor: 1.0 = Normal, 0.5 = Keeps hot twice as long
+                double realElapsed = currentTime - t->creationTime; 
+                double foodElapsed = realElapsed * player->insulationFactor;
+
+                if (foodElapsed > t->timeLimit) {
                     float penalty = 2.0f * dt;
                     t->pay -= penalty;
                 }
@@ -295,6 +325,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             
             if (t->pay < 5.0f) t->pay = 5.0f;
 
+            // --- DELIVERY COMPLETION ---
             if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
                 ShowPhoneNotification("Delivered!", GREEN);
@@ -302,9 +333,19 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 player->totalEarnings += t->pay;
                 player->totalDeliveries++;
                 
-                if (t->timeLimit > 0 && (currentTime - t->creationTime) < t->timeLimit) {
+                // Calculate Tip based on Insulation success
+                double realElapsed = currentTime - t->creationTime;
+                double effectiveElapsed = realElapsed * player->insulationFactor;
+
+                if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit) {
                     float tip = t->pay * 0.2f;
+                    
+                    // Bonus tip for Fragile goods handled well
                     if (t->fragility > 0.5f) tip += 15.0f;
+                    
+                    // Bonus tip if delivered VERY fast (or with great insulation)
+                    if (effectiveElapsed < t->timeLimit * 0.5f) tip += 10.0f;
+
                     player->money += tip;
                     player->totalEarnings += tip;
                     ShowPhoneNotification(TextFormat("Paid $%.2f + Tip!", t->pay + tip), GREEN);
@@ -323,7 +364,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             Vector2 playerPos2D = { player->position.x, player->position.z };
             if (Vector2Distance(playerPos2D, t->restaurantPos) < 5.0f) {
                 t->status = JOB_PICKED_UP;
-                t->creationTime = currentTime; // Reset timer on pickup
+                t->creationTime = currentTime; // Timer starts now
                 SetMapDestination(map, t->customerPos);
                 ShowPhoneNotification("Order Picked Up!", COLOR_ACCENT);
                 

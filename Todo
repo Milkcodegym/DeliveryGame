@@ -97,3 +97,14 @@ construction light,light curved, sign highway, sign highway detailed, constructi
 add cone squish logic
 
 flowers, grass, ride entrance, trash, bench
+
+add a bicycle or motorcycle. then, fix graphics for locations instead of spheres, find icons for map, fix loading and start screen graphics, dealership loading screen
+add dealership location to map
+fix phone appearance
+tutorial
+jump easter egg
+test if car models upgrade
+make parks spawn under everything
+
+
+great! now lets start building the tutorial. create tutorial.c and tutorial.h. we need an overlay window to pop up when the player boots the game and there isnt any save data or the tutorial isnt finished, welcoming the player and asking for a tutorial.(you cant save progress in the tutorial, add this as a warning). then have a choice if the player wants to play through the tutorial or not. after that, if the player clicks no it just saves as tutorial completed. if the player clicks yes: we start off explaining the phone. draw a window with a small phone, and add sample text so i can add fake details about the phone model later. have next/previous buttons through all this. then, explain the phone controls in a window. the shortcuts for the apps, the mouse navigation etc. here have a side tabs/menu for each app's own tutorial aswell. the user can click through the tabs or just continue. add a "screenshot" of each app's screen in the tabs aswell (static non functional app UI). and explain each function. then, continuing the overlay closes and the player movement controls are explained. then, the player receives a notification regarding their first delivery. it should be a simple delivery mission, without any constraints. when they finish the mission, they get another one with a loose constraint, and mission constraints are explained. then, a random road event happens, and road events are explained. then, you are led to refuel in the nearest gas station and that is explained aswell, then you are led to the nearest mechanic and that is explained aswell, and finally you are led to the dealership and that is explained too. add some loose story elements in there too, about being broke and having to pay bills, and thats why you started delivering, and this is your first day on the job.

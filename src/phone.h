@@ -1,12 +1,12 @@
-#ifndef PHONE_UI_H
-#define PHONE_UI_H
+#ifndef PHONE_H
+#define PHONE_H
 
 #include "raylib.h"
 #include <stdbool.h> 
-#include "player.h"
+#include "player.h" // Needed for Player struct
 
 // --- Forward Declarations ---
-typedef struct Player Player;
+// We don't need typedef Player Player here if we include player.h
 struct GameMap; 
 
 // --- Constants ---
@@ -18,6 +18,7 @@ struct GameMap;
 #define SCREEN_OFFSET_Y 40
 
 // --- App States ---
+// Renamed to PhoneApp to match phone.c logic
 typedef enum {
     APP_HOME,
     APP_DELIVERY,
@@ -26,8 +27,8 @@ typedef enum {
     APP_MUSIC,
     APP_SETTINGS,
     APP_BROWSER,
-    APP_CAR_MONITOR // [NEW] Added Car Monitor App State
-} AppState;
+    APP_CAR_MONITOR
+} PhoneApp;
 
 // --- Delivery Data ---
 typedef enum {
@@ -65,39 +66,43 @@ typedef struct Song {
     float duration;    
 } Song;
 
-typedef struct MusicState {
+// Renamed to MusicPlayer to match phone.c logic
+typedef struct MusicPlayer {
     bool isPlaying;
     int currentSongIdx;
     Song library[3]; 
-} MusicState;
+} MusicPlayer;
 
 // --- Settings Data ---
-typedef struct SettingsState {
+// Renamed to PhoneSettings to match save.h logic
+typedef struct PhoneSettings {
     float masterVolume;
     float sfxVolume;
     bool mute;
-} SettingsState;
+} PhoneSettings;
 
 // --- Main Phone State ---
 typedef struct PhoneState {
     // Visuals
     RenderTexture2D screenTexture;
-    Texture2D themeAtlas; 
     float slideAnim; 
     bool isOpen;
     
     // Navigation
-    AppState currentApp;
+    PhoneApp currentApp; // Updated type name
     
     // App Specific Data
     DeliveryTask tasks[5];
-    MusicState music;     
-    SettingsState settings;
+    MusicPlayer music;      // Updated type name
+    PhoneSettings settings; // Updated type name
 } PhoneState;
 
+// Functions
 void InitPhone(PhoneState *phone, struct GameMap *map); 
 void UpdatePhone(PhoneState *phone, Player *player, struct GameMap *map); 
 void DrawPhone(PhoneState *phone, Player *player, struct GameMap *map, Vector2 mouse, bool click);
 void UnloadPhone(PhoneState *phone);
+// Added notification helper to header so other files can use it
+void ShowPhoneNotification(const char *text, Color color); 
 
 #endif
