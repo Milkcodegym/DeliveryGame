@@ -20,6 +20,6 @@ void UpdateVisuals(float dt);
 // Wrapper that calls standard visuals + pinned stats
 void DrawVisualsWithPinned(Player *player, PhoneState *phone);
 
-void DrawSpeedometer(float currentSpeed, float maxSpeed);
+void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth);
 
 #endif

@@ -94,6 +94,7 @@ typedef struct {
     Color color;
     Vector2 *footprint;
     int pointCount;
+    
 } Building;
 
 typedef struct {
@@ -168,7 +169,7 @@ int GetClosestNode(GameMap *map, Vector2 position);
 
 // Search & Collision
 int SearchLocations(GameMap *map, const char* query, MapLocation* results);
-bool CheckMapCollision(GameMap *map, float x, float z, float radius);
+bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCamera);
 
 // NEW: Event System
 void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd);

@@ -53,10 +53,10 @@ Player InitPlayer(Vector3 startPos) {
 
     // Default Stats (Will be overwritten if loading a save)
     p.maxFuel = 80.0f;
-    p.fuelConsumption = 0.04f;
+    p.fuelConsumption = 0.02f;
     p.insulationFactor = 1.0f;
     p.loadResistance = 1.0f;
-
+    p.pinSpeed = 1;
     p.money = 0.0f;
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
@@ -93,7 +93,7 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
     else           testZ += moveAmount;
 
     // 2. Run Collision Checks
-    bool hitMap = CheckMapCollision(map, testX, testZ, player->radius);
+    bool hitMap = CheckMapCollision(map, testX, testZ, player->radius, 0);
     Vector3 hitCar = TrafficCollision(traffic, testX, testZ, player->radius);
 
     // 3. LOGIC: If path is clear

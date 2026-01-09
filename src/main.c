@@ -149,6 +149,7 @@ int main(void)
                         // Apply friction to stop car if a window popped up while driving
                         if (player.current_speed > 0) player.current_speed -= 10.0f * dt;
                         if (player.current_speed < 0) player.current_speed = 0;
+                        player.fuel = player.maxFuel;
                     } 
                     else {
                         // Allow driving
@@ -186,8 +187,10 @@ int main(void)
 
             // --- 2. DRAW PHASE ---
             BeginDrawing();
-                ClearBackground(RAYWHITE);
+                ClearBackground((Color){ 60, 150, 250, 255 });
+                            
 
+                
                 if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                     DrawDealership(&player);
                     // Draw Tutorial Overlay on top of Dealership if needed (e.g. "Buy a car")

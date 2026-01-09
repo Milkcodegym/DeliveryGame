@@ -14,7 +14,7 @@ typedef enum {
     TUT_PHONE_APPS,       
     TUT_CONTROLS,
     TUT_CRASH_INTRO,
-    TUT_SPAWN_FIRST_JOB,  // [NEW] Transient state to safely spawn job
+    TUT_SPAWN_FIRST_JOB,  
     TUT_WAIT_JOB,         
     TUT_FIRST_DELIVERY,   
     TUT_SECOND_INTRO,     
@@ -48,8 +48,7 @@ static void ForceSpawnJob(PhoneState *phone, GameMap *map, bool isFragile) {
     int houseIdx = -1;
     int storeIdx = -1;
     
-    // [FIX] Find ANY valid store (Food, Cafe, Market, etc.)
-    // LOC_FOOD=1, LOC_RESTAURANT=6. We check range 1-6.
+    // Find ANY valid store (Food, Cafe, Market, etc.)
     for(int i=0; i<map->locationCount; i++) {
         if(map->locations[i].type == LOC_HOUSE && houseIdx == -1) houseIdx = i;
         
@@ -92,7 +91,6 @@ static void DrawCenteredTextMulti(const char* text, float centerX, float startY,
     char buffer[1024];
     strncpy(buffer, text, 1024);
     
-    // We use a safe copy logic to avoid destroying the original const char*
     char lineBuffer[256];
     int lineIndex = 0;
     float y = startY;
@@ -311,7 +309,6 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
                 currentState = TUT_CRASH_INTRO; // To Crash Warning
             }
             break;
-        // [FIX] NEW STATE: Spawns the job safely with Map access
         case TUT_SPAWN_FIRST_JOB:
             ForceSpawnJob(phone, map, false); 
             ShowPhoneNotification("NEW JOB AVAILABLE!", ORANGE);
@@ -329,8 +326,8 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
         case TUT_SECOND_DELIVERY:
             if (phone->tasks[0].status != JOB_ACCEPTED && phone->tasks[0].status != JOB_PICKED_UP) {
                  if (strstr(phone->tasks[0].description, "Fragile") == NULL) {
-                     ForceSpawnJob(phone, map, true); 
-                     ShowPhoneNotification("FRAGILE JOB RECEIVED!", RED);
+                      ForceSpawnJob(phone, map, true); 
+                      ShowPhoneNotification("FRAGILE JOB RECEIVED!", RED);
                  }
             }
             if (phone->tasks[0].status == JOB_DELIVERED) {
@@ -367,6 +364,11 @@ void DrawTutorial(Player *player, PhoneState *phone) {
     int sh = GetScreenHeight();
     float scale = (float)sh / 720.0f;
     if (scale < 0.6f) scale = 0.6f;
+
+    // [FIX] Define a consistent Y position for instructions at the BOTTOM of screen
+    // This puts the text safely below the Speedometer/Center HUD
+    int instructionY = sh - (int)(150 * scale);
+    int subInstructionY = sh - (int)(110 * scale);
 
     Vector2 mouse = GetMousePosition();
     bool click = IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
@@ -434,25 +436,27 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_CONTROLS:
+            // This was already at bottom, kept it safe
             DrawText("USE [W][A][S][D] TO DRIVE", sw/2 - 150*scale, sh - 150*scale, (int)(30*scale), WHITE);
-            DrawText("Reach 5 MPH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
+            DrawText("Reach 45 KH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
             break;
 
-        case TUT_CRASH_INTRO: // [FIX] Now handles transition to SPAWN_FIRST_JOB
+        case TUT_CRASH_INTRO: 
             if (DrawTutWindow("SAFETY WARNING", 
                 "CRASHING COSTS MONEY.\n\nIf you hit walls or cars, you lose HEALTH (Top Right).\nIf Health hits 0, you pay heavy bills\nand respawn at a Mechanic.\n\nDrive carefully.", true)) {
                 currentState = TUT_SPAWN_FIRST_JOB;
             }
             break;
 
-        // ... [Rest uses DrawTutWindow helper] ...
         case TUT_WAIT_JOB:
-            DrawText("OPEN PHONE [TAB]", sw/2 - 100*scale, 100*scale, (int)(20*scale), YELLOW);
-            DrawText("ACCEPT THE JOB IN 'JOBS' APP", sw/2 - 160*scale, 130*scale, (int)(20*scale), YELLOW);
+            // [FIX] Moved to Bottom
+            DrawText("OPEN PHONE [TAB]", sw/2 - 100*scale, instructionY, (int)(20*scale), YELLOW);
+            DrawText("ACCEPT THE JOB IN 'JOBS' APP", sw/2 - 160*scale, subInstructionY, (int)(20*scale), YELLOW);
             break;
 
         case TUT_FIRST_DELIVERY:
-            DrawText("FOLLOW THE RED GPS LINE", sw/2 - 150*scale, 50*scale, (int)(24*scale), RED);
+            // [FIX] Moved to Bottom
+            DrawText("FOLLOW THE RED GPS LINE", sw/2 - 150*scale, instructionY, (int)(24*scale), RED);
             break;
 
         case TUT_SECOND_INTRO:
@@ -462,8 +466,11 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_SECOND_DELIVERY:
-            if (phone->tasks[0].status == JOB_AVAILABLE) DrawText("OPEN PHONE AND ACCEPT FRAGILE JOB", sw/2 - 200*scale, 100*scale, (int)(20*scale), ORANGE);
-            else DrawText("DRIVE CAREFULLY - DON'T BREAK IT", sw/2 - 180*scale, 50*scale, (int)(24*scale), ORANGE);
+            // [FIX] Moved to Bottom
+            if (phone->tasks[0].status == JOB_AVAILABLE) 
+                DrawText("OPEN PHONE AND ACCEPT FRAGILE JOB", sw/2 - 200*scale, instructionY, (int)(20*scale), ORANGE);
+            else 
+                DrawText("DRIVE CAREFULLY - DON'T BREAK IT", sw/2 - 180*scale, instructionY, (int)(24*scale), ORANGE);
             break;
 
         case TUT_EVENT_INTRO:
@@ -474,22 +481,24 @@ void DrawTutorial(Player *player, PhoneState *phone) {
 
         case TUT_REFUEL_INTRO:
             if (DrawTutWindow("RUNNING ON FUMES", "Your fuel gauge is low.\nYou can't deliver if you can't drive.\n\nI've marked the nearest GAS STATION.\nDrive to the pumps and press [E].", true)) {
-                player->fuel = 5.0f; currentState = TUT_REFUEL_ACTION;
+                player->fuel = 5.0f; currentState = TUT_REFUEL_ACTION; player->fuelConsumption = 0.0f;
             }
             break;
 
         case TUT_REFUEL_ACTION:
-            DrawText("GO TO GAS STATION", sw/2 - 100*scale, 50*scale, (int)(20*scale), YELLOW);
+            // [FIX] Moved to Bottom
+            DrawText("GO TO GAS STATION", sw/2 - 100*scale, instructionY, (int)(20*scale), YELLOW);
             break;
 
         case TUT_MECH_INTRO:
             if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.", true)) {
-                currentState = TUT_MECH_ACTION;
+                currentState = TUT_MECH_ACTION; player->fuelConsumption = 0.02f;
             }
             break;
 
         case TUT_MECH_ACTION:
-            DrawText("VISIT THE MECHANIC", sw/2 - 100*scale, 50*scale, (int)(20*scale), BLUE);
+            // [FIX] Moved to Bottom
+            DrawText("VISIT THE MECHANIC", sw/2 - 100*scale, instructionY, (int)(20*scale), BLUE);
             break;
 
         case TUT_DEALER_INTRO:
@@ -499,11 +508,12 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_DEALER_ACTION:
+            // [FIX] Moved to Bottom
             if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                 DrawText("BROWSE CARS WITH ARROW KEYS", sw/2 - 150*scale, sh - 100*scale, (int)(20*scale), WHITE);
                 DrawText("PRESS [ESC] TO EXIT DEALERSHIP", sw/2 - 160*scale, sh - 70*scale, (int)(20*scale), GOLD);
             } else {
-                DrawText("GO TO DEALERSHIP", sw/2 - 100*scale, 50*scale, (int)(20*scale), GOLD);
+                DrawText("GO TO DEALERSHIP", sw/2 - 100*scale, instructionY, (int)(20*scale), GOLD);
             }
             break;
     }

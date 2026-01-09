@@ -89,76 +89,115 @@ void DrawWASDOverlay() {
     DrawRealArrow(startX + spacing, startY, 1, IsKeyDown(KEY_D)); 
 }
 
-void DrawSpeedometer(float currentSpeed, float maxSpeed) {
-    int centerX = GetScreenWidth() / 2;
-    int centerY = 80;
-    float radius = 60.0f;
-    float needleLen = 50.0f;
-    int shadowOffset = 2;
+// --- HELPER: Text Outline ---
+void DrawTextOutline(const char *text, int posX, int posY, int fontSize, Color color, int spacing) {
+    DrawText(text, posX - spacing, posY - spacing, fontSize, BLACK);
+    DrawText(text, posX + spacing, posY - spacing, fontSize, BLACK);
+    DrawText(text, posX - spacing, posY + spacing, fontSize, BLACK);
+    DrawText(text, posX + spacing, posY + spacing, fontSize, BLACK);
+    DrawText(text, posX, posY, fontSize, color);
+}
 
+// --- SPEEDOMETER ---
+void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth) {
+    // 1. Calculate Size
+    float radius = screenWidth * 0.05f; 
+    if (radius < 45) radius = 45; 
+
+    // 2. Position: Shift LEFT (Increased multiplier to 1.3 to separate them)
+    int centerX = (screenWidth / 2) - (int)(radius * 1.3f);
+    int centerY = (int)(screenWidth * 0.06f); 
+
+    // Font Settings
+    int numSize = (int)(radius * 0.5f);  
+    int labelSize = (int)(radius * 0.25f); 
+
+    float needleLen = radius * 0.8f;
     if (currentSpeed < 0) currentSpeed = 0;
     if (currentSpeed > maxSpeed) currentSpeed = maxSpeed;
 
+    // Angles
     float startAngle = 180.0f; 
     float endAngle = 360.0f;
     float fraction = currentSpeed / maxSpeed;
     float needleAngle = startAngle + (fraction * 180.0f);
 
-    DrawCircleSectorLines((Vector2){centerX + shadowOffset, centerY + shadowOffset}, radius, startAngle, endAngle, 30, BLACK);
-    char speedText[10];
-    sprintf(speedText, "%0.0f", currentSpeed*9);
-    int textWidth = MeasureText(speedText, 40);
-    DrawText(speedText, centerX - (textWidth / 2) + shadowOffset, centerY + 10 + shadowOffset, 40, BLACK);
-    DrawText("KM/H", centerX - 20 + shadowOffset, centerY + 50 + shadowOffset, 10, BLACK);
-
+    // Background & Lines
+    DrawCircleSector((Vector2){centerX, centerY}, radius, startAngle, endAngle, 30, Fade(BLACK, 0.6f));
     DrawCircleSectorLines((Vector2){centerX, centerY}, radius, startAngle, endAngle, 30, WHITE);
     DrawCircle(centerX, centerY, 5, WHITE);
 
+    // Needle
     float rad = needleAngle * (PI / 180.0f);
     Vector2 needleEnd;
     needleEnd.x = centerX + cos(rad) * needleLen;
     needleEnd.y = centerY + sin(rad) * needleLen;
     DrawLineEx((Vector2){centerX, centerY}, needleEnd, 3.0f, RED);
 
-    DrawText(speedText, centerX - (textWidth / 2), centerY + 10, 40, WHITE);
-    DrawText("KM/H", centerX - 20, centerY + 50, 10, GRAY);
+    // Text with Outline
+    char speedText[10];
+    sprintf(speedText, "%0.0f", currentSpeed * 9);
+    
+    int textWidth = MeasureText(speedText, numSize);
+    int labelWidth = MeasureText("KM/H", labelSize);
+
+    DrawTextOutline(speedText, centerX - (textWidth / 2), centerY + 5, numSize, WHITE, 2);
+    DrawTextOutline("KM/H", centerX - (labelWidth / 2), centerY + numSize + 5, labelSize, WHITE, 1);
 }
 
+// --- FUEL GAUGE ---
 void DrawFuelOverlay(Player *player, int screenW, int screenH) {
-    float scale = (float)screenH / 720.0f;
-    float gaugeRadius = 60.0f * scale;
-    Vector2 center = { screenW - gaugeRadius - 30 * scale, screenH - gaugeRadius - 30 * scale };
+    // 1. Size Logic
+    float speedoRadius = screenW * 0.05f; 
+    if (speedoRadius < 45) speedoRadius = 45;
     
-    DrawCircleV(center, gaugeRadius, Fade(BLACK, 0.8f));
+    float gaugeRadius = speedoRadius * 0.7f; 
+
+    // 2. Position: Shift RIGHT (Increased multiplier to 1.3)
+    // Using the exact same multiplier as speedometer ensures they are symmetrical
+    int centerX = (screenW / 2) + (int)(speedoRadius * 1.3f);
+    int centerY = (int)(screenW * 0.06f);
+
+    Vector2 center = { centerX, centerY }; 
+
+    // Background
+    DrawCircleV(center, gaugeRadius, Fade(BLACK, 0.6f));
     DrawCircleLines(center.x, center.y, gaugeRadius, GRAY);
     
-    DrawText("E", center.x - gaugeRadius + 15*scale, center.y + 10*scale, 20*scale, RED);
-    DrawText("F", center.x + gaugeRadius - 25*scale, center.y + 10*scale, 20*scale, GREEN);
-    DrawText("FUEL", center.x - 20*scale, center.y + 25*scale, 10*scale, LIGHTGRAY);
+    // Labels
+    int fSize = (int)(gaugeRadius * 0.35f);
+    DrawText("E", center.x - gaugeRadius + 5, center.y + 5, fSize, RED);
+    DrawText("F", center.x + gaugeRadius - 15, center.y + 5, fSize, GREEN);
+    DrawText("FUEL", center.x - 10, center.y + 15, (int)(fSize*0.7), LIGHTGRAY);
 
+    // Needle Logic
     float fuelPct = player->fuel / player->maxFuel;
+    if (fuelPct < 0) fuelPct = 0; if (fuelPct > 1) fuelPct = 1;
+
     float startAngle = 210.0f; 
     float endAngle = 330.0f; 
     float currentAngle = startAngle + (endAngle - startAngle) * fuelPct;
     
     float rad = currentAngle * DEG2RAD;
     Vector2 needleEnd = {
-        center.x + cosf(rad) * (gaugeRadius - 10),
-        center.y + sinf(rad) * (gaugeRadius - 10)
+        center.x + cosf(rad) * (gaugeRadius - 5),
+        center.y + sinf(rad) * (gaugeRadius - 5)
     };
     
-    DrawLineEx(center, needleEnd, 3.0f * scale, RED);
-    DrawCircleV(center, 5.0f * scale, DARKGRAY);
+    DrawLineEx(center, needleEnd, 2.0f, RED);
+    DrawCircleV(center, 3.0f, DARKGRAY);
 
+    // Warning
     if (fuelPct < 0.2f) {
         if (((int)(GetTime() * 2) % 2) == 0) {
-            const char* warnText = "LOW FUEL";
-            int fontSize = 30 * scale;
-            int txtW = MeasureText(warnText, fontSize);
-            DrawText(warnText, center.x - txtW/2, center.y - 30*scale, fontSize, RED);
+            const char* warnText = "LOW";
+            int wSize = (int)(gaugeRadius * 0.5f);
+            int txtW = MeasureText(warnText, wSize);
+            DrawTextOutline(warnText, center.x - txtW/2, center.y - (gaugeRadius * 0.4f), wSize, RED, 2);
         }
     }
 }
+
 
 // [UPDATED] G-Force Visualizer with Real Fragility Limit
 void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float scale) {
@@ -266,8 +305,8 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
 
     // 2. Speedometer
     if (player->pinSpeed) {
-        if (player->current_speed >= 0) DrawSpeedometer(player->current_speed, player->max_speed); 
-        else DrawSpeedometer(-player->current_speed, player->max_speed);
+        if (player->current_speed >= 0) DrawSpeedometer(player->current_speed, player->max_speed, screenW); 
+        else DrawSpeedometer(-player->current_speed, player->max_speed, screenW);
     }
 
     // 3. Fuel Gauge

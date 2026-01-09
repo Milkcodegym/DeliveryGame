@@ -35,7 +35,7 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
         
         // DYNAMIC STEPS: We want a check every 20cm (0.2 units)
         // If distance is 7m, we need ~35 checks, not 8.
-        int steps = (int)(dist / 0.2f); 
+        int steps = (int)(dist / 0.5f); 
         if (steps < 5) steps = 5; // Safety minimum
 
         // Start at 10% (0.1) to skip the car's own body
@@ -47,7 +47,7 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
 
             // HIT CHECK: Use 0.4f Radius (Fatter check)
             // This stops the camera BEFORE it touches the wall visuals
-            if (CheckMapCollision(map, checkX, checkZ, 0.4f)) {
+            if (CheckMapCollision(map, checkX, checkZ, 0.4f, 1)) {
                 
                 // PULL BACK:
                 // If we hit at 't', we want to position the camera slightly 

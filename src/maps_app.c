@@ -173,7 +173,7 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
     int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
     if (len == 0) {
         float dist = Vector2Distance(mapsState.playerPos, dest);
-        if (dist < 10.0f) {
+        if (dist < 1.0f) {
             mapsState.destination = dest;
             mapsState.hasDestination = false; 
             return;

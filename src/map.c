@@ -1765,7 +1765,7 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
 }
 
 // [OPTIMIZATION] Fast Collision Check
-bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
+bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCamera) {
     // 1. Determine which cell the object is in
     int gx = (int)((x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int gy = (int)((z + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
@@ -1786,6 +1786,7 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
                 int bIdx = cell->indices[k];
                 Building *b = &map->buildings[bIdx];
 
+
                 // Precise Poly Check
                 if (CheckCollisionPointPoly(p, b->footprint, b->pointCount)) return true;
             }
@@ -1793,9 +1794,11 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius) {
     }
 
     // 4. Check Events (Keep this global as there are few of them)
-    for(int i=0; i<MAX_EVENTS; i++) {
-        if (map->events[i].active) {
-            if (Vector2Distance(p, map->events[i].position) < (map->events[i].radius + radius)) return true;
+    if (!isCamera){
+        for(int i=0; i<MAX_EVENTS; i++) {
+            if (map->events[i].active) {
+                if (Vector2Distance(p, map->events[i].position) < (map->events[i].radius + radius)) return true;
+            }
         }
     }
 
