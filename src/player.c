@@ -39,7 +39,7 @@ Player InitPlayer(Vector3 startPos) {
     p.current_speed = 0.0f;
     p.friction = 1.5f;    
     p.acceleration = 1.3f;
-    p.max_speed = 14.0f;
+    p.max_speed = 20.0f;
     p.brake_power = 6.0f; 
     p.rotationSpeed = 90.0f;
     p.radius = 0.3f; 
@@ -53,7 +53,7 @@ Player InitPlayer(Vector3 startPos) {
 
     // Default Stats (Will be overwritten if loading a save)
     p.maxFuel = 80.0f;
-    p.fuelConsumption = 0.02f;
+    p.fuelConsumption = 0.03f;
     p.insulationFactor = 1.0f;
     p.loadResistance = 1.0f;
     p.pinSpeed = 1;

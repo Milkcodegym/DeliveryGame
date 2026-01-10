@@ -173,7 +173,7 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
     int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
     if (len == 0) {
         float dist = Vector2Distance(mapsState.playerPos, dest);
-        if (dist < 1.0f) {
+        if (dist < 0.2f) {
             mapsState.destination = dest;
             mapsState.hasDestination = false; 
             return;
@@ -439,7 +439,7 @@ void DrawMapsApp(GameMap *map) {
     // Events
     for(int i=0; i<MAX_EVENTS; i++) {
         if(map->events[i].active) {
-            Color c = (map->events[i].type == EVENT_CRASH) ? RED : ORANGE;
+            Color c = (map->events[i].type == EVENT_CRASH) ? RED : RED;
             DrawCircleV(map->events[i].position, 8.0f * scale, c);
             DrawText((map->events[i].type == EVENT_CRASH) ? "!" : "W", 
                      map->events[i].position.x - 2*scale, 
@@ -470,9 +470,9 @@ void DrawMapsApp(GameMap *map) {
             Color c = GRAY;
             switch(map->locations[i].type) {
                 case LOC_FUEL: c = ORANGE; break;
-                case LOC_MECHANIC: c = BLACK; break;
+                case LOC_MECHANIC: c = BLUE; break;
                 case LOC_FOOD: c = RED; break;
-                case LOC_MARKET: c = BLUE; break;
+                case LOC_MARKET: c = BLACK; break;
                 case LOC_RESTAURANT: c = MAROON; break;
                 case LOC_CAFE: c = BROWN; break;
                 default: c = DARKGRAY; break;
@@ -511,7 +511,7 @@ void DrawMapsApp(GameMap *map) {
     };
     DrawLineEx(mapsState.playerPos, tip, 2.0f * scale, DARKBLUE);
 
-    if (mapsState.hasDestination && mapsState.pathLen > 1) {
+    if (mapsState.hasDestination && mapsState.pathLen > 0.2) {
         float pathThick = 8.0f * scale; 
         for (int i = 0; i < mapsState.pathLen - 1; i++) {
             DrawLineEx(mapsState.path[i], mapsState.path[i+1], pathThick, RED);
@@ -602,6 +602,29 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
+    // --- DISTANCE TO TARGET (Lower Left) ---
+    if (mapsState.hasDestination) {
+        // Calculate distance
+        float dist = Vector2Distance(mapsState.playerPos, mapsState.destination);
+        dist *= 5.0;
+        // Format string (km if > 1000, else meters)
+        char distText[32];
+        if (dist >= 1000.0f) {
+            snprintf(distText, 32, "%.1f km to Target", dist / 1000.0f);
+        } else {
+            snprintf(distText, 32, "%d m to Target", (int)dist);
+        }
+
+        // Draw Background Box
+        // Positioned at x=10, y=500 (Aligned with bottom re-center button roughly)
+        //DrawRectangle(10, 490, 110, 45, Fade(BLACK, 0.8f));
+        //DrawRectangleLines(10, 490, 110, 45, DARKGRAY);
+
+        // Draw Text
+        //DrawText("DISTANCE", 20, 495, 10, LIGHTGRAY);
+        DrawText(distText, 20, 508, 20, BLACK); // Green text for visibility
+    }
+
     // Compass
     DrawCircle(240, 450, 20, WHITE);
     DrawCircleLines(240, 450, 20, DARKGRAY);
@@ -614,7 +637,7 @@ void DrawMapsApp(GameMap *map) {
 
     // Re-center button
     if (!mapsState.isFollowingPlayer) {
-        DrawCircle(240, 510, 25, BLACK);
+        DrawCircle(240, 510, 25, BLUE);
         DrawCircleLines(240, 510, 25, WHITE);
         DrawText("O", 233, 502, 20, WHITE); 
     }

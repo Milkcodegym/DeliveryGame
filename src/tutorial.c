@@ -25,7 +25,8 @@ typedef enum {
     TUT_MECH_INTRO,       
     TUT_MECH_ACTION,      
     TUT_DEALER_INTRO,     
-    TUT_DEALER_ACTION,    
+    TUT_DEALER_ACTION, 
+    TUT_OUTRO,   
     TUT_FINISHED          
 } TutState;
 
@@ -244,7 +245,7 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     
     const char* expl = "";
     if (currentAppTab == 0) expl = "JOBS (Key: 1)\n\nAccept delivery contracts here.\nPay attention to Pay, Distance,\nand Constraints (Fragile/Heavy).";
-    if (currentAppTab == 1) expl = "MAPS (Key: 2)\n\nLive GPS Navigation.\nUse the Blue Button to re-center.\nFind Gas Stations (Yellow)\nand Mechanics (Blue).";
+    if (currentAppTab == 1) expl = "MAPS (Key: 2)\n\nLive GPS Navigation.\nUse the Black Button to re-center.\nFind Gas Stations (Yellow)\nand Mechanics (Black).\nDouble-click your destination \nto find the shortest route.";
     if (currentAppTab == 2) expl = "BANK (Key: 3)\n\nTrack your financial health.\nView income and debts.\n(You start with debt).";
     if (currentAppTab == 3) expl = "MUSIC (Key: 4)\n\nPlay your own MP3/OGG files\nor use the built-in radio.";
     if (currentAppTab == 4) expl = "SETTINGS (Key: 5)\n\nAdjust Volume levels.\nReset Save Data if stuck.\nAccess this help menu.";
@@ -342,7 +343,7 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
             break;
 
         case TUT_MECH_ACTION:
-            if (isMechanicOpen) currentState = TUT_DEALER_INTRO;
+            if (isMechanicOpen) currentState = TUT_OUTRO;//TUT_DEALER_INTRO;
             break;
 
         case TUT_DEALER_ACTION:
@@ -351,6 +352,10 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
                 SkipTutorial(player, phone); 
                 ShowPhoneNotification("TUTORIAL COMPLETED", GOLD);
             }
+            break;
+
+        case TUT_OUTRO:
+            blocking = true;
             break;
             
         default: break;
@@ -514,6 +519,18 @@ void DrawTutorial(Player *player, PhoneState *phone) {
                 DrawText("PRESS [ESC] TO EXIT DEALERSHIP", sw/2 - 160*scale, sh - 70*scale, (int)(20*scale), GOLD);
             } else {
                 DrawText("GO TO DEALERSHIP", sw/2 - 100*scale, instructionY, (int)(20*scale), GOLD);
+            }
+            break;
+
+        case TUT_OUTRO:
+            if (DrawTutWindow("YOU'RE HIRED!", 
+                "Congratulations, you've learned the basics.\n\n"
+                "The city is yours. Deliver goods, earn cash,\n"
+                "manage your fuel, and build your fleet.\n\n"
+                "Good luck out there, Driver.", true)) {
+                
+                SkipTutorial(player, phone); 
+                ShowPhoneNotification("TUTORIAL COMPLETED", GOLD);
             }
             break;
     }

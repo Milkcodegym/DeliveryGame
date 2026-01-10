@@ -136,7 +136,7 @@ void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth) {
 
     // Text with Outline
     char speedText[10];
-    sprintf(speedText, "%0.0f", currentSpeed * 9);
+    sprintf(speedText, "%0.0f", currentSpeed * 5);
     
     int textWidth = MeasureText(speedText, numSize);
     int labelWidth = MeasureText("KM/H", labelSize);
@@ -153,22 +153,46 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     
     float gaugeRadius = speedoRadius * 0.7f; 
 
-    // 2. Position: Shift RIGHT (Increased multiplier to 1.3)
-    // Using the exact same multiplier as speedometer ensures they are symmetrical
+    // 2. Position: Shift RIGHT
     int centerX = (screenW / 2) + (int)(speedoRadius * 1.3f);
     int centerY = (int)(screenW * 0.06f);
 
-    Vector2 center = { centerX, centerY }; 
+    Vector2 center = { (float)centerX, (float)centerY }; 
 
     // Background
     DrawCircleV(center, gaugeRadius, Fade(BLACK, 0.6f));
-    DrawCircleLines(center.x, center.y, gaugeRadius, GRAY);
+    DrawCircleLines((int)center.x, (int)center.y, gaugeRadius, GRAY);
     
-    // Labels
+    // Labels (E and F)
     int fSize = (int)(gaugeRadius * 0.35f);
-    DrawText("E", center.x - gaugeRadius + 5, center.y + 5, fSize, RED);
-    DrawText("F", center.x + gaugeRadius - 15, center.y + 5, fSize, GREEN);
-    DrawText("FUEL", center.x - 10, center.y + 15, (int)(fSize*0.7), LIGHTGRAY);
+    DrawText("E", centerX - gaugeRadius + 5, centerY + 5, fSize, RED);
+    DrawText("F", centerX + gaugeRadius - 15, centerY + 5, fSize, GREEN);
+
+    // --- NEW: RANGE CALCULATION ---
+    float consumption = player->fuelConsumption;
+    if (consumption <= 0.001f) consumption = 0.01f; // Safety fallback (same as update logic)
+    
+    float rangeMeters = 5*player->fuel / consumption;
+    
+    char rangeText[32];
+    if (rangeMeters >= 1000.0f) {
+        snprintf(rangeText, 32, "%.1f km", rangeMeters / 1000.0f);
+    } else {
+        snprintf(rangeText, 32, "%d m", (int)rangeMeters);
+    }
+
+    // Draw Range Text (Bottom Center)
+    int rangeSize = (int)(gaugeRadius * 0.35f);
+    int rangeWidth = MeasureText(rangeText, rangeSize);
+    
+    // Position text slightly below the center dot
+    DrawText(rangeText, centerX - rangeWidth/2, centerY + (int)(gaugeRadius * 0.4f), rangeSize, WHITE);
+    
+    // Optional: Draw small label "REMAINING" below it for style (smaller font)
+    int lblSize = (int)(gaugeRadius * 0.2f);
+    int lblWidth = MeasureText("REMAINING", lblSize);
+    DrawText("REMAINING", centerX - lblWidth/2, centerY + (int)(gaugeRadius * 0.7f), lblSize, LIGHTGRAY);
+    // -----------------------------
 
     // Needle Logic
     float fuelPct = player->fuel / player->maxFuel;
@@ -193,11 +217,11 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
             const char* warnText = "LOW";
             int wSize = (int)(gaugeRadius * 0.5f);
             int txtW = MeasureText(warnText, wSize);
-            DrawTextOutline(warnText, center.x - txtW/2, center.y - (gaugeRadius * 0.4f), wSize, RED, 2);
+            // Draw Warning slightly above center to not overlap with Range text
+            DrawText(warnText, centerX - txtW/2, centerY - (int)(gaugeRadius * 0.3f), wSize, RED);
         }
     }
 }
-
 
 // [UPDATED] G-Force Visualizer with Real Fragility Limit
 void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float scale) {
