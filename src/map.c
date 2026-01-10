@@ -75,6 +75,7 @@ typedef enum {
     ASSET_CAR_SEDAN,
     ASSET_CAR_SUV,
     ASSET_CAR_VAN,
+    ASSET_CAR_POLICE,
 
     ASSET_COUNT
 } AssetType;
@@ -1060,6 +1061,7 @@ void LoadCityAssets() {
     LOAD_ASSET(ASSET_CAR_SEDAN, "resources/Playermodels/sedan.obj");
     LOAD_ASSET(ASSET_CAR_SUV, "resources/Playermodels/suv.obj");
     LOAD_ASSET(ASSET_CAR_VAN, "resources/Playermodels/van.obj");
+    LOAD_ASSET(ASSET_CAR_POLICE, "resources/Playermodels/police.obj");
 
     // --- Fix UVs for Procedural/Color-Tinted Objects ---
     float atlasW = 512.0f; 
@@ -1268,67 +1270,102 @@ void BakeBuildingGeometry(Building *b) {
 }
 
 // Helper to draw a cluster of objects based on event type
+// Helper to draw a cluster of objects based on event type
 void DrawEventCluster(MapEvent *evt) {
     if (!evt->active) return;
+    if (evt->position.x == 0.0f && evt->position.y == 0.0f) return;
 
-    // Use the integer position as a seed so the event looks consistent every frame
-    // without storing model indices in the struct.
     int seed = (int)(evt->position.x * 100) + (int)(evt->position.y * 100);
     SetRandomSeed(seed); 
 
     Vector3 center = { evt->position.x, 0.0f, evt->position.y };
+    float boundaryRadius = evt->radius * 0.5f; 
 
-    if (evt->type == EVENT_CRASH) {
-        // --- CAR CRASH CLUSTER ---
+    // --- SCENE 1: ROADWORK (Barriers, Big Lights, Chaos) ---
+    if (evt->type == EVENT_ROADWORK) {
         
-        // Car 1
-        int car1Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
-        float rot1 = GetRandomValue(0, 360);
-        Vector3 pos1 = { center.x + GetRandomValue(-2,2), 0.0f, center.z + GetRandomValue(-2,2) };
-        DrawModelEx(cityRenderer.models[car1Type], pos1, (Vector3){0,1,0}, rot1, (Vector3){1,1,1}, WHITE);
-
-        // Car 2
-        int car2Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
-        float rot2 = GetRandomValue(0, 360);
-        Vector3 pos2 = { center.x + GetRandomValue(-2,2), 0.0f, center.z + GetRandomValue(-2,2) };
-        DrawModelEx(cityRenderer.models[car2Type], pos2, (Vector3){0,1,0}, rot2, (Vector3){1,1,1}, GRAY); // Tinted slightly to look damaged/different
-
-        // Scattered Cones
-        for (int i = 0; i < 5; i++) {
-            Vector3 conePos = { center.x + GetRandomValue(-6,6), 0.0f, center.z + GetRandomValue(-6,6) };
-            if (Vector3Distance(conePos, center) < 3.0f) continue; // Don't spawn inside cars
+        // 1. Perimeter Ring (Big Barriers + Cones)
+        int perimeterCount = 8; 
+        for (int k = 0; k < perimeterCount; k++) {
+            float angleDeg = (k / (float)perimeterCount) * 360.0f;
+            float angleRad = angleDeg * DEG2RAD;
             
-            // Randomly flat or standing
-            AssetType coneType = (GetRandomValue(0, 10) > 8) ? ASSET_PROP_CONE_FLAT : ASSET_PROP_CONE;
-            DrawModel(cityRenderer.models[coneType], conePos, 1.5f, WHITE);
+            Vector3 pPos = {
+                center.x + cosf(angleRad) * boundaryRadius,
+                0.0f,
+                center.z + sinf(angleRad) * boundaryRadius
+            };
+
+            float rot = -angleDeg + 90.0f; 
+
+            // Alternate: Big Barrier vs Cone
+            if (k % 2 == 0) {
+                 // [FIX] Scale 6.0f (5x larger), Rotated + 90 degrees
+                 DrawModelEx(cityRenderer.models[ASSET_PROP_BARRIER], pPos, 
+                    (Vector3){0,1,0}, rot + 90.0f, (Vector3){6.0f, 6.0f, 6.0f}, WHITE);
+            } else {
+                 DrawModel(cityRenderer.models[ASSET_PROP_CONE], pPos, 1.0f, WHITE);
+            }
         }
 
-    } else if (evt->type == EVENT_ROADWORK) {
-        // --- ROADWORK CLUSTER ---
+        // 2. Interior Scatter (More lights and cones)
+        for (int i = 0; i < 5; i++) {
+            Vector3 rndPos = { 
+                center.x + GetRandomValue(-3,3), 
+                0.0f, 
+                center.z + GetRandomValue(-3,3) 
+            };
+            
+            // Big Construction Light
+            if (i % 2 == 0) {
+                DrawModelEx(cityRenderer.models[ASSET_PROP_CONST_LIGHT], rndPos, 
+                    (Vector3){0,1,0}, GetRandomValue(0,360), (Vector3){6.0f, 6.0f, 6.0f}, WHITE);
+            } 
+            // Extra Cone
+            else {
+                DrawModel(cityRenderer.models[ASSET_PROP_CONE], rndPos, 1.0f, WHITE);
+            }
+        }
         
-        // Construction Light
-        DrawModel(cityRenderer.models[ASSET_PROP_CONST_LIGHT], center, 1.5f, WHITE);
-
-        // Barriers forming a square or line
-        for (int i = 0; i < 4; i++) {
-            float angle = i * 90.0f;
-            float rad = 4.0f;
-            Vector3 barPos = { center.x + cosf(angle*DEG2RAD)*rad, 0.0f, center.z + sinf(angle*DEG2RAD)*rad };
-            // Rotate barrier to face center
-            DrawModelEx(cityRenderer.models[ASSET_PROP_BARRIER], barPos, (Vector3){0,1,0}, -angle + 90, (Vector3){1.5f, 1.5f, 1.5f}, WHITE);
-        }
-
-        // Cones around
-        for (int i = 0; i < 6; i++) {
-            float angle = GetRandomValue(0, 360);
-            float dist = GetRandomValue(5, 7);
-            Vector3 conePos = { center.x + cosf(angle*DEG2RAD)*dist, 0.0f, center.z + sinf(angle*DEG2RAD)*dist };
-            DrawModel(cityRenderer.models[ASSET_PROP_CONE], conePos, 1.5f, WHITE);
-        }
+        // Center Box
+        DrawModel(cityRenderer.models[ASSET_PROP_BOX], center, 2.0f, WHITE);
+    } 
+    
+    // --- SCENE 2: CRASH (Police, Separate Cars, Cones only) ---
+    else if (evt->type == EVENT_CRASH) {
         
-        // Maybe a box of supplies
-        Vector3 boxPos = { center.x + 1.5f, 0.0f, center.z + 1.0f };
-        DrawModel(cityRenderer.models[ASSET_PROP_BOX], boxPos, 1.2f, WHITE);
+        // 1. Perimeter (Cones ONLY, no barriers)
+        int perimeterCount = 10;
+        for (int k = 0; k < perimeterCount; k++) {
+            float angleRad = (k / (float)perimeterCount) * 360.0f * DEG2RAD;
+            Vector3 pPos = {
+                center.x + cosf(angleRad) * boundaryRadius,
+                0.0f,
+                center.z + sinf(angleRad) * boundaryRadius
+            };
+            DrawModel(cityRenderer.models[ASSET_PROP_CONE], pPos, 0.5f, WHITE);
+        }
+
+        // 2. Crashed Cars (Pushed apart)
+        int car1Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
+        int car2Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
+        
+        float baseRot = GetRandomValue(0, 360);
+        
+        // [FIX] Specific offsets to prevent clipping (approx 3.5 units apart)
+        Vector3 pos1 = { center.x + 1.8f, 0.0f, center.z + 1.8f };
+        Vector3 pos2 = { center.x - 1.8f, 0.0f, center.z - 1.8f };
+        
+        DrawModelEx(cityRenderer.models[car1Type], pos1, (Vector3){0,1,0}, baseRot, (Vector3){1,1,1}, WHITE);
+        DrawModelEx(cityRenderer.models[car2Type], pos2, (Vector3){0,1,0}, baseRot + 90.0f, (Vector3){1,1,1}, GRAY);
+
+        // 3. Police Car
+        Vector3 policePos = { center.x + 3.0f, 0.0f, center.z - 3.0f };
+        // Rotate to face the crash
+        Vector3 toCenter = Vector3Subtract(center, policePos);
+        float policeRot = atan2f(toCenter.x, toCenter.z) * RAD2DEG;
+        
+        DrawModelEx(cityRenderer.models[ASSET_CAR_POLICE], policePos, (Vector3){0,1,0}, policeRot, (Vector3){1,1,1}, WHITE);
     }
 }
 
@@ -1613,7 +1650,16 @@ void UpdateDevControls(GameMap *map, Player *player) {
 }
 
 static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text, Color color) {
+    // [FIX] Check if the point is actually in front of the camera
+    Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+    Vector3 toPos = Vector3Subtract(position, camera.position);
+    
+    // If dot product is negative, the object is behind us. Don't draw.
+    if (Vector3DotProduct(forward, toPos) < 0) return;
+
     Vector2 screenPos = GetWorldToScreen(position, camera);
+    
+    // Boundary check to ensure it's within the screen area
     if (screenPos.x > 0 && screenPos.x < GetScreenWidth() && 
         screenPos.y > 0 && screenPos.y < GetScreenHeight()) {
         
@@ -1622,7 +1668,7 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
         int padding = 4;
         
         DrawRectangle(screenPos.x - textW/2 - padding, screenPos.y - fontSize/2 - padding, 
-                      textW + padding*2, fontSize + padding*2, BLACK);
+                      textW + padding*2, fontSize + padding*2, Fade(BLACK, 0.6f));
                       
         DrawText(text, (int)screenPos.x - textW/2, (int)screenPos.y - fontSize/2, fontSize, WHITE);
     }
@@ -1695,9 +1741,6 @@ void DrawGameMap(GameMap *map, Camera camera) {
             
             // REPLACED: Old debug cube drawing with high quality models
             DrawEventCluster(&map->events[i]);
-            
-            // Debug radius wire (optional)
-            // DrawCircle3D((Vector3){map->events[i].position.x, 0.1f, map->events[i].position.y}, map->events[i].radius, (Vector3){1,0,0}, 90.0f, RED);
         }
     }
     
@@ -1708,7 +1751,10 @@ void DrawGameMap(GameMap *map, Camera camera) {
     // A. Draw Event Labels
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
-            if (Vector2Distance(pPos2D, map->events[i].position) > RENDER_DIST_BASE) continue;
+            float dist = Vector2Distance(pPos2D, map->events[i].position);
+            // [FIX] Proximity Check: Only show label if within 40m
+            if (dist > 40.0f) continue; 
+
             Vector3 pos = { map->events[i].position.x, 3.5f, map->events[i].position.y };
             DrawCenteredLabel(camera, pos, map->events[i].label, COLOR_EVENT_TEXT);
         }
@@ -1786,7 +1832,6 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
                 int bIdx = cell->indices[k];
                 Building *b = &map->buildings[bIdx];
 
-
                 // Precise Poly Check
                 if (CheckCollisionPointPoly(p, b->footprint, b->pointCount)) return true;
             }
@@ -1797,7 +1842,9 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
     if (!isCamera){
         for(int i=0; i<MAX_EVENTS; i++) {
             if (map->events[i].active) {
-                if (Vector2Distance(p, map->events[i].position) < (map->events[i].radius + radius)) return true;
+                // [FIX] Reduced hitbox by 50% (* 0.5f) to match the new visual barriers
+                float effectiveRadius = (map->events[i].radius * 0.5f) + radius;
+                if (Vector2Distance(p, map->events[i].position) < effectiveRadius) return true;
             }
         }
     }
@@ -1859,37 +1906,61 @@ void UnloadGameMap(GameMap *map) {
     }
 }
 
+// In map.c
 void BuildMapGraph(GameMap *map) {
+    if (map->graph) {
+        // Safety: Free old graph if it exists to prevent memory leaks
+        for(int i=0; i<map->nodeCount; i++) if(map->graph[i].connections) free(map->graph[i].connections);
+        free(map->graph);
+    }
+
     map->graph = (NodeGraph*)calloc(map->nodeCount, sizeof(NodeGraph));
+    
     for (int i = 0; i < map->edgeCount; i++) {
-        int u = map->edges[i].startNode; int v = map->edges[i].endNode;
+        int u = map->edges[i].startNode; 
+        int v = map->edges[i].endNode;
+
+        // Safety Check: Ensure connection is within bounds
         if (u >= map->nodeCount || v >= map->nodeCount) continue;
+
         float dist = Vector2Distance(map->nodes[u].position, map->nodes[v].position);
+
+        // --- Connection U -> V ---
         if (map->graph[u].count >= map->graph[u].capacity) {
             map->graph[u].capacity = (map->graph[u].capacity == 0) ? 4 : map->graph[u].capacity * 2;
             map->graph[u].connections = realloc(map->graph[u].connections, map->graph[u].capacity * sizeof(GraphConnection));
         }
-        map->graph[u].connections[map->graph[u].count++] = (GraphConnection){v, dist};
-        if (map->graph[v].count >= map->graph[v].capacity) {
-            map->graph[v].capacity = (map->graph[v].capacity == 0) ? 4 : map->graph[v].capacity * 2;
-            map->graph[v].connections = realloc(map->graph[v].connections, map->graph[v].capacity * sizeof(GraphConnection));
+        // [FIX] We add 'i' (the edge index) so traffic knows which road this is
+        map->graph[u].connections[map->graph[u].count++] = (GraphConnection){v, dist, i};
+
+        // --- Connection V -> U (Only if Two-Way) ---
+        if (!map->edges[i].oneway) {
+            if (map->graph[v].count >= map->graph[v].capacity) {
+                map->graph[v].capacity = (map->graph[v].capacity == 0) ? 4 : map->graph[v].capacity * 2;
+                map->graph[v].connections = realloc(map->graph[v].connections, map->graph[v].capacity * sizeof(GraphConnection));
+            }
+            map->graph[v].connections[map->graph[v].count++] = (GraphConnection){u, dist, i};
         }
-        map->graph[v].connections[map->graph[v].count++] = (GraphConnection){u, dist};
     }
+    printf("Graph Rebuilt. Nodes: %d, Edges Processed: %d\n", map->nodeCount, map->edgeCount);
 }
 
 // [OPTIMIZATION] Fast Node Search
 int GetClosestNode(GameMap *map, Vector2 position) {
-    int bestNode = -1; float minDst = FLT_MAX;
+    int bestNode = -1; 
+    float minDst = FLT_MAX;
     
-    // Don't iterate all 50,000 nodes unless necessary.
-    // Optimization: Skip nodes that are clearly too far away (Broad Phase)
+    // [FIX] Increased search radius from 100.0f to 500.0f.
+    // If the radius is too small, the spawner thinks the player is in "the void"
+    // and refuses to spawn cars.
+    float searchRadius = 500.0f; 
+
     for (int i = 0; i < map->nodeCount; i++) {
         if (map->graph && map->graph[i].count == 0) continue; 
         
-        // Fast Rejection Check (Avoid Square Root)
-        if (fabsf(position.x - map->nodes[i].position.x) > 100.0f) continue;
-        if (fabsf(position.y - map->nodes[i].position.y) > 100.0f) continue;
+        // Broad Phase Check
+        if (fabsf(position.x - map->nodes[i].position.x) > searchRadius) continue;
+        if (fabsf(position.y - map->nodes[i].position.y) > searchRadius) continue;
 
         float d = Vector2DistanceSqr(position, map->nodes[i].position);
         if (d < minDst) { minDst = d; bestNode = i; }
@@ -2093,5 +2164,6 @@ GameMap LoadGameMap(const char *fileName) {
     }
     printf("Baking Complete. Total Static Vertices: %d\n", totalVerts);
     BuildCollisionGrid(&map);
+    BuildMapGraph(&map);
     return map;
 }

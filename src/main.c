@@ -31,6 +31,7 @@ void FixPath(void) {
 int main(void)
 {
     FixPath();
+    SetTraceLogLevel(LOG_WARNING);
     InitWindow(1280, 720, "Delivery Game - v0.5");
 
     int monitorWidth = GetMonitorWidth(0);
@@ -47,8 +48,6 @@ int main(void)
     while (!WindowShouldClose()){
         
         GameMap map = RunStartMenu("resources/maps/real_city.map",screenWidth,screenHeight);
-    
-        if (map.nodeCount > 0) { BuildMapGraph(&map); }
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
@@ -157,12 +156,44 @@ int main(void)
                         UpdateTraffic(&traffic, player.position, &map, dt);
                         UpdateDevControls(&map, &player);
                     }
-
+                    
                     UpdateVisuals(dt); 
                     UpdateMapEffects(&map, player.position);
                     UpdatePhone(&phone, &player, &map); 
                     Update_Camera(player.position, &map, player.angle, dt);
                     
+                    // [NEW] EMERGENCY FUEL LOGIC
+                    if (player.fuel <= 0.0f) {
+                        player.current_speed = Lerp(player.current_speed, 0.0f, 2.0f * dt); // Force stop
+                        
+                        if (IsKeyPressed(KEY_R)) {
+                            float emergencyPricePerL = 4.50f; // 3x normal price (~1.50)
+                            float emergencyAmount = 15.0f;    // Give 15 Liters
+                            float totalCost = emergencyAmount * emergencyPricePerL;
+
+                            // FAILSAFE: Bankruptcy Protection
+                            if (player.money < 25.0f) {
+                                player.fuel += 10.0f; // Charity fuel (smaller amount)
+                                // Add notification logic here if you have a message system
+                                printf("EMERGENCY: Charity fuel given (Player too poor)\n");
+                            } 
+                            // STANDARD: High Cost Rescue
+                            else if (player.money >= totalCost) {
+                                player.money -= totalCost;
+                                player.fuel += emergencyAmount;
+                                printf("EMERGENCY: Paid rescue service (-$%.2f)\n", totalCost);
+                            }
+                            // EDGE CASE: Has > 25 but < TotalCost (Partial Fill)
+                            else {
+                                float affordableFuel = player.money / emergencyPricePerL;
+                                player.fuel += affordableFuel;
+                                player.money = 0.0f;
+                                printf("EMERGENCY: Partial rescue bought.\n");
+                            }
+                        }
+                    }
+
+
                     if (IsKeyPressed(KEY_F3)) isMechanicOpen = true;
 
                     // --- INTERACTION LOGIC ---
@@ -235,10 +266,106 @@ int main(void)
                         DrawTraffic(&traffic);
                     EndMode3D();
                     
+                    //DEBUG
+                    // Paste this inside main.c, AFTER EndMode3D() but BEFORE EndDrawing()
+
+// [DEBUG HUD] Paste this in main.c after DrawFuelOverlay
+if (IsKeyDown(KEY_F1)) { // Hold F1 to see Debug Info
+    DrawRectangle(10, 10, 350, 160, Fade(BLACK, 0.7f));
+    DrawText(TextFormat("FPS: %d", GetFPS()), 20, 20, 20, GREEN);
+    
+    // Check Traffic Count
+    int activeCars = 0;
+    for(int i=0; i<MAX_VEHICLES; i++) if(traffic.vehicles[i].active) activeCars++;
+    DrawText(TextFormat("Active Cars: %d / %d", activeCars, MAX_VEHICLES), 20, 50, 20, activeCars > 0 ? GREEN : RED);
+
+    // Check Map Graph
+    if (map.graph) DrawText("Map Graph: CONNECTED", 20, 80, 20, GREEN);
+    else DrawText("Map Graph: MISSING!", 20, 80, 20, RED);
+
+    // Check Node Distance
+    int closest = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
+    if (closest != -1) {
+        float d = Vector2Distance((Vector2){player.position.x, player.position.z}, map.nodes[closest].position);
+        DrawText(TextFormat("Dst to Node: %.1f", d), 20, 110, 20, WHITE);
+    } else {
+        DrawText("Dst to Node: > 500m (Too Far)", 20, 110, 20, RED);
+    }
+    DrawText("F5: Force Spawn", 20, 140, 20, YELLOW);
+}
+
+// [DEBUG] Force Spawn Logic (F5)
+if (IsKeyPressed(KEY_F5)) {
+    // 1. Find the next empty slot
+    int slot = -1;
+    for(int k=0; k<MAX_VEHICLES; k++) {
+        if (!traffic.vehicles[k].active) { slot = k; break; }
+    }
+
+    if (slot != -1 && map.nodeCount > 0) {
+        int closeNode = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
+        // If regular search fails, pick a random node just to prove cars work
+        if (closeNode == -1) closeNode = GetRandomValue(0, map.nodeCount-1);
+
+        int edgeIdx = FindNextEdge(&map, closeNode, -1);
+        
+        if (edgeIdx != -1) {
+            Vehicle *v = &traffic.vehicles[slot];
+            v->active = true;
+            v->currentEdgeIndex = edgeIdx;
+            v->speed = 0.0f; // Stopped so you can see it
+            v->startNodeID = map.edges[edgeIdx].startNode;
+            v->endNodeID = map.edges[edgeIdx].endNode;
+            v->progress = 0.5f; 
+            
+            Vector3 p1 = { map.nodes[v->startNodeID].position.x, 0, map.nodes[v->startNodeID].position.y };
+            Vector3 p2 = { map.nodes[v->endNodeID].position.x, 0, map.nodes[v->endNodeID].position.y };
+            v->edgeLength = Vector3Distance(p1, p2);
+            v->color = PURPLE;
+            v->position = player.position; // Spawn ON player to verify
+        }
+    }
+}
+
+
+
                     // --- 2D UI LAYER ---
                     DrawVisualsWithPinned(&player,&phone); 
                     DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
                     
+                    // [NEW] EMERGENCY RESCUE UI
+                    if (player.fuel <= 0.0f) {
+                        // Darken screen
+                        DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.7f));
+                        
+                        int cx = GetScreenWidth() / 2;
+                        int cy = GetScreenHeight() / 2;
+
+                        // Warning Icon / Text
+                        const char* title = "OUT OF FUEL!";
+                        DrawText(title, cx - MeasureText(title, 40)/2, cy - 100, 40, RED);
+
+                        // Calculate Price for UI display
+                        float emergencyPrice = 4.50f * 15.0f; // $67.50
+                        
+                        if (player.money < 25.0f) {
+                            // Failsafe UI
+                            DrawText("EMERGENCY ASSISTANCE", cx - MeasureText("EMERGENCY ASSISTANCE", 30)/2, cy - 40, 30, GREEN);
+                            DrawText("Wallet empty. Government aid available.", cx - MeasureText("Wallet empty. Government aid available.", 20)/2, cy, 20, WHITE);
+                            DrawText("Press [R] for FREE Emergency Fuel", cx - MeasureText("Press [R] for FREE Emergency Fuel", 20)/2, cy + 40, 20, YELLOW);
+                        } else {
+                            // Paid UI
+                            DrawText("ROADSIDE ASSISTANCE", cx - MeasureText("ROADSIDE ASSISTANCE", 30)/2, cy - 40, 30, ORANGE);
+                            
+                            const char* costText = TextFormat("Cost: $%.2f (3x Normal Rate)", emergencyPrice);
+                            DrawText(costText, cx - MeasureText(costText, 20)/2, cy, 20, WHITE);
+                            
+                            Color btnColor = (player.money >= emergencyPrice) ? YELLOW : GRAY;
+                            const char* btnText = (player.money >= emergencyPrice) ? "Press [R] to Call Truck" : "Not Enough Money (Need < $25 for Aid)";
+                            DrawText(btnText, cx - MeasureText(btnText, 20)/2, cy + 40, 20, btnColor);
+                        }
+                    }
+
                     // Interaction Text
                     if (!isDead && !isRefueling && !isMechanicOpen && fabs(player.current_speed) < 5.0f) {
                           Vector2 pPos2 = { player.position.x, player.position.z };

@@ -182,7 +182,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     remove(SAVE_FILE_NAME);
     
     // Reset Critical Logic
-    player->money = 0;
+    player->money = 50;
     player->fuel = MAX_FUEL;
     player->totalDeliveries = 0;
     player->transactionCount = 0;
@@ -190,11 +190,13 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->tutorialFinished = false; // Reset tutorial
     
     // Reset to Default Van Stats (Hardcoded default)
-    player->max_speed = 60.0f;
-    player->acceleration = 0.3f;
+    player->max_speed = 20.0f;
+    player->acceleration = 1.3f;
     player->brake_power = 2.0f;
     player->maxFuel = 80.0f;
     player->fuelConsumption = 0.04f;
+    player->health = 100.0f;
+
     
     // Note: Model reset usually requires reloading the scene or restarting app, 
     // as we don't want to load models in the middle of a reset function.

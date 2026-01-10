@@ -4,73 +4,78 @@
 
 Camera3D camera = { 0 };
 
+// Variables to store smooth states
+static float smoothedCollisionDist = 3.2f;
+static Vector3 smoothedTarget = { 0 };
+
 void InitCamera(){
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
-    // Set a dummy position so it doesn't start at 0,0,0 if player is elsewhere
     camera.position = (Vector3){ 0.0f, 10.0f, -10.0f };
+    smoothedTarget = (Vector3){0,0,0};
 }
 
 void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
-    // 1. Target Position
-    float camDist = 3.2f;       
+    // Initialize target on first run to prevent flying from 0,0,0
+    if (smoothedTarget.y == 0) smoothedTarget = player_position;
+
+    // --- 1. SMOOTH TARGET (Fixes the "Vibrating Look" issue) ---
+    // Instead of locking eyes on the player instantly, we lag behind slightly.
+    // This filters out micro-jitters from the player physics.
+    Vector3 idealTarget = { player_position.x, player_position.y + 0.5f, player_position.z };
+    
+    // Lerp the target point (High speed = minimal lag, but enough to smooth jitter)
+    float targetSmoothSpeed = 15.0f; 
+    smoothedTarget = Vector3Lerp(smoothedTarget, idealTarget, targetSmoothSpeed * dt);
+    
+    camera.target = smoothedTarget;
+
+    // --- 2. CALCULATE POSITION ---
+    float maxCamDist = 3.2f;       
     float camHeight = 1.5f;     
 
-    Vector3 desiredPos;
-    desiredPos.x = player_position.x - camDist * sinf(player_angle * DEG2RAD);
-    desiredPos.z = player_position.z - camDist * cosf(player_angle * DEG2RAD);
-    desiredPos.y = player_position.y + camHeight;
+    Vector3 targetOffset;
+    targetOffset.x = -maxCamDist * sinf(player_angle * DEG2RAD);
+    targetOffset.z = -maxCamDist * cosf(player_angle * DEG2RAD);
+    targetOffset.y = camHeight;
 
-    // Instant Teleport logic (Keep existing)
-    if (Vector3Distance(camera.position, player_position) > 100.0f) {
-        camera.position = desiredPos;
-    }
+    // --- 3. COLLISION CHECK ---
+    float currentDist = maxCamDist; 
+    float dx = targetOffset.x;
+    float dz = targetOffset.z;
+    
+    int steps = 8; 
+    for (int i = 0; i <= steps; i++) {
+        float t = 0.2f + ((float)i / steps) * 0.8f;
+        float checkX = player_position.x + (dx * t);
+        float checkZ = player_position.z + (dz * t);
 
-    // 2. LOGIC FIX: High-Precision Raycast
-    if (checkcamera_collision) {
-        float dx = desiredPos.x - player_position.x;
-        float dz = desiredPos.z - player_position.z;
-        float dist = sqrtf(dx*dx + dz*dz); // Calculate total distance
-        
-        // DYNAMIC STEPS: We want a check every 20cm (0.2 units)
-        // If distance is 7m, we need ~35 checks, not 8.
-        int steps = (int)(dist / 0.5f); 
-        if (steps < 5) steps = 5; // Safety minimum
-
-        // Start at 10% (0.1) to skip the car's own body
-        for (int i = 0; i <= steps; i++) {
-            float t = 0.1f + ((float)i / steps) * 0.9f;
-            
-            float checkX = player_position.x + (dx * t);
-            float checkZ = player_position.z + (dz * t);
-
-            // HIT CHECK: Use 0.4f Radius (Fatter check)
-            // This stops the camera BEFORE it touches the wall visuals
-            if (CheckMapCollision(map, checkX, checkZ, 0.4f, 1)) {
-                
-                // PULL BACK:
-                // If we hit at 't', we want to position the camera slightly 
-                // BEFORE that point to provide a safety buffer.
-                // Pull back by 0.5 meters (relative to total dist)
-                float buffer = 0.5f / dist; 
-                float safeT = fmaxf(t - buffer, 0.1f); 
-                
-                desiredPos.x = player_position.x + (dx * safeT);
-                desiredPos.z = player_position.z + (dz * safeT);
-                
-                // Lift camera slightly when tight against wall to see better
-                desiredPos.y += 1.5f * (1.0f - safeT); 
-                break; // Stop checking, we hit the closest wall
-            }
+        if (CheckMapCollision(map, checkX, checkZ, 0.3f, 1)) {
+            currentDist = (t * maxCamDist) - 0.2f;
+            if (currentDist < 0.5f) currentDist = 0.5f;
+            break; 
         }
     }
 
-    // 3. Smooth Movement (Lerp)
-    float smoothSpeed = 10.0f; // Slightly faster smoothing so it doesn't lag inside walls
-    camera.position.x += (desiredPos.x - camera.position.x) * smoothSpeed * dt;
-    camera.position.z += (desiredPos.z - camera.position.z) * smoothSpeed * dt;
-    camera.position.y += (desiredPos.y - camera.position.y) * smoothSpeed * dt;
+    // --- 4. SMOOTH DISTANCE ---
+    // Move IN fast (to avoid wall clipping), move OUT slow
+    float zoomSpeed = (currentDist < smoothedCollisionDist) ? 15.0f : 2.0f;
+    smoothedCollisionDist = Lerp(smoothedCollisionDist, currentDist, zoomSpeed * dt);
 
-    camera.target = (Vector3){ player_position.x, player_position.y + 0.5f, player_position.z };
+    // --- 5. APPLY POSITION ---
+    // Calculate final position based on the SMOOTHED target and SMOOTHED distance
+    // This ensures the camera body and camera eye move in sync.
+    Vector3 finalPos;
+    finalPos.x = smoothedTarget.x - smoothedCollisionDist * sinf(player_angle * DEG2RAD);
+    finalPos.z = smoothedTarget.z - smoothedCollisionDist * cosf(player_angle * DEG2RAD);
+    finalPos.y = smoothedTarget.y + camHeight; // Base height off target, not raw player
+
+    // Wall lift
+    if (smoothedCollisionDist < 1.5f) {
+        finalPos.y += (1.5f - smoothedCollisionDist) * 0.5f;
+    }
+
+    // Final position smoothing
+    camera.position = Vector3Lerp(camera.position, finalPos, 8.0f * dt);
 }

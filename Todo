@@ -26,21 +26,13 @@ Building the physical simulation environment.
     Implement collision avoidance (traffic vs traffic)
     Add interaction logic (traffic respecting delivery entrances)
 
-PHASE 2: PLAYER INTERFACE & CONTROLS
-The primary way the player interacts with the world.
-
-  Phone UI
-    Decide on screen layout (Full screen vs Overlay)
-    Implement Maps App (Navigation, GPS)
-    Implement Efood App (Job listing and acceptance)
-
 PHASE 3: DELIVERY MECHANICS (CORE LOOP)
 The logic defining how jobs are created and completed.
 
   Delivery Logic
     Define delivery collision boxes and entrance triggers
     Add icons for pickup and drop-off locations
-    Implement scoring system (Time, Distance, Safety)
+    Finalize scoring system (Time, Distance, Safety)
     Add tip modifier logic (based on general time)
 
   Job Classes & Modifiers
@@ -57,31 +49,20 @@ The logic defining how jobs are created and completed.
 
 PHASE 4: ECONOMY & FRICTION
 Systems that cost money or add strategic depth.
-
-  Car Status
-    Implement Fuel system (Consumption + Gas Stations)
-    Implement Damage/Health system
-    Create Mechanic Screen (Repairs and Upgrades)
-    Implement "Death" penalty (Extra towing/medical fees)
-    Create upgradable MyCarMonitor app with G-force/Temp data and other car related stats
-
-  Shops & Upgrades
-    Decide on E-shops (Phone) vs Physical Stores (Drive-to)
-    Define power-ups and car upgrades
+ 
+    Finalise car upgrades
     Define item inventory for each shop type
 
   Law & Order
     Implement Parking logic (Fees for illegal parking)
 
-
   //note on optimisation: add music files in midi format?? (να δουμε αν αξίζει γτ θελει εξτρά libraryw)
 
-  add icons on map, replace placeholders with models: random events, sidewalk items.
+  add icons on map
   handle map edges, add shops and service centers, and gas stations.
   decide on pickup and delivery options: interactable on shop doors or pickup areas.
-  save player data on exit, dev reset button.
-  unlock mycarstats and speedometer, fuelometer after finishing it.
-  add keyboard shortcuts for many phone features, like apps, app functions etc.
+  unlock mycarstats and speedometer, fuelometer after finishing tutorial.
+  add other keyboard shortcuts?
   Add actual shop locations / parking spots to pull into?
   fix camera collisions - many bugs
 
@@ -93,27 +74,24 @@ Systems that cost money or add strategic depth.
   fix map app building issues
   game not saving on exit? (needs testing)
 
-construction light,light curved, sign highway, sign highway detailed, construction barrier add those
-add cone squish logic
-
-flowers, grass, ride entrance, trash, bench
-
-add a bicycle or motorcycle. then, fix graphics for locations instead of spheres, find icons for map, fix loading and start screen graphics, dealership loading screen
+add a bicycle or motorcycle. then, fix graphics for locations instead of spheres, find icons for map, fix loading and start screen graphics and loading, dealership loading screen
 add dealership location to map
-fix phone appearance
-tutorial
 jump easter egg
-test if car models upgrade
-make parks spawn under everything
-make low fuel appear later
-fix apps guide in the tutorial
-lock controls in the tutorial
-add distance remaining to maps UI, like the tutorial UI
+make parks spawn in city gaps
+
 add a notification informing you of hospital bills when you crash and respawn
-notify of health and respawning in tutorial
 when out of fuel, emergency fuel takes 25% of your money.
 safety warning resets your speed
 make random event hitboxes smaller
 fix building clipping issues
+fix g-force meter not working
+fuel balancing, tank empties a bit too quickly
+fix broken traffic (+traffic models?)
+fix broken camera lerp
+optimise camera collision?
+add g forces and temperature logic?
+add cargo integrity meter
+fix traffic models
 
-great! now lets start building the tutorial. create tutorial.c and tutorial.h. we need an overlay window to pop up when the player boots the game and there isnt any save data or the tutorial isnt finished, welcoming the player and asking for a tutorial.(you cant save progress in the tutorial, add this as a warning). then have a choice if the player wants to play through the tutorial or not. after that, if the player clicks no it just saves as tutorial completed. if the player clicks yes: we start off explaining the phone. draw a window with a small phone, and add sample text so i can add fake details about the phone model later. have next/previous buttons through all this. then, explain the phone controls in a window. the shortcuts for the apps, the mouse navigation etc. here have a side tabs/menu for each app's own tutorial aswell. the user can click through the tabs or just continue. add a "screenshot" of each app's screen in the tabs aswell (static non functional app UI). and explain each function. then, continuing the overlay closes and the player movement controls are explained. then, the player receives a notification regarding their first delivery. it should be a simple delivery mission, without any constraints. when they finish the mission, they get another one with a loose constraint, and mission constraints are explained. then, a random road event happens, and road events are explained. then, you are led to refuel in the nearest gas station and that is explained aswell, then you are led to the nearest mechanic and that is explained aswell, and finally you are led to the dealership and that is explained too. add some loose story elements in there too, about being broke and having to pay bills, and thats why you started delivering, and this is your first day on the job.
+Add accident and road work road signs
+traffic goes through road events?

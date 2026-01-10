@@ -198,10 +198,10 @@ void InitDealership() {
     coneModel = LoadModel("resources/Props/cone.obj");
     // Removed: trashModel = LoadModel("resources/random/trash.obj");
     railModel = LoadModel("resources/Dealership/rail.obj");
-    containerModel = LoadModel("resources/container.obj");
-    containerOpenModel = LoadModel("resources/container-flat-open.obj");
-    skipModel = LoadModel("resources/skip.obj");
-    floorPanelModel = LoadModel("resources/structure-panel.obj");
+    containerModel = LoadModel("resources/Dealership/container.obj");
+    containerOpenModel = LoadModel("resources/Dealership/container-flat-open.obj");
+    skipModel = LoadModel("resources/Dealership/skip.obj");
+    floorPanelModel = LoadModel("resources/Dealership/structure-panel.obj");
     
     // Setup Camera 
     shopCamera.position = (Vector3){ 12.0f, 7.0f, 12.0f };

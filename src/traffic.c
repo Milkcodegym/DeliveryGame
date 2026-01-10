@@ -6,20 +6,18 @@
 #include <stdio.h>
 
 // --- CONFIGURATION ---
-#define MAP_SCALE 0.4f        
-#define SPAWN_RATE 0.05f       // Chance to spawn per check
-#define SPAWN_RADIUS_MIN 40.0f
-#define SPAWN_RADIUS_MAX 200.0f
-#define DESPAWN_RADIUS 400.0f  // [FIX] Increased significantly to prevent instant despawn
+#define SPAWN_RADIUS_MIN 50.0f   
+#define SPAWN_RADIUS_MAX 400.0f  
+#define DESPAWN_RADIUS 1500.0f   
+#define ROAD_HEIGHT 0.5f       
 
 // --- BRAKING CONFIG ---
-#define DETECTION_DIST 25.0f   
-#define STOP_DISTANCE 5.0f    
-#define ACCEL_RATE 5.0f       
-#define BRAKE_RATE 15.0f       
-#define STUCK_THRESHOLD 5.0f  
+#define DETECTION_DIST 25.0f   // Distance to start noticing player
+#define STOP_DISTANCE 5.0f     // Distance where car wants to be fully stopped
+#define ACCEL_RATE 4.0f        
+#define BRAKE_RATE 8.0f        // Lowered slightly for smoother stops
+#define STUCK_THRESHOLD 5.0f 
 
-// External references
 extern int GetClosestNode(GameMap *map, Vector2 position);
 
 void InitTraffic(TrafficManager *traffic) {
@@ -29,159 +27,135 @@ void InitTraffic(TrafficManager *traffic) {
     }
 }
 
-// Helper: Find a valid edge connected to a node
 int FindNextEdge(GameMap *map, int nodeID, int excludeEdgeIndex) {
-    if (!map->graph || nodeID >= map->nodeCount) return -1;
+    if (!map->graph) return -1; 
+    if (nodeID >= map->nodeCount) return -1;
+    
+    NodeGraph *node = &map->graph[nodeID];
+    if (node->count == 0) return -1;
 
     int candidates[8]; 
     int count = 0;
-    NodeGraph *node = &map->graph[nodeID];
 
     for (int i = 0; i < node->count; i++) {
         int edgeIdx = node->connections[i].edgeIndex;
         if (edgeIdx == excludeEdgeIndex) continue;
-
         Edge e = map->edges[edgeIdx];
-        bool canEnter = false;
-
-        // One-way logic
-        if (e.startNode == nodeID) {
-            canEnter = true; 
-        } else if (e.endNode == nodeID) {
-            if (!e.oneway) canEnter = true;
-        }
-
-        if (canEnter) {
-            candidates[count++] = edgeIdx;
-            if (count >= 8) break;
-        }
+        if (e.startNode == nodeID) candidates[count++] = edgeIdx;
+        else if (e.endNode == nodeID && !e.oneway) candidates[count++] = edgeIdx;
     }
-
     if (count > 0) return candidates[GetRandomValue(0, count - 1)];
-    
-    // Dead End U-Turn fallback
-    if (excludeEdgeIndex >= 0 && !map->edges[excludeEdgeIndex].oneway) return excludeEdgeIndex;
 
+    count = 0;
+    for (int i = 0; i < node->count; i++) {
+        int edgeIdx = node->connections[i].edgeIndex;
+        if (edgeIdx != excludeEdgeIndex) candidates[count++] = edgeIdx;
+    }
+    if (count > 0) return candidates[GetRandomValue(0, count - 1)];
+
+    if (node->count > 0) return node->connections[0].edgeIndex;
     return -1;
 }
 
-// [FIXED] Braking Logic now checks the NEXT road too
 float GetDistanceToCarAhead(TrafficManager *traffic, int myIndex, Vector3 myPos, Vector3 myForward, int myEdgeIndex) {
     float closestDist = 9999.0f;
     bool found = false;
-    
-    // We also want to check the road we are turning INTO, otherwise we crash at intersections
     int myNextEdge = traffic->vehicles[myIndex].nextEdgeIndex;
 
     for (int i = 0; i < MAX_VEHICLES; i++) {
         if (i == myIndex || !traffic->vehicles[i].active) continue;
-
-        // OPTIMIZATION: Only check cars on the same road OR the immediate next road
         int otherEdge = traffic->vehicles[i].currentEdgeIndex;
         if (otherEdge != myEdgeIndex && otherEdge != myNextEdge) continue; 
-
+        
         Vector3 otherPos = traffic->vehicles[i].position;
         Vector3 toOther = Vector3Subtract(otherPos, myPos);
-        
-        // Dot Product: Is it in front of me?
         if (Vector3DotProduct(toOther, myForward) < 0) continue; 
-
+        
         float distSq = Vector3LengthSqr(toOther);
         if (distSq > DETECTION_DIST * DETECTION_DIST) continue; 
 
         float dist = sqrtf(distSq);
-        if (dist < closestDist) {
-            closestDist = dist;
-            found = true;
-        }
+        if (dist < closestDist) { closestDist = dist; found = true; }
     }
     return found ? closestDist : -1.0f;
 }
 
-void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt) {
-    if (map->edgeCount == 0) return;
+// [NEW] Check distance to player with Field of View (Dot Product)
+float GetDistanceToPlayer(Vector3 carPos, Vector3 carFwd, Vector3 playerPos) {
+    Vector3 toPlayer = Vector3Subtract(playerPos, carPos);
+    float distSq = Vector3LengthSqr(toPlayer);
 
-    // --- 1. SPAWN LOGIC (THROTTLED) ---
-    // [FIX] Don't try to spawn every single frame. This improves performance and distribution.
+    // 1. Distance Check
+    if (distSq > DETECTION_DIST * DETECTION_DIST) return -1.0f;
+
+    // 2. Direction Check (Dot Product)
+    // Normalize vector to player to compare angles
+    Vector3 toPlayerNorm = Vector3Normalize(toPlayer);
+    float dot = Vector3DotProduct(toPlayerNorm, carFwd);
+
+    // If dot > 0.5, player is roughly within 60 degrees in front.
+    // If dot < 0, player is behind the car.
+    if (dot < 0.3f) return -1.0f; // Ignore if player is to the side/behind
+
+    return sqrtf(distSq);
+}
+
+void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt) {
+    if (map->edgeCount == 0 || map->nodeCount == 0 || !map->graph) return;
+
     static float spawnTimer = 0.0f;
     spawnTimer += dt;
 
-    if (spawnTimer > 0.1f) { // Run spawn logic 10 times a second
+    if (spawnTimer > 0.1f) { 
         spawnTimer = 0.0f;
-
-        // Find empty slot
         int slot = -1;
-        for (int i = 0; i < MAX_VEHICLES; i++) {
-            if (!traffic->vehicles[i].active) { slot = i; break; }
-        }
+        for (int i = 0; i < MAX_VEHICLES; i++) { if (!traffic->vehicles[i].active) { slot = i; break; } }
 
-        if (slot != -1 && GetRandomValue(0, 100) < 30) { // 30% chance per check
-            
-            // 1. Random Point in Ring
-            float angle = GetRandomValue(0, 360) * DEG2RAD;
-            float dist = GetRandomValue((int)SPAWN_RADIUS_MIN, (int)SPAWN_RADIUS_MAX);
-            Vector2 searchPos = { 
-                player_position.x + cosf(angle)*dist, 
-                player_position.z + sinf(angle)*dist 
-            };
+        if (slot != -1) {
+            for (int attempt = 0; attempt < 20; attempt++) {
+                int randNodeID = GetRandomValue(0, map->nodeCount - 1);
+                Vector2 nodeWorld = map->nodes[randNodeID].position;
+                float dx = nodeWorld.x - player_position.x;
+                float dy = nodeWorld.y - player_position.z;
+                float distSq = dx*dx + dy*dy;
 
-            // 2. Snap to nearest node
-            int nodeID = GetClosestNode(map, searchPos);
-
-            if (nodeID != -1) {
-                // [FIX] Check if the actual node is within DESPAWN radius
-                // Sometimes the "closest node" is actually 500 units away if the map is sparse
-                Vector2 nodePos = map->nodes[nodeID].position;
-                float distToPlayerSq = (nodePos.x - player_position.x)*(nodePos.x - player_position.x) + 
-                                       (nodePos.y - player_position.z)*(nodePos.y - player_position.z);
-                
-                if (distToPlayerSq < (DESPAWN_RADIUS * DESPAWN_RADIUS)) {
-                    
-                    int edgeIdx = FindNextEdge(map, nodeID, -1);
-                    
+                if (distSq > (SPAWN_RADIUS_MIN*SPAWN_RADIUS_MIN) && distSq < (SPAWN_RADIUS_MAX*SPAWN_RADIUS_MAX)) {
+                    int edgeIdx = FindNextEdge(map, randNodeID, -1);
                     if (edgeIdx != -1) {
-                        // SETUP VEHICLE
+                        // Anti-stacking check
+                        Edge e = map->edges[edgeIdx];
+                        Vector2 n1 = map->nodes[e.startNode].position;
+                        Vector2 n2 = map->nodes[e.endNode].position;
+                        Vector3 testPos = { Lerp(n1.x, n2.x, 0.1f), ROAD_HEIGHT, Lerp(n1.y, n2.y, 0.1f) };
+                        if (TrafficCollision(traffic, testPos.x, testPos.z, 2.0f).z != -1) continue;
+
                         Vehicle *v = &traffic->vehicles[slot];
                         v->active = true;
-                        v->stuckTimer = 0.0f;
                         v->currentEdgeIndex = edgeIdx;
-                        
-                        Edge e = map->edges[edgeIdx];
+                        v->speed = 7.5f; 
+                        v->stuckTimer = 0.0f;
                         v->startNodeID = e.startNode;
                         v->endNodeID = e.endNode;
-
-                        // Randomize direction if not one-way
-                        if (e.oneway == 0 && GetRandomValue(0, 1)) {
-                            v->startNodeID = e.endNode;
-                            v->endNodeID = e.startNode;
-                        }
-
+                        if (GetRandomValue(0,1)) { v->startNodeID = e.endNode; v->endNodeID = e.startNode; }
                         v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
-                        v->progress = 0.1f; // Start slightly into the road
-                        v->speed = 10.0f;
-                        
-                        Vector3 p1 = { map->nodes[v->startNodeID].position.x, 0, map->nodes[v->startNodeID].position.y };
-                        Vector3 p2 = { map->nodes[v->endNodeID].position.x, 0, map->nodes[v->endNodeID].position.y };
-                        v->edgeLength = Vector3Distance(p1, p2);
-                        
-                        // Random Color
-                        int variant = GetRandomValue(0, 3);
-                        if(variant==0) v->color = (Color){220, 60, 60, 255};      // Red
-                        else if(variant==1) v->color = (Color){60, 100, 220, 255}; // Blue
-                        else if(variant==2) v->color = (Color){230, 230, 230, 255}; // White
-                        else v->color = (Color){40, 40, 40, 255}; // Black
+                        v->progress = 0.1f;
+                        v->edgeLength = Vector2Distance(n1, n2);
+                        v->position = testPos;
+                        int c = GetRandomValue(0,4);
+                        if(c==0) v->color = RED; else if(c==1) v->color = BLUE; 
+                        else if(c==2) v->color = WHITE; else if(c==3) v->color = BLACK;
+                        else v->color = DARKGRAY;
+                        break; 
                     }
                 }
             }
         }
     }
 
-    // --- 2. UPDATE VEHICLES ---
     for (int i = 0; i < MAX_VEHICLES; i++) {
         Vehicle *v = &traffic->vehicles[i];
         if (!v->active) continue;
 
-        // Despawn Check
         float dx = v->position.x - player_position.x;
         float dz = v->position.z - player_position.z;
         if ((dx*dx + dz*dz) > DESPAWN_RADIUS * DESPAWN_RADIUS) {
@@ -190,98 +164,85 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         }
 
         Edge currentEdge = map->edges[v->currentEdgeIndex];
-        float maxEdgeSpeed = (float)currentEdge.maxSpeed * 0.25f; 
-        if(maxEdgeSpeed < 8.0f) maxEdgeSpeed = 8.0f;
+        float maxEdgeSpeed = ((float)currentEdge.maxSpeed) * 0.3f; 
+        if(maxEdgeSpeed < 3.0f) maxEdgeSpeed = 3.0f; 
         
         float targetSpeed = maxEdgeSpeed;
-
-        // Braking Logic
+        
+        // 1. Check Cars Ahead
         float distToCar = GetDistanceToCarAhead(traffic, i, v->position, v->forward, v->currentEdgeIndex);
-        
         if (distToCar != -1.0f) {
-            if (distToCar < STOP_DISTANCE) {
-                targetSpeed = 0.0f; 
-            } else {
+            if (distToCar < STOP_DISTANCE) targetSpeed = 0.0f; 
+            else {
                 float factor = (distToCar - STOP_DISTANCE) / (DETECTION_DIST - STOP_DISTANCE);
-                targetSpeed = maxEdgeSpeed * factor;
+                targetSpeed = fminf(targetSpeed, maxEdgeSpeed * factor);
+            }
+        }
+
+        // 2. [NEW] Check Player Ahead (Gradual Braking)
+        
+        float distToPlayer = GetDistanceToPlayer(v->position, v->forward, player_position);
+        
+        if (distToPlayer != -1.0f) {
+            if (distToPlayer < STOP_DISTANCE) {
+                targetSpeed = 0.0f; // Full Stop
+            } else {
+                // Gradual Slow Down
+                // Map distance to a factor 0.0 to 1.0
+                float factor = (distToPlayer - STOP_DISTANCE) / (DETECTION_DIST - STOP_DISTANCE);
+                float playerTarget = maxEdgeSpeed * factor;
+                
+                // Only apply if it makes us go slower than we already planned
+                if (playerTarget < targetSpeed) targetSpeed = playerTarget;
             }
         }
         
-        // Intersection slowing
-        if (v->progress > 0.85f) {
-            if (v->nextEdgeIndex != -1) {
-                // If sharp turn, slow down
-                targetSpeed *= 0.6f;
-            } else {
-                targetSpeed = 0.0f; // Dead end
-            }
-        }
+        if (v->progress > 0.85f && v->nextEdgeIndex == -1) targetSpeed = 0.0f;
 
-        // Simple Player Avoidance
-        float pDistSq = (v->position.x - player_position.x)*(v->position.x - player_position.x) + 
-                        (v->position.z - player_position.z)*(v->position.z - player_position.z);
-                        
-        if (pDistSq < 15.0f * 15.0f) {
-            Vector3 toPlayer = Vector3Subtract(player_position, v->position);
-            if (Vector3DotProduct(Vector3Normalize(toPlayer), v->forward) > 0.5f) {
-                targetSpeed = 0.0f; 
-            }
-        }
-
-        // Apply Speed
         float rate = (v->speed > targetSpeed) ? BRAKE_RATE : ACCEL_RATE;
         v->speed = Lerp(v->speed, targetSpeed, rate * dt);
 
-        // Stuck Check (Despawn if stuck for too long)
-        if (v->speed < 1.0f && targetSpeed > 2.0f && distToCar == -1.0f) {
+        if (v->speed < 0.5f) {
              v->stuckTimer += dt;
-             if (v->stuckTimer > STUCK_THRESHOLD) v->active = false; 
+             // Don't despawn if waiting for player or another car
+             bool waiting = (distToPlayer != -1.0f || distToCar != -1.0f);
+             if (!waiting && v->stuckTimer > STUCK_THRESHOLD) v->active = false; 
         } else {
-            v->stuckTimer = 0.0f;
+             v->stuckTimer = 0.0f;
         }
 
-        // Move along edge
         float moveStep = (v->speed * dt) / v->edgeLength;
         v->progress += moveStep;
 
-        // Change Road
         if (v->progress >= 1.0f) {
             if (v->nextEdgeIndex != -1) {
                 v->currentEdgeIndex = v->nextEdgeIndex;
                 v->startNodeID = v->endNodeID;
-                
                 Edge nextE = map->edges[v->nextEdgeIndex];
                 if (nextE.startNode == v->startNodeID) v->endNodeID = nextE.endNode;
                 else v->endNodeID = nextE.startNode;
-
                 v->progress = 0.0f;
                 v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
-
-                Vector3 p1 = { map->nodes[v->startNodeID].position.x, 0, map->nodes[v->startNodeID].position.y };
-                Vector3 p2 = { map->nodes[v->endNodeID].position.x, 0, map->nodes[v->endNodeID].position.y };
-                v->edgeLength = Vector3Distance(p1, p2);
+                Vector2 n1 = map->nodes[v->startNodeID].position;
+                Vector2 n2 = map->nodes[v->endNodeID].position;
+                v->edgeLength = Vector2Distance(n1, n2);
             } else {
-                v->active = false; // Reached dead end
+                v->active = false; 
             }
         }
 
-        // Update 3D Position
         Vector2 s2d = map->nodes[v->startNodeID].position;
         Vector2 e2d = map->nodes[v->endNodeID].position;
         Vector3 startPos = { s2d.x, 0, s2d.y };
         Vector3 endPos = { e2d.x, 0, e2d.y };
-
         Vector3 geoPos = Vector3Lerp(startPos, endPos, v->progress);
         Vector3 dir = Vector3Normalize(Vector3Subtract(endPos, startPos));
         v->forward = dir;
-
-        // Lane Offset logic
-        float roadWidth = (currentEdge.width * MAP_SCALE) * 2.0f;
+        float roadWidth = (currentEdge.width) * 2.0f; 
         float offsetVal = currentEdge.oneway ? 0.0f : (roadWidth * 0.25f);
-        
         Vector3 right = { -dir.z, 0, dir.x }; 
         v->position = Vector3Add(geoPos, Vector3Scale(right, offsetVal));
-        v->position.y = 0.2f;
+        v->position.y = ROAD_HEIGHT; 
     }
 }
 
@@ -289,20 +250,13 @@ void DrawTraffic(TrafficManager *traffic) {
     for (int i = 0; i < MAX_VEHICLES; i++) {
         Vehicle *v = &traffic->vehicles[i];
         if (v->active) {
-            //  
-            // Simple blocky car representation
-            Vector3 size = { 0.4f, 0.3f, 0.8f }; 
-
+            Vector3 size = { 0.9f, 0.7f, 1.9f }; 
             DrawCube(v->position, size.x, size.y, size.z, v->color); 
             DrawCubeWires(v->position, size.x, size.y, size.z, DARKGRAY);
-            
-            // Roof
-            Vector3 roofPos = Vector3Add(v->position, (Vector3){0, 0.2f, 0});
+            Vector3 roofPos = Vector3Add(v->position, (Vector3){0, 0.35f, 0}); 
             DrawCube(roofPos, size.x * 0.8f, size.y * 0.5f, size.z * 0.5f, Fade(BLACK, 0.5f));
-
-            // Headlights
             Vector3 front = Vector3Add(v->position, Vector3Scale(v->forward, size.z * 0.5f));
-            DrawSphere(front, 0.1f, YELLOW);
+            DrawSphere(front, 0.1f, YELLOW); 
         }
     }
 }
@@ -315,8 +269,7 @@ Vector3 TrafficCollision(TrafficManager *traffic, float playerPosx, float player
         float dx = v->position.x - playerPosx;
         float dz = v->position.z - playerPosz;
         float distSq = dx*dx + dz*dz;
-        
-        float minDist = 0.5f + player_radius; 
+        float minDist = 1.0f + player_radius; 
         
         if (distSq < minDist * minDist) {
             float speed = v->speed;
@@ -326,4 +279,3 @@ Vector3 TrafficCollision(TrafficManager *traffic, float playerPosx, float player
     }
     return (Vector3){0,0,-1};
 }
-

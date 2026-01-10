@@ -96,19 +96,18 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
     bool hitMap = CheckMapCollision(map, testX, testZ, player->radius, 0);
     Vector3 hitCar = TrafficCollision(traffic, testX, testZ, player->radius);
 
-    // 3. LOGIC: If path is clear
+    // 3. LOGIC: If path is clear, APPLY the move
     if (!hitMap && hitCar.z == -1) {
-        // Apply movement to the correct axis
         if (axis == 1) player->position.x += moveAmount;
-        else                player->position.z += moveAmount;
-        return; // We are done, exit function
+        else           player->position.z += moveAmount;
+        return; 
     }
 
     // 4. LOGIC: Car Collision
     if (hitCar.z != -1) {
         float trafficSpeed = hitCar.z;
 
-        // --- CALCULATION ---
+        // Calculate angle of impact
         float pDirX = sinf(player->angle * DEG2RAD);
         float pDirZ = cosf(player->angle * DEG2RAD);
         float tDirX = hitCar.x;
@@ -117,37 +116,34 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
         float alignment = (pDirX * tDirX) + (pDirZ * tDirZ);
         float impactSpeed = 0.0f;
 
-        if (alignment < -0.2f) {
-            // Head-On
+        if (alignment < -0.2f) { // Head-On
             impactSpeed = player->current_speed + trafficSpeed;
-            player->current_speed *= -0.5f;
-        } else {
-            // Rear-end/Side
+        } else { // Rear-end/Side
             impactSpeed = fabsf(player->current_speed - trafficSpeed);
-            player->current_speed *= 0.5f;
         }
 
-        // --- DAMAGE ---
+        // Apply Damage
         if (impactSpeed > 2.0f) {
             int damage = (int)((impactSpeed - 2.0f) * 5.0f);
             player->health -= damage;
             if (player->health < 0) player->health = 0;
         }
 
-        // --- BOUNCE ---
+        // Bounce Effect
+        // We invert speed, but we DO NOT manually change position.
+        // By simply not adding 'moveAmount', we effectively stop the player at the border.
         player->current_speed *= -0.5f;
-        
-        // Push player back slightly to avoid sticking
-        if (axis == 1) player->position.x -= moveAmount;
-        else                player->position.z -= moveAmount;
     } 
     // 5. LOGIC: Map Collision
     else {
-        if (player->current_speed > 2) {
-            int damage = (int)((player->current_speed - 2) * 10);
+        // Wall Crash Damage
+        if (fabs(player->current_speed) > 5.0f) { // Increased threshold slightly
+            int damage = (int)((fabs(player->current_speed) - 5.0f) * 5.0f);
             player->health -= damage;
             if (player->health < 0) player->health = 0;
         }
+        
+        // Stop instantly on walls (cleaner than bouncing)
         player->current_speed = 0;
     }
 }
