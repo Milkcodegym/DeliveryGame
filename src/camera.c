@@ -52,8 +52,8 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
     camera.target = smoothedTarget;
 
     // --- 2. CALCULATE OFFSET ---
-    float maxCamDist = 2.2f;       
-    float camHeight = 1.5f;     
+    float maxCamDist = 2.4f;       
+    float camHeight = 0.9f;     
 
     Vector3 targetOffset;
     targetOffset.x = -maxCamDist * sinf(player_angle * DEG2RAD);
@@ -85,7 +85,7 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
 
     // [FIX 3] Max Zoom Constraint
     // Camera cannot be further back than 4.5m, no matter what smoothing says.
-    if (smoothedCollisionDist > 2.2f) smoothedCollisionDist = 4.5f;
+    if (smoothedCollisionDist > 3.1f) smoothedCollisionDist = 3.1f;
 
     // --- 5. APPLY POSITION ---
     Vector3 finalPos;

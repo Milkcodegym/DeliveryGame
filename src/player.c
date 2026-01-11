@@ -88,7 +88,7 @@ Player InitPlayer(Vector3 startPos) {
     
     // [TUNING]
     p.friction = 2.0f;      
-    p.acceleration = 15.0f; 
+    p.acceleration = 0.5f; 
     p.max_speed = 22.0f;
     p.brake_power = 15.0f; 
     p.rotationSpeed = 120.0f;

@@ -455,7 +455,7 @@ void DrawMapsApp(GameMap *map) {
         // [FIX] Player Rotation Logic
         // 1. Negate playerAngle to match Raylib 2D rotation direction (CCW vs CW)
         // 2. Subtract 90 degrees for base CCW offset.
-        float finalPlayerAngle = -mapsState.playerAngle - 0.0f;
+        float finalPlayerAngle = -mapsState.playerAngle - 180.0f;
 
         DrawTexturePro(mapsState.playerIcon, src, dst, origin, finalPlayerAngle, WHITE);
     } else {

@@ -465,7 +465,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_SECOND_INTRO:
-            if (DrawTutWindow("NOT BAD, ROOKIE", "You handled that box nicely.\n\nNow let's try a REAL job.\nThis cargo is FRAGILE (Glassware).\nIf you crash or turn too hard, you lose money.\n\nWatch the G-Force Meter on your HUD.", true)) {
+            if (DrawTutWindow("NOT BAD, ROOKIE", "You handled that box nicely.\n\nNow let's try a REAL job.\nThis cargo is FRAGILE (Glassware).\nIf you crash or turn too hard, you lose money.\n\nWatch the Cargo Integrity Meter on your HUD.", true)) {
                 currentState = TUT_SECOND_DELIVERY;
             }
             break;
@@ -479,8 +479,10 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_EVENT_INTRO:
-            if (DrawTutWindow("ROAD EVENTS", "The city is unpredictable.\n\nAccidents, Roadworks, and Police stops\ncan block your path.\n\nIf you see orange cones, slow down\nor find another route.", true)) {
-                currentState = TUT_REFUEL_INTRO;
+            if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types that have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
+                if (DrawTutWindow("ROAD EVENTS", "The city is unpredictable.\n\nAccidents, Roadworks, and Police stops\ncan block your path.\n\nIf you see cones or signs, slow down\nor find another route.", true)) {
+                    currentState = TUT_REFUEL_INTRO;
+                }
             }
             break;
 
@@ -496,7 +498,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_MECH_INTRO:
-            if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.", true)) {
+            if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.\nYou can even buy a new app there and connect it to your car!", true)) {
                 currentState = TUT_MECH_ACTION; player->fuelConsumption = 0.02f;
             }
             break;

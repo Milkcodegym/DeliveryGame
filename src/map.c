@@ -13,9 +13,9 @@
 const float MAP_SCALE = 0.4f;
 
 // [OPTIMIZATION] Drastically reduced render distance
-const float RENDER_DIST_BASE = 10.0f;  
-const float UNLOAD_DIST_BASE = 20.0f;
-const float RENDER_DIST_SQUARED = 10.0f * 10.0f; // Pre-calculated for fast checks
+const float RENDER_DIST_BASE = 100.0f;  
+const float UNLOAD_DIST_BASE = 200.0f;
+const float RENDER_DIST_SQUARED = 100.0f * 100.0f; // Pre-calculated for fast checks
 
 typedef struct {
     int *buildingIndices;

@@ -8,7 +8,7 @@ static float targetFuelAmount = 0.0f;
 static float fuelPricePerUnit = 1.50f; 
 static float priceTimer = 0.0f;
 
-// [NEW] Helper to find th  e active job (Picked Up)
+// [NEW] Helper to find the active job (Picked Up)
 static DeliveryTask* GetActiveTask(PhoneState *phone) {
     for (int i = 0; i < 5; i++) {
         if (phone->tasks[i].status == JOB_PICKED_UP) {
@@ -54,7 +54,7 @@ void DrawRealArrow(int cx, int cy, int dir, bool isPressed) {
         shadowPoints[i].y = cy + ny + shadowOffset;
     }
 
-    const char* textChar; // Fixed const warning
+    const char* textChar; 
     if (dir == 0) textChar = "W";
     else if (dir == 1) textChar = "D";
     else if (dir == 2) textChar = "S";
@@ -168,11 +168,12 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     DrawText("E", centerX - gaugeRadius + 5, centerY + 5, fSize, RED);
     DrawText("F", centerX + gaugeRadius - 15, centerY + 5, fSize, GREEN);
 
-    // --- NEW: RANGE CALCULATION ---
+    // --- RANGE CALCULATION ---
     float consumption = player->fuelConsumption;
-    if (consumption <= 0.001f) consumption = 0.01f; // Safety fallback (same as update logic)
+    if (consumption <= 0.001f) consumption = 0.01f; 
     
-    float rangeMeters = 5*player->fuel / consumption;
+    // Approximation: 1 unit of fuel ~ 5 meters range? (Tuning required based on physics)
+    float rangeMeters = (player->fuel / consumption) * 2.0f; // Multiplier tuned for visuals
     
     char rangeText[32];
     if (rangeMeters >= 1000.0f) {
@@ -185,14 +186,11 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     int rangeSize = (int)(gaugeRadius * 0.35f);
     int rangeWidth = MeasureText(rangeText, rangeSize);
     
-    // Position text slightly below the center dot
     DrawText(rangeText, centerX - rangeWidth/2, centerY + (int)(gaugeRadius * 0.4f), rangeSize, WHITE);
     
-    // Optional: Draw small label "REMAINING" below it for style (smaller font)
     int lblSize = (int)(gaugeRadius * 0.2f);
     int lblWidth = MeasureText("REMAINING", lblSize);
     DrawText("REMAINING", centerX - lblWidth/2, centerY + (int)(gaugeRadius * 0.7f), lblSize, LIGHTGRAY);
-    // -----------------------------
 
     // Needle Logic
     float fuelPct = player->fuel / player->maxFuel;
@@ -217,7 +215,6 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
             const char* warnText = "LOW";
             int wSize = (int)(gaugeRadius * 0.5f);
             int txtW = MeasureText(warnText, wSize);
-            // Draw Warning slightly above center to not overlap with Range text
             DrawText(warnText, centerX - txtW/2, centerY - (int)(gaugeRadius * 0.3f), wSize, RED);
         }
     }
@@ -231,7 +228,8 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     
     // Draw Safe Zone (Green) vs Danger Zone (Red) if cargo is fragile
     if (task && task->fragility > 0.0f) {
-        float gLimit = 1.5f * (1.0f - task->fragility); // Must match delivery_app logic
+        // Must match delivery_app logic: gLimit = 1.5f * (1.0f - t->fragility);
+        float gLimit = 1.5f * (1.0f - task->fragility); 
         if (gLimit < 0.3f) gLimit = 0.3f;
         
         // Scale limit to radius (Assuming 2.0G is edge of meter)
@@ -248,23 +246,31 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     DrawLine(x, y - radius, x, y + radius, DARKGRAY); // Vertical Crosshair
 
     // Calculate approximate Gs
+    // X axis = Turning (Lateral)
     float gX = 0.0f;
     if (IsKeyDown(KEY_A)) gX = -1.0f;
     if (IsKeyDown(KEY_D)) gX = 1.0f;
-    gX *= (player->current_speed / player->max_speed); 
+    // Scale by speed (turning faster = more Gs)
+    gX *= (player->current_speed / player->max_speed) * 1.5f; 
 
+    // Y axis = Accel/Brake (Longitudinal)
+    // We cheat a bit and use IsKeyDown for instant visual feedback
     float gY = 0.0f;
-    if (player->acceleration > 0) gY = 1.0f; // Accelerating (pull back)
-    if (player->brake_power > 0) gY = -1.0f; // Braking (push forward)
-
+    if (IsKeyDown(KEY_W)) gY = 0.5f; // Pulling back (accelerating)
+    if (IsKeyDown(KEY_S)) gY = -0.8f; // Pushing forward (braking hard)
+    // Adjust logic to match actual physics forces if available
+    
     // Calculate magnitude to check against limit
     float magnitude = sqrtf(gX*gX + gY*gY);
-    // Visual multiplier (map 2G to radius edge)
-    float visualMag = magnitude / 2.0f; 
-    if (visualMag > 1.0f) visualMag = 1.0f;
+    
+    // Clamp visual dot to circle edge
+    float visualMag = magnitude;
+    if (visualMag > 2.0f) visualMag = 2.0f;
+    float dist = (visualMag / 2.0f) * radius; // Map 0-2G to 0-Radius
 
-    float dotX = x + (gX * (radius/2.0f)); // rough approximation for visual placement
-    float dotY = y + (gY * (radius/2.0f));
+    float angle = atan2f(gY, gX);
+    float dotX = x + cosf(angle) * dist;
+    float dotY = y + sinf(angle) * dist;
 
     Color dotColor = WHITE;
     // Check if violating limit
@@ -359,7 +365,6 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     }
 }
 
-// ... [DrawRefuelWindow stays the same] ...
 bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
@@ -379,10 +384,9 @@ bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     
     float currentCost = targetFuelAmount * fuelPricePerUnit;
     
-    // [FIX] Use player->fuelConsumption instead of undefined macro
     float consumption = player->fuelConsumption; 
-    if (consumption <= 0.0f) consumption = 0.01f; // Safety
-    float rangeAdded = targetFuelAmount / consumption;
+    if (consumption <= 0.0f) consumption = 0.01f; 
+    float rangeAdded = (targetFuelAmount / consumption) * 2.0f;
     
     DrawText(TextFormat("Price: $%.2f / L", fuelPricePerUnit), x + 20*scale, y + 60*scale, 20*scale, DARKGRAY);
     DrawText(TextFormat("Your Cash: $%.0f", player->money), x + 20*scale, y + 90*scale, 20*scale, GREEN);

@@ -62,7 +62,7 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     iconBank     = LoadTexture("resources/Phoneicons/atm-card.png");
     iconMusic    = LoadTexture("resources/Phoneicons/music.png");
     iconSettings = LoadTexture("resources/Phoneicons/cogwheel.png");
-    iconCar      = LoadTexture("resources/Phoneicons/customisation.png");
+    iconCar      = LoadTexture("resources/Phoneicons/customization.png");
 
     SetTextureFilter(iconJob, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(iconMap, TEXTURE_FILTER_BILINEAR);

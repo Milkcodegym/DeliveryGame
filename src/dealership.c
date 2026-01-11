@@ -99,7 +99,7 @@ void InitCarDatabase() {
     strcpy(carDatabase[2].base.name, "SUV");
     strcpy(carDatabase[2].base.modelFileName, "suv.obj");
     carDatabase[2].base.maxSpeed = 70.0f; 
-    carDatabase[2].base.acceleration = 0.4f;
+    carDatabase[2].base.acceleration = 0.6f;
     carDatabase[2].base.brakePower = 2.2f;
     carDatabase[2].base.price = 3000.0f;
     carDatabase[2].base.maxFuel = 70.0f;

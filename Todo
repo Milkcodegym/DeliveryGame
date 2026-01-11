@@ -10,23 +10,13 @@ Add icons for pickup and drop-off locations
 Finalize scoring system (Time, Distance, Safety)
 Add tip modifier logic (based on general time)
 
-
-ADD FOLLOWING TO TUTORIAL:
-  Job Classes & Modifiers
-    Hot Food (Fast Food): Very fast time constraints
-    Hot Food (Restaurant): Higher pay, high driving sensitivity constraint
-    Drinks (Cafe): Very fast time constraints
-    Drinks (Bar): Higher pay, extreme sensitivity (spill risk)
-    Cold Food (Market): No constraints
-    Cold Food (Supermarket): Extra weight physics (handling penalty)
-
 Map Editor Tools
   Fix editability of POIs
   Add functionality to assign delivery kinds to specific shop nodes
 
 
-  Finalise car upgrades
-  Define item inventory for each shop type?
+Finalise car upgrades
+Define item inventory for each shop type?
 
 make music looping feature?
 
@@ -63,6 +53,7 @@ fix traffic models
 traffic goes through road events?
 fix camera?
 handle end of map better
-fix traffic jams
+fix traffic jams (fixed?)
 
 add greek translation?
+increase damage taken?
