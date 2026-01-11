@@ -47,12 +47,19 @@ int main(void)
 
     while (!WindowShouldClose()){
         
-        GameMap map = RunStartMenu("resources/maps/smaller_city.map",screenWidth,screenHeight);
+        if (!RunStartMenu_PreLoad(GetScreenWidth(), GetScreenHeight())) {
+        CloseWindow();
+        return 0; // User closed window
+        }
+
+        GameMap map = LoadGameMap("resources/Maps/real_city.map");
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
             startPos = (Vector3){ map.nodes[0].position.x, 0.5f , map.nodes[0].position.y };
         }
+
+        bool isLoading = true;
 
         InitCamera(); 
         
@@ -146,7 +153,7 @@ int main(void)
                     // [TUTORIAL LOCK] If tutorial window is open, stop car and traffic
                     if (lockInput) {
                         // Apply friction to stop car if a window popped up while driving
-                        if (player.current_speed > 0) player.current_speed -= 10.0f * dt;
+                        if (player.current_speed > 0) player.current_speed = player.current_speed * 0.4f;
                         if (player.current_speed < 0) player.current_speed = 0;
                         player.fuel = player.maxFuel;
                     } 
@@ -418,6 +425,10 @@ if (IsKeyPressed(KEY_F5)) {
                     // [TUTORIAL OVERLAY] Drawn Last
                     DrawTutorial(&player, &phone);
                 }
+                if (isLoading) {
+                // Returns false when bar hits 100%
+                isLoading = DrawPostLoadOverlay(GetScreenWidth(), GetScreenHeight(), dt);
+            }
             EndDrawing();
         }
 

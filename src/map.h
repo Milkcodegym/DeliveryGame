@@ -31,7 +31,8 @@ typedef enum {
     LOC_SUPERMARKET,
     LOC_RESTAURANT,
     LOC_HOUSE,
-    LOC_MECHANIC, // [NEW] Added Mechanic Location Type
+    LOC_MECHANIC,
+    LOC_DEALERSHIP,
     LOC_COUNT
 } LocationType;
 
@@ -188,5 +189,6 @@ void ResetMapCamera(Vector2 pos); // Required by main.c respawn logic
 void UpdateRuntimeParks(GameMap *map, Vector3 playerPos);
 void DrawRuntimeParks(Vector3 playerPos);
 void UpdateMapStreaming(GameMap *map, Vector3 playerPos);
+void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH);
 
 #endif

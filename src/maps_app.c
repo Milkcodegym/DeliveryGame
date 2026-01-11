@@ -30,10 +30,12 @@ typedef struct {
     
     // Icons
     Texture2D icons[20]; 
+    Texture2D pinIcon;
+    Texture2D playerIcon;
     
     // Filtering
     int filterType;       // -1 = All, else LOC_TYPE
-    bool isFilterMenuOpen; // [NEW] Toggle for dropdown
+    bool isFilterMenuOpen; 
 } MapsAppState;
 
 MapsAppState mapsState = {0};
@@ -45,19 +47,24 @@ bool IsMapsAppTyping() {
 }
 
 void LoadMapIcons() {
-    mapsState.icons[LOC_FUEL]        = LoadTexture("resources/icons/icon_fuel.png");
-    mapsState.icons[LOC_FOOD]        = LoadTexture("resources/icons/icon_fastfood.png");
-    mapsState.icons[LOC_CAFE]        = LoadTexture("resources/icons/icon_cafe.png");
-    mapsState.icons[LOC_BAR]         = LoadTexture("resources/icons/icon_bar.png");
-    mapsState.icons[LOC_MARKET]      = LoadTexture("resources/icons/icon_market.png");
-    mapsState.icons[LOC_SUPERMARKET] = LoadTexture("resources/icons/icon_supermarket.png");
-    mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/icons/icon_restaurant.png");
-    mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/icons/icon_house.png");
-    mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/icons/icon_fuel.png"); // Re-using fuel icon for now
-    
+    mapsState.icons[LOC_FUEL]        = LoadTexture("resources/Mapicons/icon_fuel.png");
+    mapsState.icons[LOC_FOOD]        = LoadTexture("resources/Mapicons/icon_fastfood.png");
+    mapsState.icons[LOC_CAFE]        = LoadTexture("resources/Mapicons/icon_cafe.png");
+    mapsState.icons[LOC_BAR]         = LoadTexture("resources/Mapicons/icon_bar.png");
+    mapsState.icons[LOC_MARKET]      = LoadTexture("resources/Mapicons/icon_market.png");
+    mapsState.icons[LOC_SUPERMARKET] = LoadTexture("resources/Mapicons/icon_supermarket.png");
+    mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/Mapicons/icon_restaurant.png");
+    mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/Mapicons/icon_house.png");
+    mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/Mapicons/icon_mechanic.png"); 
+    mapsState.icons[LOC_DEALERSHIP]  = LoadTexture("resources/Mapicons/icon_dealership.png");
+
+    mapsState.pinIcon                = LoadTexture("resources/Mapicons/icon_pin.png");
+    mapsState.playerIcon = LoadTexture("resources/Mapicons/icon_player.png");
+
     for(int i=0; i<20; i++) {
         if(mapsState.icons[i].id != 0) SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
     }
+    if(mapsState.pinIcon.id != 0) SetTextureFilter(mapsState.pinIcon, TEXTURE_FILTER_BILINEAR);
 }
 
 // --- Math Helpers ---
@@ -79,7 +86,6 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
         Vector2 start = map->nodes[map->edges[i].startNode].position;
         Vector2 end = map->nodes[map->edges[i].endNode].position;
         
-        // Bounding box check for optimization
         float minX = (start.x < end.x ? start.x : end.x) - threshold;
         float maxX = (start.x > end.x ? start.x : end.x) + threshold;
         float minY = (start.y < end.y ? start.y : end.y) - threshold;
@@ -93,30 +99,25 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     return bestPoint;
 }
 
-// [NEW] Helper to lower-case a string safely
 void ToLowerStr(const char* src, char* dest) {
     for (int i = 0; src[i]; i++) {
         dest[i] = tolower((unsigned char)src[i]);
     }
-    dest[strlen(src)] = '\0'; // Null terminate
+    dest[strlen(src)] = '\0'; 
 }
 
-// [NEW] Custom Search Function (Replaces external SearchLocations)
 int SearchMapInternal(GameMap *map, const char *query, MapLocation *results) {
     int count = 0;
     char queryLower[64];
     char nameLower[64];
 
-    // 1. Convert query to lower case once
     ToLowerStr(query, queryLower);
 
     for (int i = 0; i < map->locationCount; i++) {
         if (map->locations[i].type == LOC_HOUSE) continue;
 
-        // 2. Convert location name to lower case
         ToLowerStr(map->locations[i].name, nameLower);
 
-        // 3. Check if query is inside name
         if (strstr(nameLower, queryLower) != NULL) {
             results[count] = map->locations[i];
             count++;
@@ -126,15 +127,12 @@ int SearchMapInternal(GameMap *map, const char *query, MapLocation *results) {
     return count;
 }
 
-// [UPDATED] Recommendations now respect the filter
 void ShowRecommendedPlaces(GameMap *map) {
     mapsState.resultCount = 0;
     
     for (int i = 0; i < map->locationCount; i++) {
-        // Skip houses (usually hidden from search)
         if (map->locations[i].type == LOC_HOUSE) continue;
         
-        // Apply Filter if active
         if (mapsState.filterType != -1) {
             if (map->locations[i].type != mapsState.filterType) continue;
         }
@@ -154,7 +152,7 @@ void InitMapsApp() {
     mapsState.isFollowingPlayer = true; 
     mapsState.isHeadingUp = true; 
     mapsState.lastClickTime = 0.0f;
-    mapsState.filterType = -1; // -1 = Show All
+    mapsState.filterType = -1; 
     mapsState.isFilterMenuOpen = false;
     LoadMapIcons(); 
 }
@@ -188,41 +186,31 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
 }
 
 void PreviewMapLocation(GameMap *map, Vector2 target) {
-    // 1. Calculate the path so we can see the red line
     int len = FindPath(map, mapsState.playerPos, target, mapsState.path, MAX_PATH_NODES);
     
     mapsState.destination = target;
     mapsState.hasDestination = true;
     mapsState.pathLen = len;
 
-    // 2. IMPORTANT: Disable following the player
     mapsState.isFollowingPlayer = false; 
     
-    // 3. Teleport camera to the target location so user can see it immediately
     mapsState.camera.target = target;
-    mapsState.camera.zoom = 3.0f; // Zoom out slightly to see context
+    mapsState.camera.zoom = 3.0f; 
 }
 
 void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Vector2 localMouse, bool isClicking) {
     mapsState.playerPos = currentPlayerPos; 
     mapsState.playerAngle = playerAngle;
 
-    
     if (mapsState.hasDestination) {
-        // 1. DYNAMIC RECALCULATION
-        // We recalculate the nodes from the CURRENT player position to the DESTINATION
-        // This updates mapsState.path with new coordinates.
-
         mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
 
-        // Arrival Check
         if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
             mapsState.hasDestination = false;
             mapsState.pathLen = 0;
         }
     }
 
-    // Camera Follow Logic
     if (mapsState.isFollowingPlayer && !mapsState.isDragging && !mapsState.isSearching) {
         Vector2 diff = Vector2Subtract(mapsState.playerPos, mapsState.camera.target);
         if (Vector2Length(diff) > 0.1f) {
@@ -241,7 +229,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
 
-    // Input Bounds
     if (localMouse.x < 0 || localMouse.x > 280 || localMouse.y < 0 || localMouse.y > 600) {
         mapsState.isDragging = false;
         return; 
@@ -250,33 +237,28 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     if (isClicking) {
         bool handled = false;
         
-        // 1. Check Filter Menu Interaction (if open)
         if (mapsState.isFilterMenuOpen) {
-            Rectangle menuRect = {190, 75, 80, 100}; // Menu area
+            Rectangle menuRect = {190, 75, 80, 100}; 
             if (CheckCollisionPointRec(localMouse, menuRect)) {
-                // Determine which option clicked
                 float relY = localMouse.y - 75;
                 int idx = (int)(relY / 25);
                 
-                if (idx == 0) mapsState.filterType = -1;           // All
-                else if (idx == 1) mapsState.filterType = LOC_FUEL;     // Gas
-                else if (idx == 2) mapsState.filterType = LOC_MECHANIC; // Mech
-                else if (idx == 3) mapsState.filterType = LOC_FOOD;     // Food
+                if (idx == 0) mapsState.filterType = -1;           
+                else if (idx == 1) mapsState.filterType = LOC_FUEL;     
+                else if (idx == 2) mapsState.filterType = LOC_MECHANIC; 
+                else if (idx == 3) mapsState.filterType = LOC_FOOD;     
                 
                 mapsState.isFilterMenuOpen = false;
-                // Refresh recommendations if search is active but empty
                 if (mapsState.isSearching && mapsState.searchCharCount == 0) {
                     ShowRecommendedPlaces(map);
                 }
                 handled = true;
             } else {
-                // Clicked outside menu -> close it
                 mapsState.isFilterMenuOpen = false;
-                handled = true; // Consume click
+                handled = true; 
             }
         }
 
-        // 2. Check Filter Button (Toggle)
         if (!handled) {
             Rectangle filterBtn = {190, 40, 30, 30};
             if (CheckCollisionPointRec(localMouse, filterBtn)) {
@@ -285,7 +267,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
             }
         }
 
-        // 3. Check Search Results
         if (!handled && mapsState.isSearching) {
             for(int i=0; i<mapsState.resultCount; i++) {
                 Rectangle resRect = {10, 80 + i*45, 260, 40};
@@ -298,23 +279,18 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
             }
         }
 
-        // 4. Main UI Interactions
         if (!handled) {
-            // Search Bar & Close Button Area
             if (localMouse.y >= 40 && localMouse.y <= 70) {
-                 // Search Bar (Width reduced to 170 to fit filter btn)
                  if (localMouse.x >= 10 && localMouse.x <= 180) {
                       mapsState.isSearching = true;
                       if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
                  }
-                 // Close Button (X)
                  else if (localMouse.x >= 230 && localMouse.x <= 260) {
                       ResetMapCamera(mapsState.playerPos);
                  }
                  handled = true; 
             }
             else {
-                // Re-center buttons
                 if (CheckCollisionPointCircle(localMouse, (Vector2){240, 450}, 20)) {
                     mapsState.isHeadingUp = false; 
                     handled = true;
@@ -327,7 +303,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 }
             }
 
-            // 5. Map Drag / Click
             if (!handled) {
                 float currentTime = GetTime();
                 if ((currentTime - mapsState.lastClickTime) < 0.3f) { 
@@ -340,12 +315,11 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.dragStart = GetScreenToWorld2D(localMouse, mapsState.camera);
                 mapsState.isSearching = false;    
                 mapsState.isFollowingPlayer = false; 
-                mapsState.isFilterMenuOpen = false; // Close menu on map click
+                mapsState.isFilterMenuOpen = false; 
             }
         }
     }
     
-    // Drag Logic
     if (mapsState.isDragging) {
         if (IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
             Vector2 mouseWorldPos = GetScreenToWorld2D(localMouse, mapsState.camera);
@@ -356,7 +330,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
     }
     
-    // Zoom Logic
     float wheel = GetMouseWheelMove();
     if (wheel != 0) {
         Vector2 mouseWorldBeforeZoom = GetScreenToWorld2D(localMouse, mapsState.camera);
@@ -368,7 +341,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         mapsState.camera.target = Vector2Add(mapsState.camera.target, zoomDelta);
     }
 
-    // Typing Logic
     if (mapsState.isSearching) {
         int key = GetCharPressed();
         while (key > 0) {
@@ -376,7 +348,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.searchQuery[mapsState.searchCharCount] = (char)key;
                 mapsState.searchQuery[mapsState.searchCharCount + 1] = '\0';
                 mapsState.searchCharCount++;
-                // If typing, standard search (ignores filter as requested)
                 mapsState.resultCount = SearchMapInternal(map, mapsState.searchQuery, mapsState.searchResults);
             }
             key = GetCharPressed();
@@ -386,7 +357,6 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.searchCharCount--;
                 mapsState.searchQuery[mapsState.searchCharCount] = '\0';
                 
-                // If empty, show filtered recommendations
                 if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
                 else mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
             }
@@ -398,43 +368,13 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     }
 }
 
-
-
 void DrawMapsApp(GameMap *map) {
     ClearBackground(RAYWHITE);
     BeginMode2D(mapsState.camera);
     scale = 1.0f / mapsState.camera.zoom;
 
-    // --- MAP RENDER ---
-    
-    // Areas
-    for (int i = 0; i < map->areaCount; i++) {
-        if(map->areas[i].pointCount < 3) continue;
-        Color areaColor = Fade(map->areas[i].color, 0.4f); 
-        DrawTriangleFan(map->areas[i].points, map->areas[i].pointCount, areaColor);
-        DrawLineStrip(map->areas[i].points, map->areas[i].pointCount, areaColor);
-        DrawLineEx(map->areas[i].points[map->areas[i].pointCount-1], map->areas[i].points[0], 2.0f*scale, areaColor);
-    }
-
-    // Roads
-    for (int i = 0; i < map->edgeCount; i++) {
-        Vector2 s = map->nodes[map->edges[i].startNode].position;
-        Vector2 e = map->nodes[map->edges[i].endNode].position;
-        DrawLineEx(s, e, map->edges[i].width, LIGHTGRAY);
-        if (map->edges[i].width > 5.0f && mapsState.camera.zoom > 2.0f) {
-            DrawLineEx(s, e, 1.0f * scale, WHITE);
-        }
-    }
-    
-    // Buildings
-    for (int i = 0; i < map->buildingCount; i++) {
-        for(int j=0; j<map->buildings[i].pointCount; j++) {
-            Vector2 p1 = map->buildings[i].footprint[j];
-            Vector2 p2 = map->buildings[i].footprint[(j+1)%map->buildings[i].pointCount];
-            DrawLineEx(p1, p2, 2.0f * scale, DARKGRAY);
-        }
-        DrawTriangleFan(map->buildings[i].footprint, map->buildings[i].pointCount, Fade(map->buildings[i].color, 0.5f));
-    }
+    // --- MAP RENDER (Optimized) ---
+    DrawMap2DView(map, mapsState.camera, 280.0f, 600.0f);
 
     // Events
     for(int i=0; i<MAX_EVENTS; i++) {
@@ -448,23 +388,37 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // POIs (with Filter Logic applied to Map View)
+    // --- POIs (Icons) ---
+    float screenW = 280.0f;
+    float screenH = 600.0f;
+    float border = 30.0f; 
+
     for(int i=0; i<map->locationCount; i++) {
         if (map->locations[i].type == LOC_HOUSE) continue; 
         
-        // Apply Filter to Map Pins
+        // Filter Check
         if (mapsState.filterType != -1 && map->locations[i].type != mapsState.filterType) continue;
+
+        // Culling check
+        Vector2 screenPos = GetWorldToScreen2D(map->locations[i].position, mapsState.camera);
+        if (screenPos.x < -border || screenPos.x > screenW + border || 
+            screenPos.y < -border || screenPos.y > screenH + border) {
+            continue;
+        }
 
         int type = map->locations[i].type;
         Texture2D icon = mapsState.icons[type];
         Vector2 pos = map->locations[i].position;
-        float worldSize = 12.0f; 
+        
+        float worldSize = 7.15f; 
         
         if (icon.id != 0) {
             Rectangle source = { 0.0f, 0.0f, (float)icon.width, (float)icon.height };
             Rectangle dest = { pos.x, pos.y, worldSize, worldSize };
             Vector2 origin = { worldSize/2, worldSize/2 };
-            DrawTexturePro(icon, source, dest, origin, 0.0f, WHITE);
+            
+            // Counter-rotate icons so they stay Upright
+            DrawTexturePro(icon, source, dest, origin, -mapsState.camera.rotation, WHITE);
         } 
         else {
             Color c = GRAY;
@@ -477,54 +431,67 @@ void DrawMapsApp(GameMap *map) {
                 case LOC_CAFE: c = BROWN; break;
                 default: c = DARKGRAY; break;
             }
-            DrawCircleV(map->locations[i].position, 6.0f * scale, c);
+            DrawCircleV(pos, 3.6f * scale, c); 
         }
         
-        if (mapsState.camera.zoom > 5.0f) { // Start showing names a bit earlier
-            
-            // 1. Decide how big you want the text to appear on screen (e.g., 20 pixels)
+        // Text Labels
+        if (mapsState.camera.zoom > 5.0f) { 
             float targetScreenSize = 20.0f; 
-            
-            // 2. Calculate the "World Size" needed to achieve that screen size
-            //    (If zoom is 5x, we draw at size 4, so 4*5 = 20)
             float fontSize = targetScreenSize / mapsState.camera.zoom;
-            
-            // 3. Measure text to center it (using the calculated world size)
             Vector2 textSize = MeasureTextEx(GetFontDefault(), map->locations[i].name, fontSize, 1.0f);
             
-            // 4. Calculate position (Centered X, Offset Y below the icon)
-            Vector2 textPos = {
-                map->locations[i].position.x - textSize.x / 2,      // Center Horizontally
-                map->locations[i].position.y + (10.0f / mapsState.camera.zoom) // Push it slightly below the dot
-            };
-
-            // 5. Use DrawTextEx because it supports float font sizes (standard DrawText uses ints)
-            DrawTextEx(GetFontDefault(), map->locations[i].name, textPos, fontSize, 1.0f, BLACK);
+            Vector2 origin = { textSize.x / 2, -(10.0f / mapsState.camera.zoom) };
+            DrawTextPro(GetFontDefault(), map->locations[i].name, pos, origin, -mapsState.camera.rotation, fontSize, 1.0f, BLACK);
         }
     }
 
-    // Player & Path
-    DrawCircleV(mapsState.playerPos, 10.0f * scale, GREEN);
-    Vector2 tip = {
-        mapsState.playerPos.x + sinf(mapsState.playerAngle*DEG2RAD)*8.0f*scale,
-        mapsState.playerPos.y + cosf(mapsState.playerAngle*DEG2RAD)*8.0f*scale
-    };
-    DrawLineEx(mapsState.playerPos, tip, 2.0f * scale, DARKBLUE);
+    // --- PLAYER ICON ---
+    if (mapsState.playerIcon.id != 0) {
+        float pSize = 52.0f * scale; 
+        Rectangle src = {0, 0, (float)mapsState.playerIcon.width, (float)mapsState.playerIcon.height};
+        Rectangle dst = {mapsState.playerPos.x, mapsState.playerPos.y, pSize, pSize};
+        Vector2 origin = {pSize/2, pSize/2};
+        
+        // [FIX] Player Rotation Logic
+        // 1. Negate playerAngle to match Raylib 2D rotation direction (CCW vs CW)
+        // 2. Subtract 90 degrees for base CCW offset.
+        float finalPlayerAngle = -mapsState.playerAngle - 0.0f;
 
+        DrawTexturePro(mapsState.playerIcon, src, dst, origin, finalPlayerAngle, WHITE);
+    } else {
+        // Fallback
+        DrawCircleV(mapsState.playerPos, 10.0f * scale, GREEN);
+        Vector2 tip = {
+            mapsState.playerPos.x + sinf(mapsState.playerAngle*DEG2RAD)*8.0f*scale,
+            mapsState.playerPos.y + cosf(mapsState.playerAngle*DEG2RAD)*8.0f*scale
+        };
+        DrawLineEx(mapsState.playerPos, tip, 2.0f * scale, DARKBLUE);
+    }
+
+    // --- PATH & PIN ---
     if (mapsState.hasDestination && mapsState.pathLen > 0.2) {
         float pathThick = 8.0f * scale; 
         for (int i = 0; i < mapsState.pathLen - 1; i++) {
             DrawLineEx(mapsState.path[i], mapsState.path[i+1], pathThick, RED);
         }
         DrawLineEx(mapsState.path[mapsState.pathLen-1], mapsState.destination, pathThick, RED);
-        DrawCircleV(mapsState.destination, 5.0f * scale, RED);
+        
+        // Draw Pin Icon at destination (Rotated upright)
+        if (mapsState.pinIcon.id != 0) {
+            float pinSize = 24.0f * scale; 
+            Rectangle src = {0, 0, (float)mapsState.pinIcon.width, (float)mapsState.pinIcon.height};
+            Rectangle dst = {mapsState.destination.x, mapsState.destination.y, pinSize, pinSize};
+            Vector2 origin = {pinSize/2, pinSize}; // Anchor at bottom center
+            DrawTexturePro(mapsState.pinIcon, src, dst, origin, -mapsState.camera.rotation, WHITE);
+        } else {
+            DrawCircleV(mapsState.destination, 5.0f * scale, RED);
+        }
     }
 
     EndMode2D();
 
-    // --- UI OVERLAY ---
-    
-    // Header
+    // --- UI OVERLAY (Standard) ---
+    // ... (The rest of the function remains exactly the same) ...
     DrawRectangle(0, 0, 280, 80, WHITE);
     DrawText("Maps", 10, 10, 20, BLACK);
     
@@ -539,11 +506,10 @@ void DrawMapsApp(GameMap *map) {
         DrawText("Search...", 15, 48, 10, GRAY);
     }
     
-    // Filter Button (Icon)
+    // Filter Button
     Color filterCol = (mapsState.filterType != -1) ? BLUE : LIGHTGRAY;
     DrawRectangle(200, 40, 30, 30, filterCol);
     DrawRectangleLines(200, 40, 30, 30, DARKGRAY);
-    // Draw simple funnel icon
     DrawLine(205, 48, 225, 48, BLACK);
     DrawLine(208, 54, 222, 54, BLACK);
     DrawLine(212, 60, 218, 60, BLACK);
@@ -552,13 +518,12 @@ void DrawMapsApp(GameMap *map) {
     DrawRectangle(240, 40, 30, 30, BLACK);
     DrawText("X", 250, 48, 10, WHITE);
 
-    // Filter Dropdown Menu
+    // Filter Dropdown
     if (mapsState.isFilterMenuOpen) {
         Rectangle menuRect = {190, 75, 80, 100};
         DrawRectangleRec(menuRect, WHITE);
         DrawRectangleLinesEx(menuRect, 1, DARKGRAY);
         
-        // Items
         const char* opts[] = {"All", "Gas", "Mech", "Food"};
         for(int i=0; i<4; i++) {
             bool selected = false;
@@ -576,53 +541,37 @@ void DrawMapsApp(GameMap *map) {
         }
     }
 
-    // Search Results List
+    // Search Results
     if (mapsState.isSearching && mapsState.resultCount > 0) {
         DrawRectangle(10, 80, 260, mapsState.resultCount * 45, WHITE);
-        // Shadow for list
         DrawRectangleLines(10, 80, 260, mapsState.resultCount * 45, LIGHTGRAY);
         
         for(int i=0; i<mapsState.resultCount; i++) {
             float yPos = 85 + i*45;
             Rectangle itemRect = {10, 80 + i*45, 260, 45};
-            
             if (CheckCollisionPointRec(GetMousePosition(), itemRect)) { 
                 DrawRectangleRec(itemRect, Fade(SKYBLUE, 0.3f));
             }
-            
             DrawText(mapsState.searchResults[i].name, 20, yPos, 20, BLACK);
-            
-            // Subtext based on type
             const char* typeStr = "Location";
             if (mapsState.searchResults[i].type == LOC_FUEL) typeStr = "Gas Station";
             if (mapsState.searchResults[i].type == LOC_MECHANIC) typeStr = "Mechanic";
-            
             DrawText(typeStr, 20, yPos + 20, 10, GRAY);
             DrawLine(10, yPos + 40, 250, yPos + 40, LIGHTGRAY);
         }
     }
 
-    // --- DISTANCE TO TARGET (Lower Left) ---
+    // Distance Label
     if (mapsState.hasDestination) {
-        // Calculate distance
         float dist = Vector2Distance(mapsState.playerPos, mapsState.destination);
         dist *= 5.0;
-        // Format string (km if > 1000, else meters)
         char distText[32];
         if (dist >= 1000.0f) {
             snprintf(distText, 32, "%.1f km to Target", dist / 1000.0f);
         } else {
             snprintf(distText, 32, "%d m to Target", (int)dist);
         }
-
-        // Draw Background Box
-        // Positioned at x=10, y=500 (Aligned with bottom re-center button roughly)
-        //DrawRectangle(10, 490, 110, 45, Fade(BLACK, 0.8f));
-        //DrawRectangleLines(10, 490, 110, 45, DARKGRAY);
-
-        // Draw Text
-        //DrawText("DISTANCE", 20, 495, 10, LIGHTGRAY);
-        DrawText(distText, 20, 508, 20, BLACK); // Green text for visibility
+        DrawText(distText, 20, 508, 20, BLACK); 
     }
 
     // Compass
@@ -635,7 +584,7 @@ void DrawMapsApp(GameMap *map) {
     DrawLineEx(cCenter, northTip, 3.0f, RED);   
     DrawLineEx(cCenter, southTip, 3.0f, DARKGRAY); 
 
-    // Re-center button
+    // Re-center
     if (!mapsState.isFollowingPlayer) {
         DrawCircle(240, 510, 25, BLUE);
         DrawCircleLines(240, 510, 25, WHITE);
