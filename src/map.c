@@ -9,27 +9,56 @@
 #include <math.h>
 #include <float.h>
 
+
 // --- CONFIGURATION ---
 const float MAP_SCALE = 0.4f;
 
+
 // [OPTIMIZATION] Drastically reduced render distance
-const float RENDER_DIST_BASE = 100.0f;  
-const float RENDER_DIST_SQUARED = 100.0f * 100.0f; // Pre-calculated for fast checks
+const float RENDER_DIST_BASE = 10.0f;  
+const float UNLOAD_DIST_BASE = 20.0f;
+const float RENDER_DIST_SQUARED = 10.0f * 10.0f; // Pre-calculated for fast checks
+
+
+
+
+typedef struct {
+    int *buildingIndices;
+    int buildingCount;
+    int buildingCap;
+
+
+    int *edgeIndices;
+    int edgeCount;
+    int edgeCap;
+
+
+    int *areaIndices;
+    int areaCount;
+    int areaCap;
+} SectorManifest;
+
 
 #define MODEL_SCALE 1.8f         
 #define MODEL_Z_SQUISH 0.4f      
 #define USE_INSTANCING 0         // [OPTIMIZATION] Disabled Instancing in favor of Baking
 #define REGION_CENTER_RADIUS 600.0f 
 
+
 // --- SPATIAL GRID CONFIG ---
 // We divide the world into 100x100m chunks to speed up rendering
+//set to 10 by 10 for testing
 #define GRID_CELL_SIZE 100.0f
 #define GRID_HASH_SIZE 1024 
 
+
 // Sector Grid Configuration
-#define SECTOR_GRID_ROWS 60
-#define SECTOR_GRID_COLS 60
-#define SECTOR_WORLD_OFFSET 3000.0f // Offset to handle negative coordinates
+#define GRID_CELL_SIZE 100.0f
+#define SECTOR_GRID_ROWS 400
+#define SECTOR_GRID_COLS 400
+#define SECTOR_WORLD_OFFSET 20000.0f
+#define MAX_ACTIVE_SECTORS 2048
+
 
 // --- COLLISION OPTIMIZATION ---
 typedef struct {
@@ -38,8 +67,18 @@ typedef struct {
     int capacity;
 } CollisionCell;
 
+
+typedef struct {
+    int *indices;
+    int count;
+    int capacity;
+} NodeCell;
+
+
 static CollisionCell colGrid[SECTOR_GRID_ROWS][SECTOR_GRID_COLS] = {0};
+static NodeCell nodeGrid[SECTOR_GRID_ROWS][SECTOR_GRID_COLS] = {0}; // [NEW]
 static bool colGridLoaded = false;
+
 
 typedef enum {
     // --- Existing Building Parts ---
@@ -59,6 +98,7 @@ typedef enum {
     ASSET_PROP_FLOWERS,
     ASSET_PROP_GRASS,
 
+
     // --- New Props ---
     ASSET_PROP_BENCH, 
     ASSET_PROP_TRASH,
@@ -69,6 +109,7 @@ typedef enum {
     ASSET_PROP_BARRIER,
     ASSET_PROP_CONST_LIGHT, 
 
+
     // --- Vehicles ---
     ASSET_CAR_DELIVERY,
     ASSET_CAR_HATCHBACK,
@@ -77,13 +118,16 @@ typedef enum {
     ASSET_CAR_VAN,
     ASSET_CAR_POLICE,
 
+
     ASSET_COUNT
 } AssetType;
+
 
 typedef struct {
     AssetType window; AssetType windowTop; AssetType doorFrame; AssetType doorInner;
     AssetType balcony; bool hasAC; bool isSkyscraper; bool isWhiteTheme;
 } BuildingStyle;
+
 
 // [OPTIMIZATION] Sector Builder for Static Mesh Baking
 typedef struct {
@@ -95,19 +139,33 @@ typedef struct {
     int capacity;
 } SectorBuilder;
 
+
 typedef struct {
     Model model;
     Vector3 position;
     bool active;
     bool isEmpty;
     BoundingBox bounds;
+    int activeListIndex;
 } Sector;
+
+
+typedef struct {
+    int x;
+    int y;
+} SectorCoord;
+
 
 typedef struct {
     Model models[ASSET_COUNT];       
-    // [OPTIMIZATION] Removed RenderBatch batches
     Sector sectors[SECTOR_GRID_ROWS][SECTOR_GRID_COLS];
-    SectorBuilder *builders[SECTOR_GRID_ROWS][SECTOR_GRID_COLS]; // Temp builders
+    SectorBuilder *builders[SECTOR_GRID_ROWS][SECTOR_GRID_COLS];
+    SectorManifest manifests[SECTOR_GRID_ROWS][SECTOR_GRID_COLS];
+    SectorCoord activeSectors[MAX_ACTIVE_SECTORS];
+    int activeSectorCount;
+
+
+    int *nodeDegrees;
     bool loaded;
     Texture2D whiteTex;
     Texture2D sharedAtlas; // Placeholder for shared atlas
@@ -118,14 +176,38 @@ typedef struct {
     bool mapBaked;
 } CityRenderSystem;
 
+
 static CityRenderSystem cityRenderer = {0};
+static SectorBuilder *currentActiveBuilder = NULL;
+
+// [OPTIMIZATION] Persistent Memory Buffers
+// We allocate these ONCE at startup and reuse them for every chunk load.
+// This eliminates thousands of malloc/free calls per second (Lag Spike Fix).
+static SectorBuilder globalSectorBuilder = {0}; 
+static int globalTempIndices[4096]; // Pre-allocated buffer for roof triangulation
 
 Color cityPalette[] = {
     {152, 251, 152, 255}, {255, 182, 193, 255}, {255, 105, 97, 255},  
     {255, 200, 150, 255}, {200, 200, 200, 255}  
 };
 
+
+// --- FORWARD DECLARATIONS ---
+// Add these right after your struct definitions and before any function code
+void BakeBuildingGeometry(Building *b);
+void GenerateParkFoliage(GameMap *map, MapArea *area);
+void BakeSingleEdgeDetails(GameMap *map, int edgeIdx);
+void BakeObjectToSector(AssetType assetType, Vector3 pos, float rot, Vector3 scale, Color tint);
+void InitSectorBuilder(SectorBuilder *sb);
+void FreeSectorBuilder(SectorBuilder *sb);
+Model BakeSectorMesh(SectorBuilder *sb);
+void PushSectorTri(SectorBuilder *sb, Vector3 v1, Vector3 v2, Vector3 v3, Vector3 n1, Vector3 n2, Vector3 n3, Vector2 uv1, Vector2 uv2, Vector2 uv3, Color c);
+
+
+
+
 // --- HELPER FUNCTIONS ---
+
 
 Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     Vector2 dir = Vector2Subtract(p2, p1);
@@ -134,6 +216,7 @@ Vector3 CalculateWallNormal(Vector2 p1, Vector2 p2) {
     return (Vector3){ normal2D.x, 0.0f, normal2D.y };
 }
 
+
 Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
     Vector2 center = {0};
     if (count == 0) return center;
@@ -141,6 +224,7 @@ Vector2 GetBuildingCenter(Vector2 *footprint, int count) {
     center.x /= count; center.y /= count;
     return center;
 }
+
 
 // --- TRIANGULATION HELPERS ---
 float GetPolygonSignedArea(Vector2 *points, int count) {
@@ -152,9 +236,11 @@ float GetPolygonSignedArea(Vector2 *points, int count) {
     return area;
 }
 
+
 bool IsValidEar(Vector2 a, Vector2 b, Vector2 c, Vector2 *poly, int count, int *indices, int activeCount) {
     float cross = (b.x - a.x)*(c.y - a.y) - (b.y - a.y)*(c.x - a.x);
     if (cross >= 0) return false; 
+
 
     for (int i = 0; i < activeCount; i++) {
         int idx = indices[i];
@@ -168,8 +254,10 @@ bool IsValidEar(Vector2 a, Vector2 b, Vector2 c, Vector2 *poly, int count, int *
     return true;
 }
 
+
 void BuildCollisionGrid(GameMap *map) {
     if (colGridLoaded) return;
+
 
     // Initialize Grid
     for(int y=0; y<SECTOR_GRID_ROWS; y++) {
@@ -180,6 +268,7 @@ void BuildCollisionGrid(GameMap *map) {
         }
     }
 
+
     // Populate Grid
     for (int i = 0; i < map->buildingCount; i++) {
         Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
@@ -187,8 +276,10 @@ void BuildCollisionGrid(GameMap *map) {
         int gx = (int)((center.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
         int gy = (int)((center.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
+
         // Safety Check
         if (gx < 0 || gx >= SECTOR_GRID_COLS || gy < 0 || gy >= SECTOR_GRID_ROWS) continue;
+
 
         // Add to cell
         CollisionCell *cell = &colGrid[gy][gx];
@@ -201,6 +292,89 @@ void BuildCollisionGrid(GameMap *map) {
     colGridLoaded = true;
     printf("Collision Grid Built.\n");
 }
+
+
+// --- MANIFEST SYSTEMS ---
+
+
+void AddToManifest(SectorManifest *man, int index, int type) {
+    // type 0: building, 1: edge, 2: area
+    if (type == 0) {
+        if (man->buildingCount >= man->buildingCap) {
+            man->buildingCap = (man->buildingCap == 0) ? 8 : man->buildingCap * 2;
+            man->buildingIndices = realloc(man->buildingIndices, man->buildingCap * sizeof(int));
+        }
+        man->buildingIndices[man->buildingCount++] = index;
+    } else if (type == 1) {
+        if (man->edgeCount >= man->edgeCap) {
+            man->edgeCap = (man->edgeCap == 0) ? 8 : man->edgeCap * 2;
+            man->edgeIndices = realloc(man->edgeIndices, man->edgeCap * sizeof(int));
+        }
+        man->edgeIndices[man->edgeCount++] = index;
+    } else if (type == 2) {
+        if (man->areaCount >= man->areaCap) {
+            man->areaCap = (man->areaCap == 0) ? 8 : man->areaCap * 2;
+            man->areaIndices = realloc(man->areaIndices, man->areaCap * sizeof(int));
+        }
+        man->areaIndices[man->areaCount++] = index;
+    }
+}
+
+
+// Pre-calculates which sector every object belongs to
+void BuildSectorManifests(GameMap *map) {
+    // 1. Buildings
+    for (int i = 0; i < map->buildingCount; i++) {
+        Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
+        int gx = (int)((center.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int gy = (int)((center.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < SECTOR_GRID_COLS && gy >= 0 && gy < SECTOR_GRID_ROWS) {
+            AddToManifest(&cityRenderer.manifests[gy][gx], i, 0);
+        }
+    }
+
+
+    // 2. Edges (Roads) - Assign based on Midpoint
+    for (int i = 0; i < map->edgeCount; i++) {
+        if (map->edges[i].startNode >= map->nodeCount) continue;
+        Vector2 p1 = map->nodes[map->edges[i].startNode].position;
+        Vector2 p2 = map->nodes[map->edges[i].endNode].position;
+        Vector2 mid = Vector2Scale(Vector2Add(p1, p2), 0.5f);
+        
+        int gx = (int)((mid.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int gy = (int)((mid.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        
+        // Also add to start/end sectors to prevent gaps? 
+        // For simplicity, midpoint is usually enough for 100m chunks, 
+        // but let's strictly check bounds.
+        if (gx >= 0 && gx < SECTOR_GRID_COLS && gy >= 0 && gy < SECTOR_GRID_ROWS) {
+            AddToManifest(&cityRenderer.manifests[gy][gx], i, 1);
+        }
+    }
+
+
+    // 3. Areas (Parks)
+    for (int i = 0; i < map->areaCount; i++) {
+        Vector2 center = {0};
+        for(int k=0; k<map->areas[i].pointCount; k++) center = Vector2Add(center, map->areas[i].points[k]);
+        center = Vector2Scale(center, 1.0f/map->areas[i].pointCount);
+        
+        int gx = (int)((center.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int gy = (int)((center.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        if (gx >= 0 && gx < SECTOR_GRID_COLS && gy >= 0 && gy < SECTOR_GRID_ROWS) {
+            AddToManifest(&cityRenderer.manifests[gy][gx], i, 2);
+        }
+    }
+
+
+    // 4. Pre-calc node degrees for road generation
+    cityRenderer.nodeDegrees = (int*)calloc(map->nodeCount, sizeof(int));
+    for(int i=0; i<map->edgeCount; i++) {
+        if(map->edges[i].startNode < map->nodeCount) cityRenderer.nodeDegrees[map->edges[i].startNode]++;
+        if(map->edges[i].endNode < map->nodeCount) cityRenderer.nodeDegrees[map->edges[i].endNode]++;
+    }
+}
+
 
 int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
     if (count < 3) return 0;
@@ -216,9 +390,11 @@ int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
         }
     }
 
+
     int activeCount = count;
     int triCount = 0;
     int safeGuard = 0;
+
 
     while (activeCount > 2 && safeGuard < count * 3) {
         safeGuard++;
@@ -241,6 +417,7 @@ int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
                 break;
             }
 
+
             if (IsValidEar(a, b, c, points, count, indices, activeCount)) {
                 outIndices[triCount*3+0] = prev;
                 outIndices[triCount*3+1] = curr;
@@ -260,37 +437,69 @@ int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
     return triCount;
 }
 
+
 // --- BAKING SYSTEMS ---
 
+
 void InitSectorBuilder(SectorBuilder *sb) {
-    sb->capacity = 4096; // Initial capacity
+    // Safety: If it already has memory, free it first to avoid leaks or corruption
+    if (sb->vertices != NULL) FreeSectorBuilder(sb);
+
+    sb->capacity = 4096; // Start with 4096 vertices
     sb->vertexCount = 0;
+    
+    // Allocate fresh memory
     sb->vertices = (float *)malloc(sb->capacity * 3 * sizeof(float));
     sb->texcoords = (float *)malloc(sb->capacity * 2 * sizeof(float));
     sb->normals = (float *)malloc(sb->capacity * 3 * sizeof(float));
     sb->colors = (unsigned char *)malloc(sb->capacity * 4 * sizeof(unsigned char));
+    
+    // Verify allocation
+    if (!sb->vertices || !sb->texcoords || !sb->normals || !sb->colors) {
+        printf("CRITICAL: Failed to allocate SectorBuilder memory!\n");
+        sb->capacity = 0;
+    }
 }
 
+
 void FreeSectorBuilder(SectorBuilder *sb) {
-    if (sb->vertices) free(sb->vertices);
-    if (sb->texcoords) free(sb->texcoords);
-    if (sb->normals) free(sb->normals);
-    if (sb->colors) free(sb->colors);
+    if (sb->vertices) { free(sb->vertices); sb->vertices = NULL; }
+    if (sb->texcoords) { free(sb->texcoords); sb->texcoords = NULL; }
+    if (sb->normals) { free(sb->normals); sb->normals = NULL; }
+    if (sb->colors) { free(sb->colors); sb->colors = NULL; }
+    
     sb->vertexCount = 0;
     sb->capacity = 0;
 }
+
 
 void PushSectorTri(SectorBuilder *sb, 
                    Vector3 v1, Vector3 v2, Vector3 v3, 
                    Vector3 n1, Vector3 n2, Vector3 n3,
                    Vector2 uv1, Vector2 uv2, Vector2 uv3,
                    Color c) {
-    if (sb->vertexCount + 3 >= sb->capacity) {
-        sb->capacity *= 2;
-        sb->vertices = (float *)realloc(sb->vertices, sb->capacity * 3 * sizeof(float));
-        sb->texcoords = (float *)realloc(sb->texcoords, sb->capacity * 2 * sizeof(float));
-        sb->normals = (float *)realloc(sb->normals, sb->capacity * 3 * sizeof(float));
-        sb->colors = (unsigned char *)realloc(sb->colors, sb->capacity * 4 * sizeof(unsigned char));
+    
+    // [FIX] Removed the "if (!sb->vertices) return;" check.
+    // Instead, we check if we need to allocate memory (Capacity 0 or full).
+    if (sb->vertices == NULL || sb->vertexCount + 3 >= sb->capacity) {
+        int newCapacity = (sb->capacity == 0) ? 4096 : sb->capacity * 2;
+        
+        // Use realloc (handles NULL ptrs automatically by acting as malloc)
+        float *newVerts = (float *)realloc(sb->vertices, newCapacity * 3 * sizeof(float));
+        float *newTex = (float *)realloc(sb->texcoords, newCapacity * 2 * sizeof(float));
+        float *newNorm = (float *)realloc(sb->normals, newCapacity * 3 * sizeof(float));
+        unsigned char *newCols = (unsigned char *)realloc(sb->colors, newCapacity * 4 * sizeof(unsigned char));
+
+        if (!newVerts || !newTex || !newNorm || !newCols) {
+            printf("CRITICAL: Allocation failed in PushSectorTri!\n");
+            return;
+        }
+
+        sb->vertices = newVerts;
+        sb->texcoords = newTex;
+        sb->normals = newNorm;
+        sb->colors = newCols;
+        sb->capacity = newCapacity;
     }
 
     int vc = sb->vertexCount;
@@ -318,6 +527,7 @@ void PushSectorTri(SectorBuilder *sb,
     sb->vertexCount += 3;
 }
 
+
 // [OPTIMIZATION] Baking Function
 // [FIX] Updated to handle Indexed Meshes (Fixes exploding/gap cubes)
 void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg, Vector3 scale, Color tint) {
@@ -331,7 +541,9 @@ void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg
     Matrix matTrans = MatrixTranslate(pos.x, pos.y, pos.z);
     Matrix transform = MatrixMultiply(MatrixMultiply(matScale, matRot), matTrans);
 
+
     if (mesh.vertices == NULL) return; 
+
 
     // Calculate how many triangles we need to process
     int triCount = mesh.triangleCount;
@@ -339,6 +551,7 @@ void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg
     // Loop through every triangle
     for (int i = 0; i < triCount; i++) {
         int idx1, idx2, idx3;
+
 
         // [CRITICAL FIX] Check if mesh is indexed
         if (mesh.indices) {
@@ -353,10 +566,12 @@ void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg
             idx3 = i*3 + 2;
         }
 
+
         // Now extract the actual data using the correct indices
         Vector3 v1 = { mesh.vertices[idx1*3], mesh.vertices[idx1*3+1], mesh.vertices[idx1*3+2] };
         Vector3 v2 = { mesh.vertices[idx2*3], mesh.vertices[idx2*3+1], mesh.vertices[idx2*3+2] };
         Vector3 v3 = { mesh.vertices[idx3*3], mesh.vertices[idx3*3+1], mesh.vertices[idx3*3+2] };
+
 
         Vector3 n1 = { 0, 1, 0 }; Vector3 n2 = { 0, 1, 0 }; Vector3 n3 = { 0, 1, 0 };
         if (mesh.normals) {
@@ -365,6 +580,7 @@ void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg
              n3 = (Vector3){ mesh.normals[idx3*3], mesh.normals[idx3*3+1], mesh.normals[idx3*3+2] };
         }
 
+
         Vector2 uv1 = { 0, 0 }; Vector2 uv2 = { 0, 0 }; Vector2 uv3 = { 0, 0 };
         if (mesh.texcoords) {
             uv1 = (Vector2){ mesh.texcoords[idx1*2], mesh.texcoords[idx1*2+1] };
@@ -372,19 +588,23 @@ void BakeModelToSector(SectorBuilder *sb, Model model, Vector3 pos, float rotDeg
             uv3 = (Vector2){ mesh.texcoords[idx3*2], mesh.texcoords[idx3*2+1] };
         }
 
+
         // Transform Geometry
         v1 = Vector3Transform(v1, transform);
         v2 = Vector3Transform(v2, transform);
         v3 = Vector3Transform(v3, transform);
+
 
         // Simple normal rotation
         n1 = Vector3Transform(n1, matRot);
         n2 = Vector3Transform(n2, matRot);
         n3 = Vector3Transform(n3, matRot);
 
+
         PushSectorTri(sb, v1, v2, v3, n1, n2, n3, uv1, uv2, uv3, tint);
     }
 }
+
 
 // Updated Mesh Generation to include UVs
 Model BakeMeshFromBuffers(float *vertices, float *colors, float *uvs, int triangleCount) {
@@ -395,6 +615,7 @@ Model BakeMeshFromBuffers(float *vertices, float *colors, float *uvs, int triang
     mesh.colors = (unsigned char *)MemAlloc(mesh.vertexCount * 4 * sizeof(unsigned char));
     mesh.normals = (float *)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
     mesh.texcoords = (float *)MemAlloc(mesh.vertexCount * 2 * sizeof(float));
+
 
     if (vertices) memcpy(mesh.vertices, vertices, mesh.vertexCount * 3 * sizeof(float));
     
@@ -416,6 +637,7 @@ Model BakeMeshFromBuffers(float *vertices, float *colors, float *uvs, int triang
          for (int i = 0; i < mesh.vertexCount * 2; i++) mesh.texcoords[i] = 0.0f;
     }
 
+
     // Color Handling - if float* passed (legacy)
     if (colors) {
          // Legacy path for Road/Area/Roof bakes which pass float* colors
@@ -425,8 +647,10 @@ Model BakeMeshFromBuffers(float *vertices, float *colors, float *uvs, int triang
          // Wait, the prompt implies "Update BakeMeshFromBuffers".
     }
 
+
     return LoadModelFromMesh(mesh);
 }
+
 
 // Dedicated function to bake from SectorBuilder
 Model BakeSectorMesh(SectorBuilder *sb) {
@@ -439,14 +663,17 @@ Model BakeSectorMesh(SectorBuilder *sb) {
     mesh.texcoords = (float *)MemAlloc(mesh.vertexCount * 2 * sizeof(float));
     mesh.colors = (unsigned char *)MemAlloc(mesh.vertexCount * 4 * sizeof(unsigned char));
 
+
     memcpy(mesh.vertices, sb->vertices, mesh.vertexCount * 3 * sizeof(float));
     memcpy(mesh.normals, sb->normals, mesh.vertexCount * 3 * sizeof(float));
     memcpy(mesh.texcoords, sb->texcoords, mesh.vertexCount * 2 * sizeof(float));
     memcpy(mesh.colors, sb->colors, mesh.vertexCount * 4 * sizeof(unsigned char));
 
+
     UploadMesh(&mesh, false);
     return LoadModelFromMesh(mesh);
 }
+
 
 SectorBuilder* GetSectorBuilderForPos(Vector3 pos) {
     int x = (int)((pos.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
@@ -462,13 +689,304 @@ SectorBuilder* GetSectorBuilderForPos(Vector3 pos) {
     return NULL;
 }
 
+
 // Replaces ADD_INSTANCE
 void BakeObjectToSector(AssetType assetType, Vector3 pos, float rot, Vector3 scale, Color tint) {
-    SectorBuilder *sb = GetSectorBuilderForPos(pos);
-    if (sb) {
-        BakeModelToSector(sb, cityRenderer.models[assetType], pos, rot, scale, tint);
+    // MUST use currentActiveBuilder, ignoring the object's global position
+    if (currentActiveBuilder) {
+        BakeModelToSector(currentActiveBuilder, cityRenderer.models[assetType], pos, rot, scale, tint);
     }
 }
+
+
+// [FIXED] Better RNG and reduced density to prevent "Tree Explosion"
+unsigned int GetSpatialHash(Vector3 pos) {
+    unsigned int x = (unsigned int)((int)pos.x * 73856093);
+    unsigned int z = (unsigned int)((int)pos.z * 19349663);
+    return x ^ z;
+}
+
+
+void BakeSingleEdgeDetails(GameMap *map, int edgeIdx) {
+    Edge e = map->edges[edgeIdx];
+    float sidewalkW = 2.5f; 
+    float lightSpacing = 16.0f; 
+    
+    Vector2 s = map->nodes[e.startNode].position;
+    Vector2 en = map->nodes[e.endNode].position;
+    float finalRoadW = (e.width * MAP_SCALE) * 2.0f;
+    Vector2 dir = Vector2Normalize(Vector2Subtract(en, s));
+    Vector2 right = { -dir.y, dir.x };
+    float len = Vector2Distance(s, en);
+    float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
+
+
+    float offsetDist = (finalRoadW / 2.0f) + (sidewalkW / 2.0f);
+    
+    // Check global degree cache (safety check)
+    if (!cityRenderer.nodeDegrees) return;
+
+
+    float cutFactor = finalRoadW * 0.55f; 
+    float startCut = (cityRenderer.nodeDegrees[e.startNode] > 2) ? cutFactor : 0.0f;
+    float endCut = (cityRenderer.nodeDegrees[e.endNode] > 2) ? cutFactor : 0.0f;
+    
+    if (startCut + endCut > len * 0.9f) {
+        float factor = (len * 0.9f) / (startCut + endCut);
+        startCut *= factor; endCut *= factor;
+    }
+
+
+    // 1. Bake Road Geometry
+    {
+        Vector3 start = {s.x, 0.15f, s.y}; 
+        Vector3 end = {en.x, 0.15f, en.y};
+        Vector3 halfW = Vector3Scale((Vector3){right.x, 0, right.y}, finalRoadW*0.5f);
+        
+        Vector3 v1 = Vector3Subtract(start, halfW);
+        Vector3 v2 = Vector3Add(start, halfW);
+        Vector3 v3 = Vector3Add(end, halfW);
+        Vector3 v4 = Vector3Subtract(end, halfW);
+        
+        PushSectorTri(currentActiveBuilder, v1, v2, v3, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector2){0,0}, (Vector2){0,0}, (Vector2){0,0}, COLOR_ROAD);
+        PushSectorTri(currentActiveBuilder, v1, v3, v4, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector2){0,0}, (Vector2){0,0}, (Vector2){0,0}, COLOR_ROAD);
+    }
+
+
+    // 2. Sidewalks & Props
+    Color sidewalkTint = (Color){180, 180, 180, 255};
+    Color treeTint = (Color){40, 110, 40, 255};
+    Color benchTint = (Color){100, 70, 40, 255};
+    Color trashTint = (Color){50, 50, 60, 255};
+    Color lightTint = WHITE; 
+
+
+    for(int side=-1; side<=1; side+=2) {
+        Vector2 sideOffset = Vector2Scale(right, offsetDist * side);
+        Vector2 rawStart = Vector2Add(s, sideOffset);
+        Vector2 swStart = Vector2Add(rawStart, Vector2Scale(dir, startCut));
+        float swLen = len - (startCut + endCut);
+        
+        if (swLen < 0.1f) continue;
+
+
+        Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, swLen/2.0f));
+        Vector3 swPos = { swMid.x, 0.07f, swMid.y }; 
+        Vector3 swScale = { swLen, 0.10f, sidewalkW };
+        BakeObjectToSector(ASSET_SIDEWALK, swPos, -angle, swScale, sidewalkTint);
+
+
+        float currentDist = 0.0f;
+        float nextLight = lightSpacing * 0.5f; 
+
+
+        // [PERFORMANCE] Increased step from 2.0f to 3.5f to reduce clutter density
+        while (currentDist < swLen) {
+            Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, currentDist));
+            Vector3 propPos = { propPos2D.x, 0.2f, propPos2D.y };
+            
+            if (currentDist >= nextLight) {
+                float lightRot = -angle - 90.0f; 
+                if (side == 1) lightRot += 90.0f; else lightRot -= 90.0f; 
+                BakeObjectToSector(ASSET_PROP_LIGHT_CURVED, propPos, lightRot, (Vector3){2.8f, 2.8f, 2.8f}, lightTint);
+                nextLight += lightSpacing;
+            } else {
+                // [FIX] Use Spatial Hash for random distribution without patterns
+                unsigned int seed = GetSpatialHash(propPos);
+                int roll = seed % 100; // 0 to 99
+                float baseRot = (side == 1) ? -angle : -angle + 180.0f;
+
+
+                // Adjusted probabilities for cleaner look:
+                if (roll < 2) BakeObjectToSector(ASSET_PROP_TRASH, propPos, baseRot, (Vector3){1.2f,1.2f,1.2f}, trashTint);
+                else if (roll < 5) BakeObjectToSector(ASSET_PROP_BENCH, propPos, baseRot, (Vector3){1.5f,1.5f,1.5f}, benchTint);
+                // Tree chance reduced to prevent forests on sidewalks (roll 5 to 12)
+                else if (roll < 12) BakeObjectToSector(ASSET_PROP_TREE_SMALL, propPos, (float)(seed%360), (Vector3){4.5f,4.5f,4.5f}, treeTint);
+            }
+            currentDist += 3.5f;
+        }
+    }
+}
+
+
+void LoadSectorChunk(GameMap *map, int x, int y) {
+    if (cityRenderer.sectors[y][x].active) return; 
+    if (cityRenderer.activeSectorCount >= MAX_ACTIVE_SECTORS) return;
+
+    // [FIX] Ensure global builder is initialized before use
+    if (globalSectorBuilder.capacity == 0 || globalSectorBuilder.vertices == NULL) {
+        InitSectorBuilder(&globalSectorBuilder);
+    }
+
+    SectorBuilder *sb = &globalSectorBuilder;
+    sb->vertexCount = 0; // Reset reuse buffer
+    currentActiveBuilder = sb; 
+
+    SectorManifest *man = &cityRenderer.manifests[y][x];
+    int *tempIndices = globalTempIndices; 
+
+    // 1. Bake Buildings
+    for (int i = 0; i < man->buildingCount; i++) {
+        Building *b = &map->buildings[man->buildingIndices[i]];
+        BakeBuildingGeometry(b);
+        
+        if (b->pointCount >= 3) {
+            float yPos = b->height + 0.1f; 
+            Color roofCol = {80, 80, 90, 255};
+            int triCount = TriangulatePolygon(b->footprint, b->pointCount, tempIndices);
+            for (int k = 0; k < triCount; k++) {
+                int idx1 = tempIndices[k*3+0];
+                int idx2 = tempIndices[k*3+1];
+                int idx3 = tempIndices[k*3+2];
+                Vector3 v1 = {b->footprint[idx1].x, yPos, b->footprint[idx1].y};
+                Vector3 v2 = {b->footprint[idx2].x, yPos, b->footprint[idx2].y};
+                Vector3 v3 = {b->footprint[idx3].x, yPos, b->footprint[idx3].y};
+                PushSectorTri(sb, v1, v2, v3, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector2){0,0}, (Vector2){0,0}, (Vector2){0,0}, roofCol);
+            }
+        }
+    }
+
+    // 2. Bake Roads
+    for (int i = 0; i < man->edgeCount; i++) BakeSingleEdgeDetails(map, man->edgeIndices[i]);
+
+    // 3. Bake Parks
+    for (int i = 0; i < man->areaCount; i++) {
+        MapArea *area = &map->areas[man->areaIndices[i]];
+        if (area->color.g > area->color.r) GenerateParkFoliage(map, area); 
+        if (area->pointCount >= 3) {
+            Vector2 center = {0};
+            for(int k=0; k<area->pointCount; k++) center = Vector2Add(center, area->points[k]);
+            center = Vector2Scale(center, 1.0f/area->pointCount);
+            Color c = (area->color.g > area->color.r) ? COLOR_PARK : area->color;
+            for(int j=0; j<area->pointCount; j++) {
+                Vector3 v1 = {center.x, 0.02f, center.y}; 
+                Vector3 v2 = {area->points[(j+1)%area->pointCount].x, 0.02f, area->points[(j+1)%area->pointCount].y};
+                Vector3 v3 = {area->points[j].x, 0.02f, area->points[j].y};
+                PushSectorTri(sb, v1, v2, v3, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector3){0,1,0}, (Vector2){0,0}, (Vector2){0,0}, (Vector2){0,0}, c);
+            }
+        }
+    }
+
+    // 4. Finalize
+    Sector *sec = &cityRenderer.sectors[y][x];
+    if (sb->vertexCount > 0) {
+        sec->model = BakeSectorMesh(sb);
+        for(int m=0; m<sec->model.meshCount; m++) sec->model.materials[m].maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
+        sec->isEmpty = false;
+    } else {
+        sec->isEmpty = true;
+    }
+    sec->active = true;
+    
+    sec->activeListIndex = cityRenderer.activeSectorCount;
+    cityRenderer.activeSectors[cityRenderer.activeSectorCount].x = x;
+    cityRenderer.activeSectors[cityRenderer.activeSectorCount].y = y;
+    cityRenderer.activeSectorCount++;
+
+    currentActiveBuilder = NULL;
+}
+
+// [FIX] Helper to prevent double-freeing shared textures
+void UnloadModelSafe(Model model) {
+    // 1. Basic Validity Checks
+    if (model.meshCount == 0 || model.materialCount == 0) return;
+    
+    // [CRITICAL FIX] If the pointers are NULL (or likely invalid), stop immediately.
+    // This catches scenarios where a model might be partially zeroed or corrupt.
+    if (model.materials == NULL || model.meshes == NULL) return;
+
+
+    // 2. Detach Texture (Safe now because we checked model.materials is not NULL)
+    for (int i = 0; i < model.materialCount; i++) {
+        model.materials[i].maps[MATERIAL_MAP_DIFFUSE].texture = (Texture2D){0}; 
+    }
+    
+    // 3. Unload
+    UnloadModel(model);
+}
+
+
+void UnloadSectorChunk(int x, int y) {
+    Sector *sec = &cityRenderer.sectors[y][x];
+    if (!sec->active) return;
+    
+    // 1. Unload Model Memory
+    if (!sec->isEmpty) {
+        UnloadModelSafe(sec->model);
+    }
+    sec->active = false;
+    sec->isEmpty = false;
+
+
+    // 2. [OPTIMIZATION] Remove from Active List (Swap with last)
+    int idx = sec->activeListIndex;
+    int lastIdx = cityRenderer.activeSectorCount - 1;
+    
+    if (idx != lastIdx && lastIdx >= 0) {
+        // Move the last element into the empty slot
+        cityRenderer.activeSectors[idx] = cityRenderer.activeSectors[lastIdx];
+        
+        // Update the moved sector's index reference
+        int movedX = cityRenderer.activeSectors[idx].x;
+        int movedY = cityRenderer.activeSectors[idx].y;
+        cityRenderer.sectors[movedY][movedX].activeListIndex = idx;
+    }
+    
+    cityRenderer.activeSectorCount--;
+    // Inside UnloadGameMap (at the very end of the renderer unloading block)
+    if (globalSectorBuilder.capacity > 0) {
+    FreeSectorBuilder(&globalSectorBuilder);
+    // No need to free(&globalSectorBuilder) because it's static
+}
+}
+
+
+void UpdateMapStreaming(GameMap *map, Vector3 playerPos) {
+    if (!cityRenderer.loaded) return;
+
+
+    int px = (int)((playerPos.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int py = (int)((playerPos.z + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
+
+    int loadRadius = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE);
+    if (loadRadius < 1) loadRadius = 1;
+    int unloadRadius = loadRadius + 2; 
+
+
+    // 1. [OPTIMIZATION] FAST UNLOAD (Iterate only active list)
+    // We iterate backwards so we can safely remove elements while looping
+    for (int i = cityRenderer.activeSectorCount - 1; i >= 0; i--) {
+        int sx = cityRenderer.activeSectors[i].x;
+        int sy = cityRenderer.activeSectors[i].y;
+        
+        int dx = abs(sx - px);
+        int dy = abs(sy - py);
+        
+        if (dx > unloadRadius || dy > unloadRadius) {
+            UnloadSectorChunk(sx, sy);
+        }
+    }
+
+
+    // 2. LOAD NEAR SECTORS (Throttled to 1 per frame)
+    int chunksLoaded = 0;
+    for (int y = py - loadRadius; y <= py + loadRadius; y++) {
+        for (int x = px - loadRadius; x <= px + loadRadius; x++) {
+            if (x >= 0 && x < SECTOR_GRID_COLS && y >= 0 && y < SECTOR_GRID_ROWS) {
+                if (!cityRenderer.sectors[y][x].active) {
+                    if (chunksLoaded < 1) {
+                        LoadSectorChunk(map, x, y);
+                        chunksLoaded++;
+                    } else {
+                        return; 
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 // Legacy function for road baking (adapted to new signature/logic if needed, but kept separate for safety)
 Model BakeStaticGeometryLegacy(float *vertices, float *colors, int triangleCount) {
@@ -479,6 +997,7 @@ Model BakeStaticGeometryLegacy(float *vertices, float *colors, int triangleCount
     mesh.colors = (unsigned char *)MemAlloc(mesh.vertexCount * 4 * sizeof(unsigned char));
     mesh.normals = (float *)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
     mesh.texcoords = (float *)MemAlloc(mesh.vertexCount * 2 * sizeof(float));
+
 
     memcpy(mesh.vertices, vertices, mesh.vertexCount * 3 * sizeof(float));
     
@@ -503,12 +1022,14 @@ Model BakeStaticGeometryLegacy(float *vertices, float *colors, int triangleCount
     return LoadModelFromMesh(mesh);
 }
 
+
 // Helper: Check if a point is reasonably close to the city (prevents void spawning)
 bool IsInsideCityContext(GameMap *map, Vector2 pos) {
     // 1. Simple Bounding Box Check (Fast)
     // You should cache these values in the map struct ideally, but calculating them here is okay for now
     static float minX = 10000.0f, maxX = -10000.0f, minY = 10000.0f, maxY = -10000.0f;
     static bool boundsCalculated = false;
+
 
     if (!boundsCalculated && map->buildingCount > 0) {
         for(int i=0; i<map->buildingCount; i++) {
@@ -522,7 +1043,9 @@ bool IsInsideCityContext(GameMap *map, Vector2 pos) {
         boundsCalculated = true;
     }
 
+
     if (pos.x < minX || pos.x > maxX || pos.y < minY || pos.y > maxY) return false;
+
 
     // 2. Proximity Check (Slower but accurate)
     // Must be within 60 meters of a building to be considered "City"
@@ -531,8 +1054,11 @@ bool IsInsideCityContext(GameMap *map, Vector2 pos) {
          if (Vector2DistanceSqr(pos, map->buildings[i].footprint[0]) < 60.0f*60.0f) return true;
     }
 
+
     return false;
 }
+
+
 
 
 void GenerateParkFoliage(GameMap *map, MapArea *area) {
@@ -554,6 +1080,7 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
     Color treeTint = (Color){20, 90, 40, 255};
     Color grassTint = (Color){60, 110, 20, 255};
     Color flowerTint = (Color){200, 200, 200, 255};
+
 
     for(int k=0; k<itemPoints; k++) {
         float tx = GetRandomValue((int)minX, (int)maxX);
@@ -585,6 +1112,7 @@ void GenerateParkFoliage(GameMap *map, MapArea *area) {
     }
 }
 
+
 // --- HELPER FOR GENERATION ---
 // Checks if a grid cell is close to a line segment (Roads)
 bool IsPointNearSegment(Vector2 p, Vector2 a, Vector2 b, float threshold) {
@@ -595,10 +1123,12 @@ bool IsPointNearSegment(Vector2 p, Vector2 a, Vector2 b, float threshold) {
     // Fix: Prevent division by zero if startNode == endNode
     if (lenSq < 0.0001f) return (Vector2DistanceSqr(p, a) < threshold * threshold);
 
+
     float h = Clamp(Vector2DotProduct(pa, ba) / lenSq, 0.0f, 1.0f);
     Vector2 distVec = Vector2Subtract(pa, Vector2Scale(ba, h));
     return (Vector2LengthSqr(distVec) < threshold * threshold);
 }
+
 
 // Math helper: Intersection of Ray (Origin, Dir) vs Segment (P1, P2)
 // Returns distance, or FLT_MAX if no hit
@@ -607,11 +1137,14 @@ float GetRaySegmentIntersection(Vector2 rayOrigin, Vector2 rayDir, Vector2 p1, V
     Vector2 v2 = Vector2Subtract(p2, p1);
     Vector2 v3 = {-rayDir.y, rayDir.x};
 
+
     float dot = Vector2DotProduct(v2, v3);
     if (fabs(dot) < 0.000001f) return FLT_MAX; // Parallel
 
+
     float t1 = Vector2CrossProduct(v2, v1) / dot;
     float t2 = Vector2DotProduct(v1, v3) / dot;
+
 
     if (t1 >= 0.0f && (t2 >= 0.0f && t2 <= 1.0f)) {
         return t1;
@@ -619,14 +1152,17 @@ float GetRaySegmentIntersection(Vector2 rayOrigin, Vector2 rayDir, Vector2 p1, V
     return FLT_MAX;
 }
 
+
 // Find nearest obstacle distance in a specific direction
 float CastParkRay(GameMap *map, Vector2 origin, Vector2 dir, float maxDist) {
     float closest = maxDist;
+
 
     // 1. Check Buildings
     // Using the sector grid for speed
     int gx = (int)((origin.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int gy = (int)((origin.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
 
     for (int y = gy - 1; y <= gy + 1; y++) {
         for (int x = gx - 1; x <= gx + 1; x++) {
@@ -645,6 +1181,7 @@ float CastParkRay(GameMap *map, Vector2 origin, Vector2 dir, float maxDist) {
         }
     }
 
+
     // 2. Check Roads
     // Critical: Park must stop BEFORE the road curb.
     for (int i = 0; i < map->edgeCount; i++) {
@@ -653,9 +1190,11 @@ float CastParkRay(GameMap *map, Vector2 origin, Vector2 dir, float maxDist) {
         Vector2 n1 = map->nodes[map->edges[i].startNode].position;
         Vector2 n2 = map->nodes[map->edges[i].endNode].position;
 
+
         // Bounding box optimization
         if (origin.x < fminf(n1.x, n2.x) - maxDist || origin.x > fmaxf(n1.x, n2.x) + maxDist) continue;
         if (origin.y < fminf(n1.y, n2.y) - maxDist || origin.y > fmaxf(n1.y, n2.y) + maxDist) continue;
+
 
         float distToCenter = GetRaySegmentIntersection(origin, dir, n1, n2);
         
@@ -671,12 +1210,15 @@ float CastParkRay(GameMap *map, Vector2 origin, Vector2 dir, float maxDist) {
         }
     }
 
+
     return closest;
 }
+
 
 void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
     int cx = (int)((playerPos.x + PARK_OFFSET) / PARK_CHUNK_SIZE);
     int cy = (int)((playerPos.z + PARK_OFFSET) / PARK_CHUNK_SIZE);
+
 
     for (int y = cy - 1; y <= cy + 1; y++) {
         for (int x = cx - 1; x <= cx + 1; x++) {
@@ -684,27 +1226,34 @@ void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
             if (x < 0 || x >= PARK_GRID_COLS || y < 0 || y >= PARK_GRID_ROWS) continue;
             if (parkSystem.chunks[y][x].generated) continue;
 
+
             parkSystem.chunks[y][x].generated = true;
             parkSystem.chunks[y][x].parkCount = 0;
 
+
             float chunkWorldX = (x * PARK_CHUNK_SIZE) - PARK_OFFSET;
             float chunkWorldY = (y * PARK_CHUNK_SIZE) - PARK_OFFSET;
+
 
             int attempts = 15;
             for (int k = 0; k < attempts; k++) {
                 if (parkSystem.totalParks >= MAX_DYNAMIC_PARKS) break;
                 if (parkSystem.chunks[y][x].parkCount >= PARK_MAX_PER_CHUNK) break;
 
+
                 Vector2 seed = {
                     chunkWorldX + GetRandomValue(5, PARK_CHUNK_SIZE - 5),
                     chunkWorldY + GetRandomValue(5, PARK_CHUNK_SIZE - 5)
                 };
 
+
                 // [FIX] VOID CHECK: Don't generate if we aren't near buildings
                 if (!IsInsideCityContext(map, seed)) continue;
 
+
                 // [FIX] COLLISION CHECK: Ensure seed isn't already inside something
                 if (CastParkRay(map, seed, (Vector2){1,0}, 2.0f) < 0.5f) continue;
+
 
                 DynamicPark park;
                 park.center = seed;
@@ -712,6 +1261,7 @@ void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
                 bool validPark = true;
                 float minRayLen = FLT_MAX;
                 float maxRayLen = 0.0f;
+
 
                 for (int r = 0; r < PARK_RAYS; r++) {
                     float angle = (r / (float)PARK_RAYS) * 360.0f * DEG2RAD;
@@ -728,6 +1278,7 @@ void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
                     park.vertices[r] = Vector2Add(seed, Vector2Scale(dir, dist));
                 }
 
+
                 // Only allow parks that have decent open space (at least 3m radius in smallest dir)
                 if (validPark && minRayLen > 0.5f) {
                     int pIdx = parkSystem.totalParks++;
@@ -739,14 +1290,17 @@ void UpdateRuntimeParks(GameMap *map, Vector3 playerPos) {
     }
 }
 
+
 void DrawRuntimeParks(Vector3 playerPos) {
     int cx = (int)((playerPos.x + PARK_OFFSET) / PARK_CHUNK_SIZE);
     int cy = (int)((playerPos.z + PARK_OFFSET) / PARK_CHUNK_SIZE);
     
     int viewDist = 3; 
 
+
     // Enable double-sided drawing so we see the floor regardless of winding order
     rlDisableBackfaceCulling();
+
 
     for (int y = cy - viewDist; y <= cy + viewDist; y++) {
         for (int x = cx - viewDist; x <= cx + viewDist; x++) {
@@ -755,14 +1309,17 @@ void DrawRuntimeParks(Vector3 playerPos) {
             ParkChunk *chunk = &parkSystem.chunks[y][x];
             if (!chunk->generated) continue;
 
+
             for (int i = 0; i < chunk->parkCount; i++) {
                 DynamicPark *p = &parkSystem.parks[chunk->parkIndices[i]];
                 if (!p->active) continue;
+
 
                 // 1. Draw Green Floor (Manual 3D Fan)
                 // We draw individual triangles connecting Center -> Vertex A -> Vertex B
                 Vector3 center = {p->center.x, 0.04f, p->center.y};
                 Color parkColor = (Color){30, 90, 40, 255};
+
 
                 for (int v = 0; v < PARK_RAYS; v++) {
                     int next = (v + 1) % PARK_RAYS;
@@ -786,6 +1343,7 @@ void DrawRuntimeParks(Vector3 playerPos) {
                 if (treeCount < 1) treeCount = 1;
                 if (treeCount > 8) treeCount = 8;
 
+
                 for(int k=0; k<treeCount; k++) {
                     int vIdx = GetRandomValue(0, PARK_RAYS-1);
                     float lerp = GetRandomValue(20, 70) / 100.0f;
@@ -805,21 +1363,26 @@ void DrawRuntimeParks(Vector3 playerPos) {
     rlEnableBackfaceCulling();
 }
 
+
 void BakeMapElements(GameMap *map) {
     if (cityRenderer.mapBaked) return;
     printf("Baking Map Geometry...\n");
 
+
     int maxRoadTris = map->edgeCount * 2 + 5000;
     int maxMarkTris = map->edgeCount * 2 + 5000;
     if (maxRoadTris > 200000) maxRoadTris = 200000; 
+
 
     float *roadVerts = (float*)malloc(maxRoadTris * 3 * 3 * sizeof(float));
     float *markVerts = (float*)malloc(maxMarkTris * 3 * 3 * sizeof(float));
     int rVCount = 0;
     int mVCount = 0;
 
+
     for (int i = 0; i < map->edgeCount; i++) {
         if (rVCount >= maxRoadTris * 3 - 18) break; 
+
 
         Edge e = map->edges[i];
         if(e.startNode >= map->nodeCount || e.endNode >= map->nodeCount) continue;
@@ -831,6 +1394,7 @@ void BakeMapElements(GameMap *map) {
         Vector3 end = {en.x, 0.15f, en.y};
         Vector3 diff = Vector3Subtract(end, start);
         if (Vector3Length(diff) < 0.001f) continue;
+
 
         Vector3 right = Vector3Normalize(Vector3CrossProduct((Vector3){0,1,0}, diff));
         Vector3 halfWidthVec = Vector3Scale(right, finalWidth * 0.5f);
@@ -846,6 +1410,7 @@ void BakeMapElements(GameMap *map) {
         roadVerts[rVCount++] = v1.x; roadVerts[rVCount++] = v1.y; roadVerts[rVCount++] = v1.z;
         roadVerts[rVCount++] = v4.x; roadVerts[rVCount++] = v4.y; roadVerts[rVCount++] = v4.z;
         roadVerts[rVCount++] = v3.x; roadVerts[rVCount++] = v3.y; roadVerts[rVCount++] = v3.z;
+
 
         if (!e.oneway) {
             float lineWidth = finalWidth * 0.05f; 
@@ -866,6 +1431,7 @@ void BakeMapElements(GameMap *map) {
         }
     }
 
+
     cityRenderer.roadModel = BakeStaticGeometryLegacy(roadVerts, NULL, rVCount / 3);
     
     for(int i=0; i<cityRenderer.roadModel.meshCount; i++) {
@@ -877,6 +1443,7 @@ void BakeMapElements(GameMap *map) {
         }
     }
     UploadMesh(&cityRenderer.roadModel.meshes[0], false);
+
 
     cityRenderer.markingsModel = BakeStaticGeometryLegacy(markVerts, NULL, mVCount / 3);
     Color mk = COLOR_ROAD_MARKING;
@@ -890,16 +1457,20 @@ void BakeMapElements(GameMap *map) {
     }
     UploadMesh(&cityRenderer.markingsModel.meshes[0], false);
 
+
     free(roadVerts);
     free(markVerts);
+
 
     int maxAreaVerts = map->areaCount * 50 * 3; 
     float *areaVerts = (float*)malloc(maxAreaVerts * 3 * sizeof(float));
     float *areaColors = (float*)malloc(maxAreaVerts * 4 * sizeof(float));
     int aVCount = 0;
 
+
     for (int i = 0; i < map->areaCount; i++) {
         if (aVCount >= maxAreaVerts - 50) break; 
+
 
         if(map->areas[i].pointCount < 3) continue;
         Color col = map->areas[i].color;
@@ -908,10 +1479,12 @@ void BakeMapElements(GameMap *map) {
             GenerateParkFoliage(map, &map->areas[i]);
         }
 
+
         float r = col.r/255.0f; float g = col.g/255.0f; float b = col.b/255.0f;
         Vector3 center = {0, 0.01f, 0};
         for(int j=0; j<map->areas[i].pointCount; j++) { center.x += map->areas[i].points[j].x; center.z += map->areas[i].points[j].y; }
         center.x /= map->areas[i].pointCount; center.z /= map->areas[i].pointCount;
+
 
         for(int j=0; j<map->areas[i].pointCount; j++) {
             Vector2 p1 = map->areas[i].points[j]; 
@@ -931,21 +1504,26 @@ void BakeMapElements(GameMap *map) {
     free(areaVerts);
     free(areaColors);
 
+
     int maxRoofVerts = map->buildingCount * 12 * 3; 
     float *roofVerts = (float*)malloc(maxRoofVerts * 3 * sizeof(float));
     float *roofColors = (float*)malloc(maxRoofVerts * 4 * sizeof(float)); 
     int rfVCount = 0;
 
+
     int *tempIndices = (int*)malloc(500 * sizeof(int)); 
+
 
     for (int i = 0; i < map->buildingCount; i++) {
         if (rfVCount >= maxRoofVerts - 50) break; 
+
 
         Building *b = &map->buildings[i];
         if (b->pointCount < 3) continue;
         
         float y = b->height + 0.1f; 
         float rr = 80.0f/255.0f; float rg = 80.0f/255.0f; float rb = 90.0f/255.0f; 
+
 
         int triCount = TriangulatePolygon(b->footprint, b->pointCount, tempIndices);
         
@@ -957,6 +1535,7 @@ void BakeMapElements(GameMap *map) {
             Vector2 p1 = b->footprint[idx1];
             Vector2 p2 = b->footprint[idx2];
             Vector2 p3 = b->footprint[idx3];
+
 
             roofVerts[rfVCount*3+0] = p1.x; roofVerts[rfVCount*3+1] = y; roofVerts[rfVCount*3+2] = p1.y;
             roofColors[rfVCount*4+0] = rr; roofColors[rfVCount*4+1] = rg; roofColors[rfVCount*4+2] = rb; roofColors[rfVCount*4+3] = 1.0f;
@@ -977,9 +1556,11 @@ void BakeMapElements(GameMap *map) {
     free(roofVerts);
     free(roofColors);
 
+
     cityRenderer.mapBaked = true;
     printf("Baking Done. V-Roads:%d, V-Marks:%d, V-Areas:%d, V-Roofs:%d\n", rVCount/3, mVCount/3, aVCount/3, rfVCount/3);
 }
+
 
 // --- NEW HELPER FUNCTION ---
 // Collapses all UV coordinates of a mesh to a single point.
@@ -991,6 +1572,7 @@ void SetMeshUVs(Mesh *mesh, float u, float v) {
         mesh->texcoords[i*2+1] = v;
     }
 }
+
 
 void LoadCityAssets() {
     if (cityRenderer.loaded) return;
@@ -1005,6 +1587,7 @@ void LoadCityAssets() {
         UnloadImage(whiteImg);
     }
 
+
     // Helper macro
     #define LOAD_ASSET(enumIdx, path) \
         { \
@@ -1014,6 +1597,7 @@ void LoadCityAssets() {
                 cityRenderer.models[enumIdx] = LoadModelFromMesh(GenMeshCube(1.0f, 1.0f, 1.0f)); \
             } \
         }
+
 
     // --- Buildings ---
     LOAD_ASSET(ASSET_AC_A, "resources/Buildings/detail-ac-a.obj");
@@ -1040,6 +1624,7 @@ void LoadCityAssets() {
     LOAD_ASSET(ASSET_WIN_TALL, "resources/Buildings/windows_tall.obj");
     LOAD_ASSET(ASSET_WIN_TALL_TOP, "resources/Buildings/windows_tall_top.obj");
 
+
     // --- Props & Vegetation ---
     LOAD_ASSET(ASSET_PROP_TREE_LARGE, "resources/trees/tree-large.obj");
     LOAD_ASSET(ASSET_PROP_TREE_SMALL, "resources/trees/tree-small.obj");
@@ -1055,6 +1640,7 @@ void LoadCityAssets() {
     LOAD_ASSET(ASSET_PROP_CONST_LIGHT, "resources/Props/construction-light.obj");
     LOAD_ASSET(ASSET_PROP_LIGHT_CURVED, "resources/Props/light-curved.obj");
 
+
     // --- Vehicles ---
     LOAD_ASSET(ASSET_CAR_DELIVERY, "resources/Playermodels/delivery.obj");
     LOAD_ASSET(ASSET_CAR_HATCHBACK, "resources/Playermodels/hatchback-sport.obj");
@@ -1063,11 +1649,13 @@ void LoadCityAssets() {
     LOAD_ASSET(ASSET_CAR_VAN, "resources/Playermodels/van.obj");
     LOAD_ASSET(ASSET_CAR_POLICE, "resources/Playermodels/police.obj");
 
+
     // --- Fix UVs for Procedural/Color-Tinted Objects ---
     float atlasW = 512.0f; 
     float atlasH = 512.0f;
     float whitePixelU = (200.0f + 0.5f) / atlasW;
     float whitePixelV = (400.0f + 0.5f) / atlasH;
+
 
     // 1. Procedural Cubes
     Mesh cubeMesh = GenMeshCube(1.0f, 1.0f, 1.0f);
@@ -1077,9 +1665,11 @@ void LoadCityAssets() {
     propMat.maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
     cubeModel.materials[0] = propMat;
 
+
     cityRenderer.models[ASSET_WALL] = cubeModel;
     cityRenderer.models[ASSET_CORNER] = cubeModel;
     cityRenderer.models[ASSET_SIDEWALK] = cubeModel;
+
 
     // 2. Apply Atlas Fix to Props so we can Tint them (Green trees, etc)
     // We iterate the specific props that need simple coloring
@@ -1097,6 +1687,7 @@ void LoadCityAssets() {
         }
     }
 
+
     // Initialize Sector Builders
     for (int y = 0; y < SECTOR_GRID_ROWS; y++) {
         for (int x = 0; x < SECTOR_GRID_COLS; x++) {
@@ -1104,9 +1695,14 @@ void LoadCityAssets() {
             cityRenderer.sectors[y][x].active = false;
         }
     }
+    // [NEW] Initialize the Global Builder once
+    if (globalSectorBuilder.capacity == 0) {
+        InitSectorBuilder(&globalSectorBuilder);
+    }
 
     cityRenderer.loaded = true;
 }
+
 
 BuildingStyle GetBuildingStyle(Vector2 pos) {
     BuildingStyle style = {0};
@@ -1133,6 +1729,7 @@ BuildingStyle GetBuildingStyle(Vector2 pos) {
     return style;
 }
 
+
 void BakeBuildingGeometry(Building *b) {
     float floorHeight = 3.0f * (MODEL_SCALE / 4.0f); 
     Vector2 bCenter = GetBuildingCenter(b->footprint, b->pointCount);
@@ -1151,16 +1748,19 @@ void BakeBuildingGeometry(Building *b) {
     if (style.isWhiteTheme) colorIdx = 5; 
     Color tint = (colorIdx == 5) ? WHITE : cityPalette[colorIdx];
 
+
     float structuralDepth = MODEL_SCALE * MODEL_Z_SQUISH; 
     float cornerThick = structuralDepth * 0.85f; 
     
     // [FIX] Shrink Factor: Pull walls inward to prevent clipping
     float shrinkAmount = 0.3f; 
 
+
     for (int i = 0; i < b->pointCount; i++) {
         // Get raw points
         Vector2 rawP1 = b->footprint[i];
         Vector2 rawP2 = b->footprint[(i + 1) % b->pointCount];
+
 
         // [FIX] Calculate Inset Points
         // We move the points slightly towards the building center
@@ -1170,13 +1770,16 @@ void BakeBuildingGeometry(Building *b) {
         Vector2 p1 = Vector2Add(rawP1, Vector2Scale(dirToCenter1, shrinkAmount));
         Vector2 p2 = Vector2Add(rawP2, Vector2Scale(dirToCenter2, shrinkAmount));
 
+
         float dist = Vector2Distance(p1, p2);
         if (dist < 0.5f) continue;
+
 
         Vector2 dir = Vector2Normalize(Vector2Subtract(p2, p1));
         Vector2 wallNormal = { -dir.y, dir.x };
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
         float modelRotation = -angle;
+
 
         // Check orientation relative to center to ensure walls face outward
         Vector2 wallMid = Vector2Scale(Vector2Add(p1, p2), 0.5f);
@@ -1188,11 +1791,13 @@ void BakeBuildingGeometry(Building *b) {
             modelRotation += 180.0f;                
         }
 
+
         // Corner placement (using inset positions)
         // We push the corner slightly 'out' along the normal to cover the gap 
         // created by the shrink, but only visually.
         Vector3 cornerPos = { p1.x, visualHeight/2.0f, p1.y };
         BakeObjectToSector(ASSET_CORNER, cornerPos, -angle, ((Vector3){cornerThick, visualHeight, cornerThick}), tint);
+
 
         float moduleWidth = 2.0f * (MODEL_SCALE / 4.0f); 
         int modulesCount = (int)(dist / moduleWidth);
@@ -1269,17 +1874,20 @@ void BakeBuildingGeometry(Building *b) {
     }
 }
 
-// Helper to draw a cluster of objects based on event type
+
 // Helper to draw a cluster of objects based on event type
 void DrawEventCluster(MapEvent *evt) {
     if (!evt->active) return;
     if (evt->position.x == 0.0f && evt->position.y == 0.0f) return;
 
+
     int seed = (int)(evt->position.x * 100) + (int)(evt->position.y * 100);
     SetRandomSeed(seed); 
 
+
     Vector3 center = { evt->position.x, 0.0f, evt->position.y };
     float boundaryRadius = evt->radius * 0.5f; 
+
 
     // --- SCENE 1: ROADWORK (Barriers, Big Lights, Chaos) ---
     if (evt->type == EVENT_ROADWORK) {
@@ -1296,7 +1904,9 @@ void DrawEventCluster(MapEvent *evt) {
                 center.z + sinf(angleRad) * boundaryRadius
             };
 
+
             float rot = -angleDeg + 90.0f; 
+
 
             // Alternate: Big Barrier vs Cone
             if (k % 2 == 0) {
@@ -1307,6 +1917,7 @@ void DrawEventCluster(MapEvent *evt) {
                  DrawModel(cityRenderer.models[ASSET_PROP_CONE], pPos, 1.0f, WHITE);
             }
         }
+
 
         // 2. Interior Scatter (More lights and cones)
         for (int i = 0; i < 5; i++) {
@@ -1346,6 +1957,7 @@ void DrawEventCluster(MapEvent *evt) {
             DrawModel(cityRenderer.models[ASSET_PROP_CONE], pPos, 0.5f, WHITE);
         }
 
+
         // 2. Crashed Cars (Pushed apart)
         int car1Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
         int car2Type = ASSET_CAR_DELIVERY + GetRandomValue(0, 4);
@@ -1359,6 +1971,7 @@ void DrawEventCluster(MapEvent *evt) {
         DrawModelEx(cityRenderer.models[car1Type], pos1, (Vector3){0,1,0}, baseRot, (Vector3){1,1,1}, WHITE);
         DrawModelEx(cityRenderer.models[car2Type], pos2, (Vector3){0,1,0}, baseRot + 90.0f, (Vector3){1,1,1}, GRAY);
 
+
         // 3. Police Car
         Vector3 policePos = { center.x + 3.0f, 0.0f, center.z - 3.0f };
         // Rotate to face the crash
@@ -1368,6 +1981,7 @@ void DrawEventCluster(MapEvent *evt) {
         DrawModelEx(cityRenderer.models[ASSET_CAR_POLICE], policePos, (Vector3){0,1,0}, policeRot, (Vector3){1,1,1}, WHITE);
     }
 }
+
 
 // Helper to prevent props from clipping into building walls
 bool IsTooCloseToBuilding(GameMap *map, Vector2 pos, float minDistance) {
@@ -1389,9 +2003,11 @@ bool IsTooCloseToBuilding(GameMap *map, Vector2 pos, float minDistance) {
     return false;
 }
 
+
 void BakeRoadDetails(GameMap *map) {
     float sidewalkW = 2.5f; 
     float lightSpacing = 16.0f; 
+
 
     // 1. Calculate Node Degrees
     int *nodeDegree = (int*)calloc(map->nodeCount, sizeof(int));
@@ -1400,11 +2016,13 @@ void BakeRoadDetails(GameMap *map) {
         if(map->edges[i].endNode < map->nodeCount) nodeDegree[map->edges[i].endNode]++;
     }
 
+
     Color treeTint = (Color){40, 110, 40, 255};
     Color benchTint = (Color){100, 70, 40, 255};
     Color trashTint = (Color){50, 50, 60, 255};
     Color lightTint = WHITE; 
     Color sidewalkTint = (Color){180, 180, 180, 255};
+
 
     for(int i=0; i<map->edgeCount; i++) {
         Edge e = map->edges[i];
@@ -1418,6 +2036,7 @@ void BakeRoadDetails(GameMap *map) {
         float len = Vector2Distance(s, en);
         float angle = atan2f(dir.y, dir.x) * RAD2DEG; 
 
+
         float offsetDist = (finalRoadW / 2.0f) + (sidewalkW / 2.0f);
         
         // Corner cutting
@@ -1430,6 +2049,7 @@ void BakeRoadDetails(GameMap *map) {
             startCut *= factor; endCut *= factor;
         }
 
+
         for(int side=-1; side<=1; side+=2) {
             Vector2 sideOffset = Vector2Scale(right, offsetDist * side);
             Vector2 rawStart = Vector2Add(s, sideOffset);
@@ -1438,15 +2058,18 @@ void BakeRoadDetails(GameMap *map) {
             
             if (swLen < 0.1f) continue;
 
+
             // Bake Sidewalk Mesh
             Vector2 swMid = Vector2Add(swStart, Vector2Scale(dir, swLen/2.0f));
             Vector3 swPos = { swMid.x, 0.07f, swMid.y }; 
             Vector3 swScale = { swLen, 0.10f, sidewalkW };
             BakeObjectToSector(ASSET_SIDEWALK, swPos, -angle, swScale, sidewalkTint);
 
+
             // --- Organized Prop Generation ---
             float currentDist = 0.0f;
             float nextLight = lightSpacing * 0.5f; 
+
 
             while (currentDist < swLen) {
                 Vector2 propPos2D = Vector2Add(swStart, Vector2Scale(dir, currentDist));
@@ -1459,6 +2082,7 @@ void BakeRoadDetails(GameMap *map) {
                           if(Vector2Distance(propPos2D, map->locations[L].position) < 6.0f) blocked = true;
                     }
                 }
+
 
                 // 2. Check Building Clipping (New Check)
                 if (!blocked && IsTooCloseToBuilding(map, propPos2D, 3.0f)) {
@@ -1475,6 +2099,7 @@ void BakeRoadDetails(GameMap *map) {
                         // User Request: Rotate 90 clockwise (-90)
                         lightRot -= 90.0f;
 
+
                         // User Request: "Just a touch larger" (was 2.4f)
                         Vector3 lScale = { 2.8f, 2.8f, 2.8f }; 
                         BakeObjectToSector(ASSET_PROP_LIGHT_CURVED, propPos, lightRot, lScale, lightTint);
@@ -1485,6 +2110,7 @@ void BakeRoadDetails(GameMap *map) {
                     else {
                         int roll = GetRandomValue(0, 100);
                         float baseRot = (side == 1) ? -angle : -angle + 180.0f;
+
 
                         if (roll < 3) { 
                             // Trash Can
@@ -1530,6 +2156,7 @@ void BakeRoadDetails(GameMap *map) {
     free(nodeDegree);
 }
 
+
 void ClearEvents(GameMap *map) {
     for (int i = 0; i < MAX_EVENTS; i++) {
         map->events[i].active = false;
@@ -1537,10 +2164,12 @@ void ClearEvents(GameMap *map) {
     }
 }
 
+
 void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Vector3 playerFwd) {
     // [AMENDMENT 1] Clear all other events first.
     // This ensures the Tutorial event is the only one the player sees.
     ClearEvents(map); 
+
 
     int slot = -1;
     for (int i = 0; i < MAX_EVENTS; i++) {
@@ -1551,10 +2180,12 @@ void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Ve
     }
     if (slot == -1) return;
 
+
     Vector2 spawnPos;
     // [AMENDMENT 2] Increased distance to 20.0f to give player reaction time
     spawnPos.x = playerPos.x + (playerFwd.x * 20.0f);
     spawnPos.y = playerPos.z + (playerFwd.z * 20.0f);
+
 
     map->events[slot].active = true;
     map->events[slot].type = type;
@@ -1564,12 +2195,14 @@ void TriggerSpecificEvent(GameMap *map, MapEventType type, Vector3 playerPos, Ve
     // [AMENDMENT 3] Increased duration to 60s so it persists during tutorial reading
     map->events[slot].timer = 60.0f; 
 
+
     if (type == EVENT_CRASH) {
         snprintf(map->events[slot].label, 64, "ACCIDENT ALERT");
     } else if (type == EVENT_ROADWORK) {
         snprintf(map->events[slot].label, 64, "ROAD WORK");
     }
 }
+
 
 void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
     int slot = -1;
@@ -1581,9 +2214,11 @@ void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
     }
     if (slot == -1) return; 
 
+
     int attempts = 0;
     bool found = false;
     Vector2 spawnPos = {0};
+
 
     while (attempts < 50) {
         int eIdx = GetRandomValue(0, map->edgeCount - 1);
@@ -1603,12 +2238,15 @@ void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
         attempts++;
     }
 
+
     if (!found) return; 
+
 
     map->events[slot].active = true;
     map->events[slot].position = spawnPos;
     map->events[slot].radius = 8.0f;
     map->events[slot].timer = 120.0f; 
+
 
     if (GetRandomValue(0, 100) < 50) {
         map->events[slot].type = EVENT_CRASH;
@@ -1619,10 +2257,12 @@ void TriggerRandomEvent(GameMap *map, Vector3 playerPos, Vector3 playerFwd) {
     }
 }
 
+
 void UpdateDevControls(GameMap *map, Player *player) {
     
     // Calculate forward vector based on player angle (for spawning events in front)
     Vector3 fwd = { sinf(player->angle * DEG2RAD), 0, cosf(player->angle * DEG2RAD) };
+
 
     // F1: Spawn Crash
     if (IsKeyPressed(KEY_F1)) {
@@ -1630,17 +2270,20 @@ void UpdateDevControls(GameMap *map, Player *player) {
         TraceLog(LOG_INFO, "DEV: Spawned Crash");
     }
 
+
     // F2: Spawn Roadwork
     if (IsKeyPressed(KEY_F2)) {
         TriggerSpecificEvent(map, EVENT_ROADWORK, player->position, fwd);
         TraceLog(LOG_INFO, "DEV: Spawned Roadwork");
     }
 
+
     // F4: Clear All Events
     if (IsKeyPressed(KEY_F4)) {
         ClearEvents(map);
         TraceLog(LOG_INFO, "DEV: Cleared Events");
     }
+
 
     // F7: Open Dealership [NEW]
     if (IsKeyPressed(KEY_F7)) {
@@ -1649,6 +2292,7 @@ void UpdateDevControls(GameMap *map, Player *player) {
     }
 }
 
+
 static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text, Color color) {
     // [FIX] Check if the point is actually in front of the camera
     Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
@@ -1656,6 +2300,7 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
     
     // If dot product is negative, the object is behind us. Don't draw.
     if (Vector3DotProduct(forward, toPos) < 0) return;
+
 
     Vector2 screenPos = GetWorldToScreen(position, camera);
     
@@ -1674,96 +2319,91 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
     }
 }
 
+
 // --- RENDER ---
 void DrawGameMap(GameMap *map, Camera camera) {
-    //rlDisableBackfaceCulling(); 
+    UpdateMapStreaming(map, camera.position);
+    
     Vector2 pPos2D = { camera.position.x, camera.position.z };
-    // Infinite Floor (Regular Gray)
+    
+    // 1. Infinite Floor
     DrawPlane((Vector3){0, -0.05f, 0}, (Vector2){10000.0f, 10000.0f}, (Color){80, 80, 80, 255});
-
-    // 1. Static Global Geometry
-    if (cityRenderer.mapBaked) {
-        DrawModel(cityRenderer.areaModel, (Vector3){0,0,0}, 1.0f, WHITE);
-        DrawModel(cityRenderer.roadModel, (Vector3){0,0,0}, 1.0f, DARKGRAY);
-        DrawModel(cityRenderer.markingsModel, (Vector3){0,0,0}, 1.0f, WHITE);
-        DrawModel(cityRenderer.roofModel, (Vector3){0,0,0}, 1.0f, WHITE); 
-    } 
     DrawRuntimeParks(camera.position);
-    // 2. Baked Sectors (OPTIMIZED: Only loop through visible range)
-    int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE) + 2; 
+
+
+    // 2. Calculate Visible Grid Range
+    // Base 10.0f / 100.0f = 0. Range becomes 0 + 1 = 1 chunk radius (3x3 grid)
+    int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE) + 1; 
     
     int camGridX = (int)((pPos2D.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int camGridY = (int)((pPos2D.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
 
     int minX = camGridX - range; if (minX < 0) minX = 0;
     int maxX = camGridX + range; if (maxX >= SECTOR_GRID_COLS) maxX = SECTOR_GRID_COLS - 1;
     int minY = camGridY - range; if (minY < 0) minY = 0;
     int maxY = camGridY + range; if (maxY >= SECTOR_GRID_ROWS) maxY = SECTOR_GRID_ROWS - 1;
 
+
+    // 3. Draw ONLY Active Sectors within the calculated range
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
              Sector *sec = &cityRenderer.sectors[y][x];
-             if (!sec->active || sec->isEmpty) continue;
-             DrawModel(sec->model, (Vector3){0,0,0}, 1.0f, WHITE);
+             if (sec->active && !sec->isEmpty) {
+                 DrawModel(sec->model, (Vector3){0,0,0}, 1.0f, WHITE);
+             }
         }
     }
     
-    // 3. Locations
+    // 4. Draw Locations (Standard)
     for (int i = 0; i < map->locationCount; i++) {
         if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DIST_BASE) continue;
         
         Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
         Color poiColor = RED;
         
-        if(map->locations[i].type == LOC_FUEL) {
-            poiColor = ORANGE;
-            Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f };
-            DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
-            DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
-        }
-        else if(map->locations[i].type == LOC_MECHANIC) {
-            poiColor = DARKBLUE;
-            Vector3 mechPos = { pos.x + 2.0f, 0.5f, pos.z + 2.0f }; 
-            DrawCube(mechPos, 1.5f, 1.0f, 1.5f, BLUE); 
-            DrawCubeWires(mechPos, 1.5f, 1.0f, 1.5f, BLACK);
-        }
+        if(map->locations[i].type == LOC_FUEL) poiColor = ORANGE;
+        else if(map->locations[i].type == LOC_MECHANIC) poiColor = DARKBLUE;
         else if(map->locations[i].type == LOC_FOOD) poiColor = GREEN;
         else if(map->locations[i].type == LOC_MARKET) poiColor = BLUE;
         
         DrawSphere(pos, 1.5f, Fade(poiColor, 0.8f));
         DrawLine3D(pos, (Vector3){pos.x, 4.0f, pos.z}, BLACK);
+        
+        if (map->locations[i].type == LOC_FUEL) {
+             Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f };
+             DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
+             DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
+        }
     }
     
-    // 4. Draw Events (Using New Cluster Logic)
+    // 5. Draw Events
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
-            if (Vector2Distance(pPos2D, map->events[i].position) > RENDER_DIST_BASE) continue;
-            
-            // REPLACED: Old debug cube drawing with high quality models
-            DrawEventCluster(&map->events[i]);
+            if (Vector2Distance(pPos2D, map->events[i].position) <= RENDER_DIST_BASE) {
+                DrawEventCluster(&map->events[i]);
+            }
         }
     }
     
     rlEnableBackfaceCulling();
-    
     EndMode3D(); 
     
-    // A. Draw Event Labels
+    // 6. Draw UI Labels
     for(int i=0; i<MAX_EVENTS; i++) {
         if (map->events[i].active) {
-            float dist = Vector2Distance(pPos2D, map->events[i].position);
-            // [FIX] Proximity Check: Only show label if within 40m
-            if (dist > 40.0f) continue; 
-
-            Vector3 pos = { map->events[i].position.x, 3.5f, map->events[i].position.y };
-            DrawCenteredLabel(camera, pos, map->events[i].label, COLOR_EVENT_TEXT);
+             if (Vector2Distance(pPos2D, map->events[i].position) < 40.0f) {
+                Vector3 pos = { map->events[i].position.x, 3.5f, map->events[i].position.y };
+                DrawCenteredLabel(camera, pos, map->events[i].label, COLOR_EVENT_TEXT);
+             }
         }
     }
     
-    // Draw Interaction Prompts
+    // Interaction Prompts
     for (int i = 0; i < map->locationCount; i++) {
         if (map->locations[i].type == LOC_FUEL || map->locations[i].type == LOC_MECHANIC) {
             if (Vector2Distance(pPos2D, map->locations[i].position) > 50.0f) continue;
+
 
             Vector3 targetPos = { map->locations[i].position.x + 2.0f, 1.5f, map->locations[i].position.y + 2.0f };
             if (Vector3DistanceSqr(targetPos, camera.position) < 144.0f) { 
@@ -1773,8 +2413,10 @@ void DrawGameMap(GameMap *map, Camera camera) {
         }
     }
 
+
     BeginMode3D(camera); 
 }
+
 
 void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
     for(int i=0; i<MAX_EVENTS; i++) {
@@ -1784,6 +2426,7 @@ void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
         }
     }
 }
+
 
 void DrawZoneMarker(Vector3 pos, Color color) {
     float time = GetTime();
@@ -1795,6 +2438,7 @@ void DrawZoneMarker(Vector3 pos, Color color) {
     Vector3 ringPos = { pos.x, pos.y + height + 0.5f + sinf(time * 2.0f) * 0.5f, pos.z };
     DrawCircle3D(ringPos, radius * 0.8f, (Vector3){1,0,0}, 90.0f, color);
 }
+
 
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
     if (strlen(query) == 0 || map->locationCount == 0) return 0;
@@ -1810,13 +2454,16 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
     return count;
 }
 
+
 // [OPTIMIZATION] Fast Collision Check
 bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCamera) {
     // 1. Determine which cell the object is in
     int gx = (int)((x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int gy = (int)((z + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
+
     Vector2 p = { x, z };
+
 
     // 2. Check 3x3 grid around player (to handle straddling borders)
     for (int cy = gy - 1; cy <= gy + 1; cy++) {
@@ -1825,6 +2472,7 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
             // Bounds check
             if (cx < 0 || cx >= SECTOR_GRID_COLS || cy < 0 || cy >= SECTOR_GRID_ROWS) continue;
 
+
             CollisionCell *cell = &colGrid[cy][cx];
             
             // 3. Check ONLY buildings in this cell
@@ -1832,11 +2480,13 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
                 int bIdx = cell->indices[k];
                 Building *b = &map->buildings[bIdx];
 
+
                 // Precise Poly Check
                 if (CheckCollisionPointPoly(p, b->footprint, b->pointCount)) return true;
             }
         }
     }
+
 
     // 4. Check Events (Keep this global as there are few of them)
     if (!isCamera){
@@ -1849,62 +2499,116 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
         }
     }
 
+
     return false;
 }
 
+
+
+
+
+
 void UnloadGameMap(GameMap *map) {
+    // 1. Free Map Data Arrays
     if (map->nodes) free(map->nodes);
     if (map->edges) free(map->edges);
+    
     if (map->buildingCount > 0) {
         for (int i = 0; i < map->buildingCount; i++) free(map->buildings[i].footprint);
     }
+    if (map->buildings) free(map->buildings);
+
+
     if (map->areaCount > 0) {
         for (int i = 0; i < map->areaCount; i++) free(map->areas[i].points);
     }
-    if (map->buildings) free(map->buildings);
-    if (map->locations) free(map->locations);
     if (map->areas) free(map->areas);
+    
+    if (map->locations) free(map->locations);
+    
+    // 2. Free Graph
     if (map->graph) {
         for(int i=0; i<map->nodeCount; i++) if(map->graph[i].connections) free(map->graph[i].connections);
         free(map->graph);
     }
+
+
+    // 3. Unload Renderer
     if (cityRenderer.loaded) {
-        UnloadTexture(cityRenderer.whiteTex);
-        // Unload Sector Models
+        cityRenderer.activeSectorCount = 0;
+        // A. Unload SECTORS
         for (int y = 0; y < SECTOR_GRID_ROWS; y++) {
             for (int x = 0; x < SECTOR_GRID_COLS; x++) {
-                 if (cityRenderer.sectors[y][x].active) {
-                     UnloadModel(cityRenderer.sectors[y][x].model);
-                     cityRenderer.sectors[y][x].active = false;
-                 }
-                 if (cityRenderer.builders[y][x]) {
-                     FreeSectorBuilder(cityRenderer.builders[y][x]);
-                     free(cityRenderer.builders[y][x]);
-                 }
+                UnloadSectorChunk(x, y); 
+                
+                if (cityRenderer.builders[y][x]) {
+                    FreeSectorBuilder(cityRenderer.builders[y][x]);
+                    free(cityRenderer.builders[y][x]);
+                    cityRenderer.builders[y][x] = NULL;
+                }
+                
+                SectorManifest *man = &cityRenderer.manifests[y][x];
+                if (man->buildingIndices) { free(man->buildingIndices); man->buildingIndices = NULL; }
+                if (man->edgeIndices) { free(man->edgeIndices); man->edgeIndices = NULL; }
+                if (man->areaIndices) { free(man->areaIndices); man->areaIndices = NULL; }
+                man->buildingCount = 0; man->buildingCap = 0;
+                man->edgeCount = 0; man->edgeCap = 0;
+                man->areaCount = 0; man->areaCap = 0;
             }
         }
         
-        for (int m = 0; m < ASSET_WALL; m++) UnloadModel(cityRenderer.models[m]);
-        UnloadModel(cityRenderer.models[ASSET_WALL]);
-        
-        if(cityRenderer.mapBaked) {
-            UnloadModel(cityRenderer.roadModel);
-            UnloadModel(cityRenderer.markingsModel);
-            UnloadModel(cityRenderer.areaModel);
-            UnloadModel(cityRenderer.roofModel); 
+        // B. Unload ASSETS
+        // [FIX] Prevent Double-Free of Aliased Models
+        // ASSET_CORNER and ASSET_SIDEWALK share memory with ASSET_WALL.
+        // We zero them out so the loop skips them, letting ASSET_WALL handle the free.
+        cityRenderer.models[ASSET_CORNER] = (Model){0};
+        cityRenderer.models[ASSET_SIDEWALK] = (Model){0};
+
+
+        for (int m = 0; m < ASSET_COUNT; m++) {
+            UnloadModelSafe(cityRenderer.models[m]);
         }
         
+        // C. Unload Legacy
+        if (cityRenderer.mapBaked) {
+            UnloadModelSafe(cityRenderer.roadModel);
+            UnloadModelSafe(cityRenderer.markingsModel);
+            UnloadModelSafe(cityRenderer.areaModel);
+            UnloadModelSafe(cityRenderer.roofModel); 
+        }
+
+
+        // D. Unload Shared Texture
+        if (cityRenderer.whiteTex.id != 0) {
+            UnloadTexture(cityRenderer.whiteTex);
+            cityRenderer.whiteTex = (Texture2D){0};
+        }
+
+
+        if (cityRenderer.nodeDegrees) {
+            free(cityRenderer.nodeDegrees);
+            cityRenderer.nodeDegrees = NULL;
+        }
+
+
         cityRenderer.loaded = false;
+        cityRenderer.mapBaked = false;
     }
+
+
+    // 4. Free Collision Grid
     if (colGridLoaded) {
-        for(int y=0; y<SECTOR_GRID_ROWS; y++) {
-            for(int x=0; x<SECTOR_GRID_COLS; x++) {
-                if (colGrid[y][x].indices) free(colGrid[y][x].indices);
-            }
+    for(int y=0; y<SECTOR_GRID_ROWS; y++) {
+        for(int x=0; x<SECTOR_GRID_COLS; x++) {
+            if (colGrid[y][x].indices) free(colGrid[y][x].indices);
+            if (nodeGrid[y][x].indices) free(nodeGrid[y][x].indices); // FREE NODE GRID
         }
-        colGridLoaded = false;
     }
+    colGridLoaded = false;
 }
+    
+}
+
 
 // In map.c
 void BuildMapGraph(GameMap *map) {
@@ -1914,16 +2618,20 @@ void BuildMapGraph(GameMap *map) {
         free(map->graph);
     }
 
+
     map->graph = (NodeGraph*)calloc(map->nodeCount, sizeof(NodeGraph));
     
     for (int i = 0; i < map->edgeCount; i++) {
         int u = map->edges[i].startNode; 
         int v = map->edges[i].endNode;
 
+
         // Safety Check: Ensure connection is within bounds
         if (u >= map->nodeCount || v >= map->nodeCount) continue;
 
+
         float dist = Vector2Distance(map->nodes[u].position, map->nodes[v].position);
+
 
         // --- Connection U -> V ---
         if (map->graph[u].count >= map->graph[u].capacity) {
@@ -1932,6 +2640,7 @@ void BuildMapGraph(GameMap *map) {
         }
         // [FIX] We add 'i' (the edge index) so traffic knows which road this is
         map->graph[u].connections[map->graph[u].count++] = (GraphConnection){v, dist, i};
+
 
         // --- Connection V -> U (Only if Two-Way) ---
         if (!map->edges[i].oneway) {
@@ -1945,28 +2654,33 @@ void BuildMapGraph(GameMap *map) {
     printf("Graph Rebuilt. Nodes: %d, Edges Processed: %d\n", map->nodeCount, map->edgeCount);
 }
 
+
 // [OPTIMIZATION] Fast Node Search
+// [OPTIMIZATION] Spatial Search (O(1) instead of O(N))
 int GetClosestNode(GameMap *map, Vector2 position) {
     int bestNode = -1; 
     float minDst = FLT_MAX;
     
-    // [FIX] Increased search radius from 100.0f to 500.0f.
-    // If the radius is too small, the spawner thinks the player is in "the void"
-    // and refuses to spawn cars.
-    float searchRadius = 500.0f; 
+    int gx = (int)((position.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int gy = (int)((position.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
-    for (int i = 0; i < map->nodeCount; i++) {
-        if (map->graph && map->graph[i].count == 0) continue; 
-        
-        // Broad Phase Check
-        if (fabsf(position.x - map->nodes[i].position.x) > searchRadius) continue;
-        if (fabsf(position.y - map->nodes[i].position.y) > searchRadius) continue;
 
-        float d = Vector2DistanceSqr(position, map->nodes[i].position);
-        if (d < minDst) { minDst = d; bestNode = i; }
+    // Search 3x3 cells around the position
+    for (int y = gy - 1; y <= gy + 1; y++) {
+        for (int x = gx - 1; x <= gx + 1; x++) {
+            if (x < 0 || x >= SECTOR_GRID_COLS || y < 0 || y >= SECTOR_GRID_ROWS) continue;
+            NodeCell *cell = &nodeGrid[y][x];
+            for (int k = 0; k < cell->count; k++) {
+                int nodeIdx = cell->indices[k];
+                if (map->graph && map->graph[nodeIdx].count == 0) continue;
+                float d = Vector2DistanceSqr(position, map->nodes[nodeIdx].position);
+                if (d < minDst) { minDst = d; bestNode = nodeIdx; }
+            }
+        }
     }
     return bestNode;
 }
+
 
 int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, int maxPathLen) {
     if (!map->graph) BuildMapGraph(map);
@@ -2020,9 +2734,38 @@ int FindPath(GameMap *map, Vector2 startPos, Vector2 endPos, Vector2 *outPath, i
     return pathLen;
 }
 
+
+// In map.c
+void BuildNodeGrid(GameMap *map) {
+    for(int y=0; y<SECTOR_GRID_ROWS; y++) {
+        for(int x=0; x<SECTOR_GRID_COLS; x++) {
+            if(nodeGrid[y][x].indices) free(nodeGrid[y][x].indices);
+            nodeGrid[y][x].indices = NULL;
+            nodeGrid[y][x].count = 0;
+            nodeGrid[y][x].capacity = 0;
+        }
+    }
+    for (int i = 0; i < map->nodeCount; i++) {
+        Vector2 pos = map->nodes[i].position;
+        int gx = (int)((pos.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int gy = (int)((pos.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        if (gx < 0 || gx >= SECTOR_GRID_COLS || gy < 0 || gy >= SECTOR_GRID_ROWS) continue;
+        
+        NodeCell *cell = &nodeGrid[gy][gx];
+        if (cell->count >= cell->capacity) {
+            cell->capacity = (cell->capacity == 0) ? 4 : cell->capacity * 2;
+            cell->indices = (int*)realloc(cell->indices, cell->capacity * sizeof(int));
+        }
+        cell->indices[cell->count++] = i;
+    }
+    printf("Node Grid Built for %d nodes.\n", map->nodeCount);
+}
+
+
 GameMap LoadGameMap(const char *fileName) {
     GameMap map = {0};
-    // [OPTIMIZATION] Massive Array allocation (ensure system has RAM)
+    
+    // --- Allocation ---
     map.nodes = (Node *)calloc(MAX_NODES, sizeof(Node));
     map.edges = (Edge *)calloc(MAX_EDGES, sizeof(Edge));
     map.buildings = (Building *)calloc(MAX_BUILDINGS, sizeof(Building));
@@ -2033,14 +2776,20 @@ GameMap LoadGameMap(const char *fileName) {
     ClearEvents(&map);
     LoadCityAssets(); 
 
+
+    // --- File Parsing (Keep exactly as you have it) ---
     char *text = LoadFileText(fileName);
     if (!text) {
         printf("CRITICAL ERROR: Could not load map file %s\n", fileName);
         return map;
     }
+    
     char *line = strtok(text, "\n");
     int mode = 0; 
+    
     while (line != NULL) {
+        // ... (Keep all your existing parsing logic for NODES, EDGES, BUILDINGS, etc.) ...
+        // ... (This part of your code was fine) ...
         if (strncmp(line, "NODES:", 6) == 0) { mode = 1; }
         else if (strncmp(line, "EDGES:", 6) == 0) { mode = 2; }
         else if (strncmp(line, "BUILDINGS:", 10) == 0) { mode = 3; }
@@ -2123,47 +2872,42 @@ GameMap LoadGameMap(const char *fileName) {
     }
     UnloadFileText(text);
 
-    printf("Baking City Geometry...\n");
-    for (int i = 0; i < map.buildingCount; i++) {
-        BakeBuildingGeometry(&map.buildings[i]);
-    }
-    BakeRoadDetails(&map);     
-    BakeMapElements(&map); 
 
-    // Finalize Sectors
-    int totalVerts = 0;
-    for (int y = 0; y < SECTOR_GRID_ROWS; y++) {
-        for (int x = 0; x < SECTOR_GRID_COLS; x++) {
-            if (cityRenderer.builders[y][x] && cityRenderer.builders[y][x]->vertexCount > 0) {
-                cityRenderer.sectors[y][x].model = BakeSectorMesh(cityRenderer.builders[y][x]);
-                
-                // Assign shared texture (using whiteTex as fallback per instructions)
-                // In a real scenario, this would be the atlas.
-                // Since we baked vertex colors, tint works. 
-                // UVs are preserved if we ever add an atlas.
-                for(int m=0; m<cityRenderer.sectors[y][x].model.meshCount; m++) {
-                    cityRenderer.sectors[y][x].model.materials[m].maps[MATERIAL_MAP_DIFFUSE].texture = cityRenderer.whiteTex;
-                }
-                
-                cityRenderer.sectors[y][x].active = true;
-                cityRenderer.sectors[y][x].isEmpty = false;
-                totalVerts += cityRenderer.builders[y][x]->vertexCount;
-                
-                FreeSectorBuilder(cityRenderer.builders[y][x]);
-                free(cityRenderer.builders[y][x]);
-                cityRenderer.builders[y][x] = NULL;
-            } else {
-                cityRenderer.sectors[y][x].isEmpty = true;
-                if (cityRenderer.builders[y][x]) {
-                    FreeSectorBuilder(cityRenderer.builders[y][x]);
-                    free(cityRenderer.builders[y][x]);
-                    cityRenderer.builders[y][x] = NULL;
-                }
+    // --- CRITICAL FIX: REMOVED GLOBAL BAKING CALLS ---
+    // The previous code had loops here that baked ALL buildings and ALL roads.
+    // Those have been deleted. We now only build the manifests.
+
+
+    printf("Map Data Loaded. Building Manifests...\n");
+    
+    // Sort all objects into their grid cells (Fast)
+    BuildSectorManifests(&map);
+    
+    // Build physics/traffic data (Lightweight)
+    BuildCollisionGrid(&map);
+    BuildNodeGrid(&map);
+    BuildMapGraph(&map);
+    
+    // --- PRE-LOAD STARTING ZONE ---
+    // Instantly load the chunk at 0,0 so the player doesn't spawn in a void
+    // This is safe because it only generates geometry for 9 chunks, not 3600.
+    int startX = (int)((0.0f + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    int startY = (int)((0.0f + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+    
+    for (int y = startY - 1; y <= startY + 1; y++) {
+        for (int x = startX - 1; x <= startX + 1; x++) {
+            if (x >= 0 && x < SECTOR_GRID_COLS && y >= 0 && y < SECTOR_GRID_ROWS) {
+                LoadSectorChunk(&map, x, y);
             }
         }
     }
-    printf("Baking Complete. Total Static Vertices: %d\n", totalVerts);
-    BuildCollisionGrid(&map);
-    BuildMapGraph(&map);
+
+
+    printf("Map Ready.\n");
     return map;
 }
+
+
+
+
+

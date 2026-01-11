@@ -30,6 +30,11 @@ typedef struct Player {
     float yVelocity;
     bool isGrounded;
     float angle;
+    Vector3 prevPosition; 
+    float prevAngle;
+    float physicsAccumulator;
+    Vector3 renderPosition; // <--- DRAW THIS ONE
+    float renderAngle;
     
     // Rendering
     Model model;

@@ -271,7 +271,7 @@ def convert_osm():
         f.write("\nBUILDINGS:\n")
         for b in final_buildings:
             f.write(f"{b['h']:.1f} {b['col'][0]} {b['col'][1]} {b['col'][2]}")
-            for p in b['pts']: f.write(f" {int(p[0])} {int(p[1])}")
+            for p in b['pts']: f.write(f" {p[0]:.1f} {p[1]:.1f}")
             f.write("\n")
             
         f.write("\nAREAS:\n\nL:\n") 

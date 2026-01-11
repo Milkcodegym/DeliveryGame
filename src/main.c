@@ -47,7 +47,7 @@ int main(void)
 
     while (!WindowShouldClose()){
         
-        GameMap map = RunStartMenu("resources/maps/real_city.map",screenWidth,screenHeight);
+        GameMap map = RunStartMenu("resources/maps/smaller_city.map",screenWidth,screenHeight);
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
@@ -155,8 +155,9 @@ int main(void)
                         UpdatePlayer(&player, &map, &traffic, dt);
                         UpdateTraffic(&traffic, player.position, &map, dt);
                         UpdateDevControls(&map, &player);
+                        
                     }
-                    
+                    UpdateMapStreaming(&map, player.position);
                     UpdateVisuals(dt); 
                     UpdateMapEffects(&map, player.position);
                     UpdatePhone(&phone, &player, &map); 
@@ -262,7 +263,7 @@ int main(void)
                         }
                         
                         Vector3 drawPos = player.position;
-                        DrawModelEx(player.model, drawPos, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.35f, 0.35f, 0.35f}, WHITE);
+                        DrawModelEx(player.model, player.position, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.35f, 0.35f, 0.35f}, WHITE);
                         DrawTraffic(&traffic);
                     EndMode3D();
                     

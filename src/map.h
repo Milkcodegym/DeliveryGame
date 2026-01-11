@@ -187,5 +187,6 @@ void ResetMapCamera(Vector2 pos); // Required by main.c respawn logic
 
 void UpdateRuntimeParks(GameMap *map, Vector3 playerPos);
 void DrawRuntimeParks(Vector3 playerPos);
+void UpdateMapStreaming(GameMap *map, Vector3 playerPos);
 
 #endif
