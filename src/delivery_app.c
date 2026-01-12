@@ -336,7 +336,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             if (t->pay < 5.0f) t->pay = 5.0f;
 
             // --- DELIVERY COMPLETION ---
-            if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
+            /*if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
                 ShowPhoneNotification("Delivered!", GREEN);
                 AddMoney(player, t->restaurant, t->pay);
@@ -363,10 +363,10 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 TriggerRandomEvent(map, player->position, fwd);
                 eventFallbackTimer = 120.0f; 
                 SaveGame(player, phone);
-                ShowPhoneNotification("Auto-Saved", LIME);
-            }
+                ShowPhoneNotification("Auto-Saved", LIME);*/
+            //}
         }
-        else if (t->status == JOB_ACCEPTED) {
+        /*else if (t->status == JOB_ACCEPTED) {
             Vector2 playerPos2D = { player->position.x, player->position.z };
             if (Vector2Distance(playerPos2D, t->restaurantPos) < 5.0f) {
                 t->status = JOB_PICKED_UP;
@@ -378,6 +378,111 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 TriggerRandomEvent(map, player->position, fwd);
                 eventFallbackTimer = 120.0f;
             }
+        }*/
+    }
+}
+
+
+// In delivery_app.c
+
+// Define static variables here so they remember their state
+static float interactionTimer = 0.0f;
+static bool isPlayerNearBox = false;
+
+// Accessor for drawing the UI in main.c
+bool IsInteractionActive() { return isPlayerNearBox; }
+float GetInteractionTimer() { return interactionTimer; }
+
+void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, float dt) {
+    isPlayerNearBox = false; // Reset state
+
+    for(int i = 0; i < 5; i++) {
+        DeliveryTask *t = &phone->tasks[i];
+        Vector3 targetPos = {0};
+        bool validTask = false;
+
+        // Check task status
+        if (t->status == JOB_ACCEPTED) {
+            targetPos = (Vector3){ t->restaurantPos.x, 0.0f, t->restaurantPos.y };
+            validTask = true;
+        } else if (t->status == JOB_PICKED_UP) {
+            targetPos = (Vector3){ t->customerPos.x, 0.0f, t->customerPos.y };
+            validTask = true;
+        }
+
+        if (validTask) {
+            // 1. Get smart position
+            Vector3 smartPos = GetSmartDeliveryPos(map, targetPos);
+
+            // 2. Check Distance
+            float dist = Vector2Distance(
+                (Vector2){player->position.x, player->position.z}, 
+                (Vector2){smartPos.x, smartPos.z}
+            );
+
+            if (dist < 5.0f) { // 5.0f radius
+                isPlayerNearBox = true;
+
+                // 3. Check Input
+                if (IsKeyDown(KEY_E)) {
+                    interactionTimer += dt;
+
+                    // 4. Trigger Action (4 Seconds)
+                    if (interactionTimer >= 4.0f) {
+                        
+                        // --- PICKUP ---
+                        if (t->status == JOB_ACCEPTED) {
+                            t->status = JOB_PICKED_UP;
+                            t->creationTime = GetTime(); 
+                            SetMapDestination(map, t->customerPos);
+                            TriggerPickupAnimation(smartPos);
+                            ShowPhoneNotification("Order Picked Up!", COLOR_ACCENT);
+                            
+                            // Trigger Event
+                            Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
+                            TriggerRandomEvent(map, player->position, fwd);
+                        } 
+                        // --- DROPOFF ---
+                        else if (t->status == JOB_PICKED_UP) {
+                            t->status = JOB_DELIVERED;
+                            
+                            // Pay & Stats
+                            AddMoney(player, t->restaurant, t->pay);
+                            player->totalEarnings += t->pay;
+                            player->totalDeliveries++;
+
+                            // Tip Logic
+                            double realElapsed = GetTime() - t->creationTime;
+                            double effectiveElapsed = realElapsed * player->insulationFactor;
+                            float tip = 0.0f;
+                            if (t->timeLimit <= 0 || effectiveElapsed < t->timeLimit) {
+                                tip = t->pay * 0.2f;
+                                if (t->fragility > 0.5f) tip += 15.0f;
+                                if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.5f) tip += 10.0f;
+                            }
+
+                            if (tip > 0) {
+                                AddMoney(player, "Tip", tip);
+                                ShowPhoneNotification(TextFormat("Paid $%.2f + $%.2f Tip!", t->pay, tip), COLOR_ACCENT);
+                            } else {
+                                ShowPhoneNotification(TextFormat("Paid $%.2f", t->pay), COLOR_ACCENT);
+                            }
+
+                            TriggerDropoffAnimation(player->position, smartPos);
+                            phone->activeTaskCount--;
+                            SaveGame(player, phone);
+                        }
+                        
+                        interactionTimer = 0.0f; // Reset
+                    }
+                } else {
+                    interactionTimer = 0.0f; // Reset if released
+                }
+                break; // Only interact with one at a time
+            }
         }
     }
+    
+    // Reset if walked away
+    if (!isPlayerNearBox) interactionTimer = 0.0f;
 }

@@ -91,7 +91,7 @@ static bool colGridLoaded = false;
 
 typedef enum {
     // --- Existing Building Parts ---
-    ASSET_AC_A = 0, ASSET_AC_B, ASSET_BALCONY, ASSET_BALCONY_WHITE,
+    ASSET_AC_A = 0, ASSET_AC_B,
     ASSET_DOOR_BROWN, ASSET_DOOR_BROWN_GLASS, ASSET_DOOR_BROWN_WIN,
     ASSET_DOOR_WHITE, ASSET_DOOR_WHITE_GLASS, ASSET_DOOR_WHITE_WIN,
     ASSET_FRAME_DOOR1, ASSET_FRAME_SIMPLE, ASSET_FRAME_TENT,
@@ -1898,8 +1898,6 @@ void LoadCityAssets() {
     // --- Buildings ---
     LOAD_ASSET(ASSET_AC_A, "resources/Buildings/detail-ac-a.obj");
     LOAD_ASSET(ASSET_AC_B, "resources/Buildings/detail-ac-b.obj");
-    LOAD_ASSET(ASSET_BALCONY, "resources/Buildings/balcony.obj");
-    LOAD_ASSET(ASSET_BALCONY_WHITE, "resources/Buildings/balcony_white.obj");
     LOAD_ASSET(ASSET_DOOR_BROWN, "resources/Buildings/door-brown.obj");
     LOAD_ASSET(ASSET_DOOR_BROWN_GLASS, "resources/Buildings/door-brown-glass.obj");
     LOAD_ASSET(ASSET_DOOR_BROWN_WIN, "resources/Buildings/door-brown-window.obj");
@@ -2067,20 +2065,20 @@ BuildingStyle GetBuildingStyle(Vector2 pos) {
     int roll = GetRandomValue(0, 100);
     if (isCenter && roll < 60) {
         style.isSkyscraper = true; style.window = ASSET_WIN_TALL; style.windowTop = ASSET_WIN_TALL_TOP;
-        style.doorFrame = ASSET_FRAME_DOOR1; style.doorInner = ASSET_DOOR_BROWN_GLASS; style.balcony = ASSET_BALCONY;
+        style.doorFrame = ASSET_FRAME_DOOR1; style.doorInner = ASSET_DOOR_BROWN_GLASS;
         style.hasAC = false; style.isWhiteTheme = false;
     } else if (roll < 30) {
         style.isSkyscraper = false; style.isWhiteTheme = false; style.window = ASSET_WIN_DET;
         style.windowTop = ASSET_WIN_DET; style.doorFrame = ASSET_FRAME_TENT; style.doorInner = ASSET_DOOR_BROWN;
-        style.balcony = ASSET_BALCONY; style.hasAC = true;
+        style.hasAC = true;
     } else if (roll < 70) {
         style.isSkyscraper = false; style.isWhiteTheme = true; style.window = ASSET_WIN_TWIN_TENT_W;
         style.windowTop = ASSET_WIN_TWIN_TENT_W; style.doorFrame = ASSET_FRAME_WIN_WHITE;
-        style.doorInner = ASSET_DOOR_WHITE_WIN; style.balcony = ASSET_BALCONY_WHITE; style.hasAC = true;
+        style.doorInner = ASSET_DOOR_WHITE_WIN; style.hasAC = true;
     } else {
         style.isSkyscraper = false; style.isWhiteTheme = false; style.window = ASSET_WIN_SIMPLE;
         style.windowTop = ASSET_WIN_SIMPLE; style.doorFrame = ASSET_FRAME_SIMPLE; style.doorInner = ASSET_DOOR_BROWN_WIN;
-        style.balcony = ASSET_BALCONY; style.hasAC = true;
+        style.hasAC = true;
     }
     return style;
 }
@@ -2179,24 +2177,17 @@ void BakeBuildingGeometry(Building *b) {
                     Vector3 doorScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth * 0.8f };
                     BakeObjectToSector(style.doorInner, pos, modelRotation, doorScale, tint);
                 } else {
-                    bool wantsBalcony = false;
-                    if (!style.isSkyscraper && f > 0 && f < floors-1) {
-                          if ((m % 2 != 0) && GetRandomValue(0, 100) < 40) wantsBalcony = true;
-                    }
                     Vector3 winScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
-                    if (wantsBalcony) {
-                        BakeObjectToSector(style.balcony, pos, modelRotation, winScale, tint);
-                    } else {
-                        AssetType winType = (f == floors - 1) ? style.windowTop : style.window;
-                        BakeObjectToSector(winType, pos, modelRotation, winScale, tint);
-                        
-                        if (style.hasAC && f < floors-1 && GetRandomValue(0, 100) < 15) {
-                            AssetType acType = (GetRandomValue(0, 1) == 0) ? ASSET_AC_A : ASSET_AC_B;
-                            Vector3 acPos = { pos.x, pos.y - 0.4f, pos.z }; 
-                            Vector3 acScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
-                            BakeObjectToSector(acType, acPos, modelRotation, acScale, tint);
-                        }
+                    AssetType winType = (f == floors - 1) ? style.windowTop : style.window;
+                    BakeObjectToSector(winType, pos, modelRotation, winScale, tint);
+                    
+                    if (f < floors-1 && GetRandomValue(0, 100) < 15) {
+                        AssetType acType = (GetRandomValue(0, 1) == 0) ? ASSET_AC_A : ASSET_AC_B;
+                        Vector3 acPos = { pos.x, pos.y - 0.4f, pos.z }; 
+                        Vector3 acScale = { MODEL_SCALE, MODEL_SCALE, structuralDepth };
+                        BakeObjectToSector(acType, acPos, modelRotation, acScale, tint);
                     }
+                    
                 }
                 
                 if (!style.isSkyscraper) {
@@ -2757,24 +2748,80 @@ void DrawGameMap(GameMap *map, Camera camera) {
     // ... (Keep existing locations/events drawing logic) ...
     // Note: Ensure the rest of the function remains the same as previous steps
     // 4. Draw Locations (Standard)
+    // 4. Draw Locations (Standard)
     for (int i = 0; i < map->locationCount; i++) {
+        // Distance check
         if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DIST_BASE) continue;
         
-        Vector3 pos = { map->locations[i].position.x, 1.0f, map->locations[i].position.y };
-        Color poiColor = RED;
-        
-        if(map->locations[i].type == LOC_FUEL) poiColor = ORANGE;
-        else if(map->locations[i].type == LOC_MECHANIC) poiColor = DARKBLUE;
-        else if(map->locations[i].type == LOC_FOOD) poiColor = GREEN;
-        else if(map->locations[i].type == LOC_MARKET) poiColor = BLUE;
-        
-        DrawSphere(pos, 1.5f, Fade(poiColor, 0.8f));
-        DrawLine3D(pos, (Vector3){pos.x, 4.0f, pos.z}, BLACK);
-        
+        Vector3 pos = { map->locations[i].position.x, 0.0f, map->locations[i].position.y };
+        float dx = pos.x - camera.position.x;
+        float dz = pos.z - camera.position.z;
+        float distSqr = dx*dx + dz*dz;
+
+        // --- FUEL STATION ---
         if (map->locations[i].type == LOC_FUEL) {
-             Vector3 pumpPos = { pos.x + 2.0f, 1.0f, pos.z + 2.0f };
-             DrawCube(pumpPos, 1.0f, 2.0f, 1.0f, YELLOW);
-             DrawCubeWires(pumpPos, 1.0f, 2.0f, 1.0f, BLACK);
+            // 1. Fuel Pump (Yellow Box with Black Top)
+            Vector3 pumpPos = { pos.x, 1.0f, pos.z };
+            DrawCube(pumpPos, 1.2f, 2.0f, 1.2f, YELLOW);
+            DrawCubeWires(pumpPos, 1.2f, 2.0f, 1.2f, DARKGRAY);
+            DrawCube((Vector3){pumpPos.x, 2.1f, pumpPos.z}, 1.3f, 0.2f, 1.3f, BLACK); // Roof cap
+
+            // 2. Sign (Offset slightly)
+            // Use the legs logic to draw a sign next to it
+            Vector3 signPos = { pos.x + 2.0f, 1.8f, pos.z };
+            // Draw Legs
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x - 0.8f, 0.9f, signPos.z}, (Vector3){0,1,0}, 0.0f, (Vector3){1, 1.8f, 1}, WHITE);
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x + 0.8f, 0.9f, signPos.z}, (Vector3){0,1,0}, 0.0f, (Vector3){1, 1.8f, 1}, WHITE);
+            // Draw Board (Reusing RoadWork sign for now, you can load a "FUEL" texture later)
+            DrawModelEx(cityRenderer.signConstruction, signPos, (Vector3){0,1,0}, 0.0f, (Vector3){1,1,1}, WHITE);
+
+            // 3. Interaction Prompt
+            if (distSqr < 144.0f) { // 12m range
+                DrawCenteredLabel(camera, (Vector3){pos.x, 2.5f, pos.z}, "Refuel [E]", YELLOW);
+            }
+        }
+        
+        // --- MECHANIC SHOP ---
+        else if (map->locations[i].type == LOC_MECHANIC) {
+            // 1. Mechanic Stand (Blue Workbench area)
+            Vector3 benchPos = { pos.x, 0.5f, pos.z };
+            DrawCube(benchPos, 3.0f, 1.0f, 1.0f, DARKBLUE); // Table
+            DrawCube((Vector3){pos.x, 1.5f, pos.z}, 3.0f, 0.1f, 1.0f, GRAY); // Shelf
+
+            // 2. Sign (Vertical "Repair" Sign)
+            Vector3 signPos = { pos.x - 2.5f, 1.8f, pos.z };
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, 0.0f, (Vector3){1, 1.8f, 1}, WHITE);
+            // Reusing Accident sign for Mechanic
+            DrawModelEx(cityRenderer.signAccident, signPos, (Vector3){0,1,0}, 0.0f, (Vector3){1,1,1}, WHITE);
+
+            // 3. Interaction Prompt
+            if (distSqr < 144.0f) {
+                DrawCenteredLabel(camera, (Vector3){pos.x, 2.5f, pos.z}, "Mechanic [E]", SKYBLUE);
+            }
+        }
+
+        // --- DEALERSHIP ---
+        else if (map->locations[i].type == LOC_DEALERSHIP) {
+            // 1. Rotating Display Car
+            // We use a predefined sedan model or a fallback box if models aren't loaded
+            Vector3 carPos = { pos.x, 0.5f, pos.z };
+            float spin = (float)GetTime() * 30.0f;
+            
+            // Draw a podium
+            DrawCylinder((Vector3){carPos.x, 0.1f, carPos.z}, 2.5f, 2.5f, 0.2f, 16, DARKGRAY);
+            
+            // Draw the car (Use your specific model index for ASSET_CAR_SEDAN)
+            // If you want to use the low-poly procedural car here, you'd need to extract that logic.
+            // For now, we assume the Model asset is available.
+            DrawModelEx(cityRenderer.models[ASSET_CAR_SEDAN], carPos, (Vector3){0,1,0}, spin, (Vector3){1.2f, 1.2f, 1.2f}, WHITE);
+
+            // 2. Dealership Sign
+            Vector3 signPos = { pos.x + 3.5f, 1.8f, pos.z + 2.0f };
+            // Legs
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x - 0.8f, 0.9f, signPos.z}, (Vector3){0,1,0}, 45.0f, (Vector3){1, 1.8f, 1}, WHITE);
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x + 0.8f, 0.9f, signPos.z}, (Vector3){0,1,0}, 45.0f, (Vector3){1, 1.8f, 1}, WHITE);
+            // Board (Reusing RoadClosed as "Dealership")
+            DrawModelEx(cityRenderer.signRoadClosed, signPos, (Vector3){0,1,0}, 45.0f, (Vector3){1,1,1}, WHITE);
         }
     }
     
@@ -2802,12 +2849,28 @@ void DrawGameMap(GameMap *map, Camera camera) {
     
     // Interaction Prompts
     for (int i = 0; i < map->locationCount; i++) {
-        if (map->locations[i].type == LOC_FUEL || map->locations[i].type == LOC_MECHANIC) {
+        if (map->locations[i].type == LOC_FUEL || map->locations[i].type == LOC_MECHANIC|| map->locations[i].type == LOC_DEALERSHIP) {
             if (Vector2Distance(pPos2D, map->locations[i].position) > 50.0f) continue;
 
             Vector3 targetPos = { map->locations[i].position.x + 2.0f, 1.5f, map->locations[i].position.y + 2.0f };
             if (Vector3DistanceSqr(targetPos, camera.position) < 144.0f) { 
-                const char* txt = (map->locations[i].type == LOC_FUEL) ? "Refuel [E]" : "Mechanic [E]";
+                const char* txt = 0;
+                switch (map->locations[i].type)
+                {
+                case LOC_FUEL:
+                    txt = "Refuel [E]";
+                    break;
+                case LOC_MECHANIC: 
+                    txt = "Mechanic [E]";
+                    break;
+                case LOC_DEALERSHIP: 
+                    txt = "Enter Dealership [E]";
+                    break;
+                default:
+                    txt = "Press [E] to interact";
+                    break;
+                }
+                
                 DrawCenteredLabel(camera, targetPos, txt, YELLOW);
             }
         }
@@ -2825,19 +2888,105 @@ void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
     }
 }
 
+// Put this in map.c (before DrawZoneMarker)
+Vector3 GetSmartDeliveryPos(GameMap *map, Vector3 buildingCenter) {
+    // 1. Find the nearest road node
+    int roadNodeIdx = GetClosestNode(map, (Vector2){buildingCenter.x, buildingCenter.z});
+    
+    if (roadNodeIdx != -1) {
+        // 2. Get direction: Building -> Road
+        Vector2 roadPos = map->nodes[roadNodeIdx].position;
+        Vector2 bPos = { buildingCenter.x, buildingCenter.z };
+        
+        Vector2 dir = Vector2Subtract(roadPos, bPos);
+        dir = Vector2Normalize(dir);
 
-void DrawZoneMarker(Vector3 pos, Color color) {
-    float time = GetTime();
-    float scale = 1.0f + sinf(time * 3.0f) * 0.1f;
-    float height = 4.0f;
-    float radius = 4.0f * scale;
-    DrawCylinder(pos, radius, radius, height, 16, Fade(color, 0.3f));
-    DrawCylinderWires(pos, radius, radius, height, 16, color);
-    Vector3 ringPos = { pos.x, pos.y + height + 0.5f + sinf(time * 2.0f) * 0.5f, pos.z };
-    DrawCircle3D(ringPos, radius * 0.8f, (Vector3){1,0,0}, 90.0f, color);
+        // 3. Push OUT towards the road by 15 units
+        Vector2 offsetPos = Vector2Add(bPos, Vector2Scale(dir, 5.0f));
+        
+        // Return the new "Street-Side" position (Height 0.5f)
+        return (Vector3){ offsetPos.x, 1.0f, offsetPos.y };
+    }
+    
+    // Fallback: Just return center if no road found
+    return buildingCenter;
 }
 
+// Define custom colors for the package look just above the function
+#define COLOR_CARDBOARD (Color){ 170, 130, 100, 255 } // Brownish tan
+#define COLOR_TAPE      (Color){ 200, 180, 150, 255 } // Lighter tan
 
+// In map.c
+
+void DrawZoneMarker(GameMap *map, Vector3 drawPos, Color color) {
+    float time = GetTime();
+
+    // Determine if this is a Pickup or Dropoff based on color
+    // LIME (Pickup) has high Green. ORANGE (Dropoff) has high Red.
+    bool isDropOff = (color.r > color.g); 
+
+    // --- ANIMATION CALCULATIONS ---
+    float bob = sinf(time * 3.0f) * 0.15f;
+    float spinAngle = time * 50.0f;
+    Vector3 finalPos = { drawPos.x, drawPos.y + 0.4f + bob, drawPos.z };
+
+    // --- PACKAGE DIMENSIONS ---
+    float w = 0.6f;
+    float h = 0.4f;
+    float d = 0.5f;
+
+    // 1. DRAW GROUND INDICATOR (The Ring)
+    // Pulsing effect for the ring
+    float pulse = (sinf(time * 5.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+    float ringAlpha = isDropOff ? 0.3f + (pulse * 0.3f) : 0.6f;
+    
+    DrawCircle3D((Vector3){finalPos.x, 0.08f, finalPos.z}, 0.8f, (Vector3){1,0,0}, 90.0f, Fade(color, ringAlpha));
+    
+    // Beacon Line
+    DrawLine3D(finalPos, (Vector3){finalPos.x, 15.0f, finalPos.z}, Fade(color, 0.25f));
+
+    // 2. DRAW THE BOX
+    rlPushMatrix();
+        rlTranslatef(finalPos.x, finalPos.y, finalPos.z);
+        rlRotatef(15.0f, 1.0f, 0.0f, 0.0f);
+        rlRotatef(spinAngle, 0.0f, 1.0f, 0.0f);
+
+        if (isDropOff) {
+            // [GHOST STYLE] - For Drop-off
+            // Draws a "Wireframe Blueprint" to show where the box goes
+            
+            // Pulsing transparency
+            float alpha = 0.2f + (pulse * 0.2f);
+            
+            // Faint inner fill
+            DrawCube(Vector3Zero(), w, h, d, Fade(color, alpha));
+            // Bright wireframe outline
+            DrawCubeWires(Vector3Zero(), w + 0.02f, h + 0.02f, d + 0.02f, color);
+            
+            // "PLACE HERE" Text effect (Floating arrow or just the wires is usually enough)
+        } 
+        else {
+            // [REALISTIC STYLE] - For Pickup
+            // Draws the actual cardboard box
+            
+            // Main Cardboard Body
+            DrawCube(Vector3Zero(), w, h, d, COLOR_CARDBOARD);
+            DrawCubeWires(Vector3Zero(), w + 0.01f, h + 0.01f, d + 0.01f, DARKBROWN);
+
+            // Shipping Label
+            DrawCube((Vector3){0, h / 2.0f + 0.01f, 0}, w * 0.7f, 0.01f, d * 0.7f, RAYWHITE);
+
+            // Tape
+            DrawCube(Vector3Zero(), w + 0.02f, h * 0.15f, d + 0.02f, COLOR_TAPE);
+        }
+
+    rlPopMatrix();
+
+    // Shadow (Only for real box)
+    if (!isDropOff) {
+        DrawCylinder((Vector3){finalPos.x, 0.05f, finalPos.z}, 0.5f, 0.5f, 0.02f, 16, Fade(BLACK, 0.3f));
+    }
+}
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
     if (strlen(query) == 0 || map->locationCount == 0) return 0;
     int count = 0;
@@ -3197,7 +3346,11 @@ GameMap LoadGameMap(const char *fileName) {
                  int type; float x, y; char name[64];
                  if (sscanf(line, "L %d %f %f %63s", &type, &x, &y, name) == 4) {
                      map.locations[map.locationCount].position = (Vector2){ x * MAP_SCALE, y * MAP_SCALE };
-                     map.locations[map.locationCount].type = (LocationType)type;
+                     if (type == 9) {
+                        map.locations[map.locationCount].type = LOC_DEALERSHIP;
+                    } else {
+                        map.locations[map.locationCount].type = (LocationType)type;
+                    }
                      map.locations[map.locationCount].iconID = type;
                      for(int k=0; name[k]; k++) if(name[k] == '_') name[k] = ' ';
                      strncpy(map.locations[map.locationCount].name, name, 64);

@@ -22,4 +22,7 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone);
 
 void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth);
 
+void TriggerPickupAnimation(Vector3 position);
+void UpdateAndDrawPickupEffects(Vector3 targetPos);
+
 #endif

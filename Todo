@@ -1,11 +1,7 @@
 
-Add sea
-Add landmark locations?
+Add sea??
 Work on scaling and rendering optimization (important)
 
-Implement traffic rules (lights, lanes)?
-
-Define delivery collision boxes and entrance triggers
 Add icons for pickup and drop-off locations
 Finalize scoring system (Time, Distance, Safety)
 Add tip modifier logic (based on general time)
@@ -13,6 +9,7 @@ Add tip modifier logic (based on general time)
 Map Editor Tools
   Fix editability of POIs
   Add functionality to assign delivery kinds to specific shop nodes
+  add dealership locations (location id = 9)
 
 
 Finalise car upgrades
@@ -33,27 +30,22 @@ make music looping feature?
   fix map app building issues
   game not saving on exit? (needs testing)
 
-add a bicycle or motorcycle. then, fix graphics for locations instead of spheres, find icons for map, fix loading and start screen graphics and loading, dealership loading screen
+add a bicycle or motorcycle. then, fix graphics for locations 
+dealership loading screen?
 add dealership location to map
-make parks spawn in city gaps?
+make parks spawn in city gaps fix?
 
 add a notification informing you of hospital bills when you crash and respawn
 safety warning resets your speed fix
-make random event hitboxes smaller
 fix building clipping issues
-fix g-force meter not working
-fuel balancing, tank empties a bit too quickly
-fix broken traffic (+traffic models?)
-fix broken camera lerp
+fix broken traffic
 optimise camera collision?
-add g forces and temperature logic?
+fix g forces and temperature logic (fragile packages break instantly)
 add cargo integrity meter
 fix traffic models
+make traffic move slower
 
-traffic goes through road events?
-fix camera?
-handle end of map better
-fix traffic jams (fixed?)
-
-add greek translation?
 increase damage taken?
+fix park glitches in general
+fix player speed depending on frame rate?
+add floating labels to delivery boxes

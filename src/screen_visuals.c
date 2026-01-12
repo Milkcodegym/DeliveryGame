@@ -2,11 +2,24 @@
 #include "player.h"
 #include <math.h>
 #include <stdio.h>
+#include "raymath.h" // Required for Vector3Lerp
+#include "rlgl.h"    // Required for rlPushMatrix
 
 // --- STATE FOR REFUEL SLIDER ---
 static float targetFuelAmount = 0.0f;
 static float fuelPricePerUnit = 1.50f; 
 static float priceTimer = 0.0f;
+
+// --- VISUAL EFFECTS SYSTEM ---
+typedef struct {
+    Vector3 startPos;
+    Vector3 endPos;     // Where it's going
+    float progress;     // 0.0 to 1.0
+    bool active;
+    bool isDropoff;     // New flag: True = Leaving Car, False = Entering Car
+} DeliveryEffect;
+
+static DeliveryEffect fxQueue[5] = {0};
 
 // [NEW] Helper to find the active job (Picked Up)
 static DeliveryTask* GetActiveTask(PhoneState *phone) {
@@ -322,6 +335,110 @@ void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
     DrawLine(x, y + h*0.8f, x+w, y + h*0.8f, GRAY); // Low
 }
 
+// 1. Trigger SUCTION (Ground -> Car)
+void TriggerPickupAnimation(Vector3 itemPos) {
+    for (int i = 0; i < 5; i++) {
+        if (!fxQueue[i].active) {
+            fxQueue[i].active = true;
+            fxQueue[i].isDropoff = false; // Suction
+            fxQueue[i].startPos = itemPos;
+            fxQueue[i].endPos = itemPos; // Will be updated to player position dynamically
+            fxQueue[i].progress = 0.0f;
+            return;
+        }
+    }
+}
+
+// 2. Trigger DROP-OFF (Car -> Ground) [NEW]
+void TriggerDropoffAnimation(Vector3 playerPos, Vector3 targetGroundPos) {
+    for (int i = 0; i < 5; i++) {
+        if (!fxQueue[i].active) {
+            fxQueue[i].active = true;
+            fxQueue[i].isDropoff = true; // Drop off
+            fxQueue[i].startPos = playerPos; // Start at car
+            fxQueue[i].endPos = targetGroundPos; // End on ground
+            fxQueue[i].progress = 0.0f;
+            return;
+        }
+    }
+}
+// 3. Update & Draw Loop
+#ifndef COLOR_CARDBOARD
+#define COLOR_CARDBOARD (Color){ 170, 130, 100, 255 }
+#define COLOR_TAPE      (Color){ 200, 180, 150, 255 }
+#endif
+
+void UpdateAndDrawPickupEffects(Vector3 playerPos) {
+    float dt = GetFrameTime();
+    float speed = 4.0f; 
+
+    for (int i = 0; i < 5; i++) {
+        if (!fxQueue[i].active) continue;
+
+        fxQueue[i].progress += dt * speed;
+        if (fxQueue[i].progress >= 1.0f) {
+            fxQueue[i].active = false;
+            continue;
+        }
+
+        // Calculate positions
+        Vector3 start, end;
+        if (fxQueue[i].isDropoff) {
+            start = fxQueue[i].startPos;
+            end = fxQueue[i].endPos;
+        } else {
+            start = fxQueue[i].startPos;
+            end = playerPos; 
+        }
+
+        Vector3 current = Vector3Lerp(start, end, fxQueue[i].progress);
+
+        // Scale Logic
+        float scale = fxQueue[i].isDropoff ? fxQueue[i].progress : (1.0f - fxQueue[i].progress);
+        
+        // Prevent it from disappearing completely at the very end of pickup
+        if (scale < 0.1f) scale = 0.1f; 
+
+        // --- DRAW THE FLYING PACKAGE ---
+        rlPushMatrix();
+            rlTranslatef(current.x, current.y, current.z);
+            
+            // Spin effect
+            rlRotatef(fxQueue[i].progress * 720.0f, 0.0f, 1.0f, 0.0f);
+            // Tilt slightly to show the label
+            rlRotatef(15.0f, 1.0f, 0.0f, 0.0f); 
+            
+            Vector3 center = {0, 0, 0};
+            
+            // Base dimensions of the package
+            float baseW = 0.6f;
+            float baseH = 0.4f;
+            float baseD = 0.5f;
+
+            // Scaled dimensions
+            float w = baseW * scale;
+            float h = baseH * scale;
+            float d = baseD * scale;
+
+            // 1. Main Box
+            DrawCube(center, w, h, d, COLOR_CARDBOARD);
+            DrawCubeWires(center, w, h, d, DARKBROWN);
+
+            // 2. Label (White)
+            // Offset slightly so it sits on top
+            DrawCube((Vector3){0, h/2.0f + (0.01f*scale), 0}, w*0.7f, 0.01f*scale, d*0.7f, RAYWHITE);
+
+            // 3. Tape (Strip)
+            DrawCube(center, w + (0.02f*scale), h*0.15f, d + (0.02f*scale), COLOR_TAPE);
+
+        rlPopMatrix();
+        
+        // --- DRAW THE TRAIL ---
+        // We keep the color HERE so you know if it's a Pickup (Lime) or Delivery (Orange)
+        Color trailColor = fxQueue[i].isDropoff ? ORANGE : LIME;
+        DrawLine3D(start, current, Fade(trailColor, 0.5f));
+    }
+}
 void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     int screenW = GetScreenWidth();
     int screenH = GetScreenHeight();

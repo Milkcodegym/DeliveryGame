@@ -161,7 +161,8 @@ void UnloadGameMap(GameMap *map);
 // UPDATED: Now takes Camera for text labels
 void DrawGameMap(GameMap *map, Camera camera); 
 void UpdateMapEffects(GameMap *map, Vector3 playerPos);
-void DrawZoneMarker(Vector3 pos, Color color);
+Vector3 GetSmartDeliveryPos(GameMap *map, Vector3 buildingCenter);
+void DrawZoneMarker(GameMap *map,Vector3 pos, Color color);
 
 // Navigation
 void BuildMapGraph(GameMap *map);

@@ -1,35 +1,113 @@
 #include "start_menu.h" 
 #include "raylib.h"
 #include "rlgl.h"
+#include "raymath.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+// --- CONFIG ---
+#define MAX_BG_BUILDINGS 1500 
+#define MAX_BG_WINDOWS 5000 
+
+// --- COLORS ---
+#define COLOR_SKY       (Color){ 10, 10, 15, 255 }   
+#define COLOR_FOG       (Color){ 10, 10, 15, 255 }   
+#define COLOR_BUILDING  (Color){ 25, 25, 30, 255 }   
+#define COLOR_WINDOW    (Color){ 255, 180, 50, 255 } 
+
 // --- SHARED STATE ---
-// We keep these static so state persists between the two functions
 static float sharedProgress = 0.0f;
 static int sharedStage = 0;
 
 // --- 1. LOCAL ASSET MANAGEMENT ---
 typedef struct {
     Texture2D atlas;
+    
     Model light;
     Model tree;
     Model trash;
-    Model building_tall;
-    Model building_wide;
+    
+    // CPU Arrays
+    Vector3* bPos;
+    Vector3* bSize;
+    Vector3* wPos;
+    Vector3* wSize;
+    
     bool loaded;
 } MenuAssets;
 
 static MenuAssets menuAssets = {0};
 
-void Menu_SetMeshUVs(Mesh *mesh, float u, float v) {
-    if (mesh->texcoords == NULL) return;
-    for (int i = 0; i < mesh->vertexCount; i++) {
-        mesh->texcoords[i*2] = u;
-        mesh->texcoords[i*2+1] = v;
-    }
+float RandF(float min, float max) {
+    return min + (float)GetRandomValue(0, 10000)/10000.0f * (max - min);
+}
+
+// [OPTIMIZATION] High-Performance Cube Batcher
+// This writes raw vertex data to the buffer, bypassing Raylib's internal overhead
+void DrawCubeBatched(Vector3 position, Vector3 size, Color color) {
+    float x = position.x;
+    float y = position.y;
+    float z = position.z;
+    float width = size.x / 2.0f;
+    float height = size.y / 2.0f;
+    float length = size.z / 2.0f;
+
+    rlColor4ub(color.r, color.g, color.b, color.a);
+
+    // Front Face
+    rlVertex3f(x - width, y - height, z + length);
+    rlVertex3f(x + width, y - height, z + length);
+    rlVertex3f(x + width, y + height, z + length);
+    rlVertex3f(x - width, y + height, z + length);
+
+    // Back Face
+    rlVertex3f(x - width, y + height, z - length);
+    rlVertex3f(x + width, y + height, z - length);
+    rlVertex3f(x + width, y - height, z - length);
+    rlVertex3f(x - width, y - height, z - length);
+
+    // Top Face
+    rlVertex3f(x - width, y + height, z - length);
+    rlVertex3f(x - width, y + height, z + length);
+    rlVertex3f(x + width, y + height, z + length);
+    rlVertex3f(x + width, y + height, z - length);
+
+    // Bottom Face
+    rlVertex3f(x - width, y - height, z - length);
+    rlVertex3f(x + width, y - height, z - length);
+    rlVertex3f(x + width, y - height, z + length);
+    rlVertex3f(x - width, y - height, z + length);
+
+    // Right Face
+    rlVertex3f(x + width, y - height, z - length);
+    rlVertex3f(x + width, y + height, z - length);
+    rlVertex3f(x + width, y + height, z + length);
+    rlVertex3f(x + width, y - height, z + length);
+
+    // Left Face
+    rlVertex3f(x - width, y - height, z - length);
+    rlVertex3f(x - width, y - height, z + length);
+    rlVertex3f(x - width, y + height, z + length);
+    rlVertex3f(x - width, y + height, z - length);
+}
+
+Color GetFoggedColor(Color baseCol, Vector3 pos) {
+    float dist = Vector3Length((Vector3){pos.x, 0, pos.z}); 
+    float fogStart = 10.0f;
+    float fogEnd = 300.0f; // Smoother Fade
+    
+    float factor = (dist - fogStart) / (fogEnd - fogStart);
+    if (factor < 0.0f) factor = 0.0f;
+    if (factor > 1.0f) factor = 1.0f;
+    
+    return (Color){
+        (unsigned char)Lerp(baseCol.r, COLOR_FOG.r, factor),
+        (unsigned char)Lerp(baseCol.g, COLOR_FOG.g, factor),
+        (unsigned char)Lerp(baseCol.b, COLOR_FOG.b, factor),
+        255
+    };
 }
 
 void LoadMenuAssets(void) {
@@ -44,44 +122,132 @@ void LoadMenuAssets(void) {
         UnloadImage(whiteImg);
     }
 
-    #define LOAD_MENU_MODEL(target, path) \
+    #define LOAD_MODEL(target, path) \
         target = LoadModel(path); \
         if (target.meshCount == 0) target = LoadModelFromMesh(GenMeshCube(1,1,1)); \
         target.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = menuAssets.atlas;
 
-    LOAD_MENU_MODEL(menuAssets.light, "resources/Props/light-curved.obj");
-    LOAD_MENU_MODEL(menuAssets.tree, "resources/trees/tree-small.obj");
-    LOAD_MENU_MODEL(menuAssets.trash, "resources/random/trash.obj");
-    LOAD_MENU_MODEL(menuAssets.building_tall, "resources/Buildings/windows_tall.obj");
-    LOAD_MENU_MODEL(menuAssets.building_wide, "resources/Buildings/Windows_detailed.obj");
+    LOAD_MODEL(menuAssets.light, "resources/Props/light-curved.obj");
+    LOAD_MODEL(menuAssets.tree, "resources/trees/tree-small.obj");
+    LOAD_MODEL(menuAssets.trash, "resources/random/trash.obj");
 
-    float atlasW = 512.0f; 
-    float atlasH = 512.0f;
-    float whitePixelU = (200.0f + 0.5f) / atlasW;
-    float whitePixelV = (400.0f + 0.5f) / atlasH;
-
-    Menu_SetMeshUVs(&menuAssets.tree.meshes[0], whitePixelU, whitePixelV);
-    Menu_SetMeshUVs(&menuAssets.trash.meshes[0], whitePixelU, whitePixelV);
+    // Allocate Data
+    menuAssets.bPos = (Vector3*)RL_MALLOC(MAX_BG_BUILDINGS * sizeof(Vector3));
+    menuAssets.bSize = (Vector3*)RL_MALLOC(MAX_BG_BUILDINGS * sizeof(Vector3));
+    menuAssets.wPos = (Vector3*)RL_MALLOC(MAX_BG_WINDOWS * sizeof(Vector3));
+    menuAssets.wSize = (Vector3*)RL_MALLOC(MAX_BG_WINDOWS * sizeof(Vector3));
     
+    int bCount = 0;
+    int wCount = 0;
+    srand(42); 
+
+    // Generate City
+    for (int i = 0; i < MAX_BG_BUILDINGS; i++) {
+        float x = RandF(-180.0f, 180.0f);
+        float z = RandF(-300.0f, 300.0f); 
+        
+        if (x > -30.0f && x < 30.0f) continue; 
+
+        bool isClose = (abs(x) < 80.0f);
+
+        float w, d, h;
+        if (isClose) {
+            w = RandF(15.0f, 30.0f);
+            d = RandF(15.0f, 30.0f);
+            h = RandF(40.0f, 110.0f); 
+        } else {
+            w = RandF(10.0f, 25.0f);
+            d = RandF(10.0f, 25.0f);
+            h = RandF(20.0f, 60.0f); 
+        }
+
+        menuAssets.bPos[bCount] = (Vector3){ x, h/2.0f, z };
+        menuAssets.bSize[bCount] = (Vector3){ w, h, d };
+        bCount++;
+
+        // Windows
+        if (wCount < MAX_BG_WINDOWS - 100) { 
+            int face = isClose ? 2 : GetRandomValue(0, 2);
+            
+            float floorH = RandF(3.5f, 4.5f);
+            float colW = RandF(3.5f, 5.0f);
+            float startY = isClose ? 2.5f : 15.0f;
+            
+            float wallWidth = (face == 2) ? d : w;
+            int cols = (int)(wallWidth / colW) - 1;
+            int rows = (int)((h - startY) / floorH) - 1;
+            
+            if (cols < 1) cols = 1; if (rows < 1) rows = 1;
+
+            float winW = colW * 0.5f;
+            float winH = floorH * 0.6f;
+
+            for (int r = 0; r < rows; r++) {
+                for (int c = 0; c < cols; c++) {
+                    if (wCount >= MAX_BG_WINDOWS) break;
+                    if (GetRandomValue(0, 100) > (isClose ? 40 : 15)) continue;
+
+                    float gridX = (c - (cols-1)/2.0f) * colW;
+                    float gridY = startY + (r * floorH);
+                    float wx, wz, wsX, wsZ;
+
+                    if (face == 2) { 
+                        if (x > 0) wx = x - w/2 - 0.2f;
+                        else       wx = x + w/2 + 0.2f;
+                        wz = z + gridX;
+                        wsX = 0.2f; wsZ = winW;
+                    } else {
+                        wx = x + gridX;
+                        wz = z + ((face == 0) ? d/2 + 0.2f : -d/2 - 0.2f);
+                        wsX = winW; wsZ = 0.2f;
+                    }
+
+                    menuAssets.wPos[wCount] = (Vector3){ wx, gridY, wz };
+                    menuAssets.wSize[wCount] = (Vector3){ wsX, winH, wsZ };
+                    wCount++;
+                }
+            }
+        }
+    }
+    
+    // Tint Fixes
+    for (int i = 0; i < menuAssets.tree.meshCount; i++) {
+        if (menuAssets.tree.meshes[i].texcoords) {
+            for (int v = 0; v < menuAssets.tree.meshes[i].vertexCount; v++) {
+                menuAssets.tree.meshes[i].texcoords[v*2] = 200.5f/512.0f;
+                menuAssets.tree.meshes[i].texcoords[v*2+1] = 400.5f/512.0f;
+            }
+        }
+    }
+
     menuAssets.loaded = true;
 }
 
 void UnloadMenuAssets(void) {
     if (!menuAssets.loaded) return;
+    
+    // Safe Unload (Detach Textures First)
+    Texture2D nullTex = { 0 }; 
+    if (menuAssets.light.materialCount > 0) menuAssets.light.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = nullTex;
+    if (menuAssets.tree.materialCount > 0) menuAssets.tree.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = nullTex;
+    if (menuAssets.trash.materialCount > 0) menuAssets.trash.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = nullTex;
+
     UnloadTexture(menuAssets.atlas);
     UnloadModel(menuAssets.light);
     UnloadModel(menuAssets.tree);
     UnloadModel(menuAssets.trash);
-    UnloadModel(menuAssets.building_tall);
-    UnloadModel(menuAssets.building_wide);
+    
+    RL_FREE(menuAssets.bPos);
+    RL_FREE(menuAssets.bSize);
+    RL_FREE(menuAssets.wPos);
+    RL_FREE(menuAssets.wSize);
+    
     menuAssets.loaded = false;
 }
 
-// --- 2. DRAW VESPA ---
 void DrawSimpleVespa(void) {
-    Color bodyColor = RED; 
-    Color seatColor = BROWN;
-    Color tireColor = DARKGRAY;
+    Color bodyColor = (Color){ 200, 30, 30, 255 }; 
+    Color seatColor = (Color){ 80, 40, 20, 255 };
     Color metalColor = LIGHTGRAY;
 
     DrawCube((Vector3){0, 0.6f, -0.5f}, 0.8f, 0.7f, 1.4f, bodyColor);
@@ -91,86 +257,143 @@ void DrawSimpleVespa(void) {
     DrawLine3D((Vector3){0, 0.3f, 1.5f}, (Vector3){0, 1.6f, 1.1f}, metalColor);
     DrawCube((Vector3){0, 1.6f, 1.1f}, 1.2f, 0.1f, 0.1f, metalColor);
     DrawSphere((Vector3){0, 1.6f, 1.2f}, 0.15f, RAYWHITE);
-    DrawCylinder((Vector3){0, 0.3f, -1.0f}, 0.3f, 0.3f, 0.2f, 16, tireColor);
-    DrawCylinderWires((Vector3){0, 0.3f, -1.0f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
-    DrawCylinder((Vector3){0, 0.3f, 1.5f}, 0.3f, 0.3f, 0.2f, 16, tireColor);
-    DrawCylinderWires((Vector3){0, 0.3f, 1.5f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
-    DrawCylinder((Vector3){0, 0.01f, 0.2f}, 0.8f, 0.8f, 0.0f, 8, Fade(BLACK, 0.5f));
-    DrawLine3D((Vector3){-0.2f, 0.3f, 0.0f}, (Vector3){-0.5f, 0.0f, 0.0f}, LIGHTGRAY);
+    DrawCylinder((Vector3){0, 0.3f, -1.0f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
+    DrawCylinder((Vector3){0, 0.3f, 1.5f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
+    DrawLine3D((Vector3){-0.2f, 0.3f, 0.0f}, (Vector3){-0.6f, 0.0f, 0.2f}, LIGHTGRAY);
 }
 
-// --- 3. DRAW ENVIRONMENT ---
 void DrawMenuDiorama(void) {
-    DrawCube((Vector3){0, -0.05f, 0}, 20.0f, 0.1f, 20.0f, (Color){40, 40, 40, 255});
-    DrawCube((Vector3){3.5f, 0.05f, 0}, 3.0f, 0.2f, 20.0f, LIGHTGRAY);
+    // 1. Endless Road
+    for (int z = -250; z < 250; z += 50) {
+        Vector3 pos = {0, -0.1f, (float)z};
+        Color roadCol = GetFoggedColor((Color){15, 15, 18, 255}, pos);
+        DrawCube(pos, 18.0f, 0.1f, 50.0f, roadCol);
+        
+        Color sideCol = GetFoggedColor((Color){60, 60, 60, 255}, pos);
+        DrawCube((Vector3){10.0f, 0.05f, (float)z}, 3.0f, 0.2f, 50.0f, sideCol);
+        DrawCube((Vector3){-10.0f, 0.05f, (float)z}, 3.0f, 0.2f, 50.0f, sideCol);
+    }
+
+    // Road Markings
+    for (int z = 200; z > -200; z -= 8) {
+        Vector3 pos = {0, 0.01f, (float)z};
+        Color markCol = GetFoggedColor(WHITE, pos);
+        markCol = ColorAlpha(markCol, 0.6f); 
+        DrawCube(pos, 0.3f, 0.01f, 3.0f, markCol);
+    }
 
     if (menuAssets.loaded) {
-        DrawModelEx(menuAssets.light, (Vector3){2.5f, 0.0f, 2.0f}, (Vector3){0,1,0}, -90.0f, (Vector3){2.8f, 2.8f, 2.8f}, WHITE);
-        DrawSphere((Vector3){1.0f, 5.5f, 2.0f}, 0.2f, YELLOW); 
+        Color treeTint = (Color){20, 50, 20, 255}; 
         
-        Color treeTint = (Color){40, 110, 40, 255}; 
-        DrawModelEx(menuAssets.tree, (Vector3){4.0f, 0.0f, -3.0f}, (Vector3){0,1,0}, 45.0f, (Vector3){5.0f, 5.0f, 5.0f}, treeTint);
-        DrawModelEx(menuAssets.trash, (Vector3){2.8f, 0.0f, -0.5f}, (Vector3){0,1,0}, 10.0f, (Vector3){1.2f, 1.2f, 1.2f}, GRAY);
+        // --- PROPS ---
+        for (int z = 200; z > -200; z -= 30) {
+            Vector3 pRight = {9.0f, 0.0f, (float)z};
+            Vector3 pLeft = {-9.0f, 0.0f, (float)z};
+            
+            Color propsCol = GetFoggedColor(GRAY, pRight);
+            
+            // Street Lights
+            DrawModelEx(menuAssets.light, pRight, (Vector3){0,1,0}, 90.0f, (Vector3){8.0f, 8.0f, 8.0f}, propsCol);
+            DrawModelEx(menuAssets.light, pLeft, (Vector3){0,1,0}, -90.0f, (Vector3){8.0f, 8.0f, 8.0f}, propsCol);
+            
+            // Light Effects
+            rlSetBlendMode(RL_BLEND_ADDITIVE);
+                float bulbH = 5.2f;
+                Color glowCol = GetFoggedColor(YELLOW, pRight);
+                
+                DrawSphere((Vector3){7.8f, bulbH, (float)z}, 0.12f, glowCol);
+                DrawSphere((Vector3){-7.8f, bulbH, (float)z}, 0.12f, glowCol);
+                
+                Color coneCol = ColorAlpha(glowCol, 0.1f); // Fainter
+                rlDisableDepthMask();
+                DrawCylinderEx((Vector3){7.8f, bulbH - 0.2f, (float)z}, (Vector3){7.8f, 0.0f, (float)z}, 0.1f, 1.2f, 8, coneCol);
+                DrawCylinderEx((Vector3){-7.8f, bulbH - 0.2f, (float)z}, (Vector3){-7.8f, 0.0f, (float)z}, 0.1f, 1.2f, 8, coneCol);
+                rlEnableDepthMask();
+            rlSetBlendMode(RL_BLEND_ALPHA); 
+        }
+        
+        DrawModelEx(menuAssets.tree, (Vector3){12.0f, 0.0f, -5.0f}, (Vector3){0,1,0}, 45.0f, (Vector3){6.0f, 6.0f, 6.0f}, treeTint);
+        DrawModelEx(menuAssets.tree, (Vector3){-12.0f, 0.0f, -15.0f}, (Vector3){0,1,0}, 90.0f, (Vector3){5.5f, 5.5f, 5.5f}, treeTint);
+        DrawModelEx(menuAssets.trash, (Vector3){9.0f, 0.0f, 5.0f}, (Vector3){0,1,0}, 0.0f, (Vector3){1.5f, 1.5f, 1.5f}, GRAY);
 
-        Color bldgTint = (Color){80, 80, 90, 255}; 
-        DrawModelEx(menuAssets.building_tall, (Vector3){10.0f, 0.0f, 5.0f}, (Vector3){0,1,0}, -90.0f, (Vector3){2.0f, 10.0f, 2.0f}, bldgTint);
-        DrawModelEx(menuAssets.building_wide, (Vector3){-12.0f, 0.0f, 8.0f}, (Vector3){0,1,0}, 90.0f, (Vector3){2.0f, 5.0f, 4.0f}, bldgTint);
+        // --- BATCHED CITY DRAWING (HIGH PERFORMANCE) ---
+        // This replaces the 6000 separate DrawCube calls
+        rlBegin(RL_QUADS);
+            
+            // 1. Buildings
+            for(int i = 0; i < MAX_BG_BUILDINGS; i++) {
+                Color finalB = GetFoggedColor(COLOR_BUILDING, menuAssets.bPos[i]);
+                if (finalB.a < 10) continue; 
+                DrawCubeBatched(menuAssets.bPos[i], menuAssets.bSize[i], finalB);
+            }
+
+            // 2. Windows
+            for(int i = 0; i < MAX_BG_WINDOWS; i++) {
+                if (menuAssets.wPos[i].y == 0) continue;
+                Color finalW = GetFoggedColor(COLOR_WINDOW, menuAssets.wPos[i]);
+                if (finalW.a < 10) continue;
+                DrawCubeBatched(menuAssets.wPos[i], menuAssets.wSize[i], finalW);
+            }
+            
+        rlEnd();
     }
+}
+
+// --- 4. ATMOSPHERE ---
+void DrawMenuAtmosphere(void) {
+    rlDisableDepthMask(); 
+        Color fogSolid = COLOR_FOG;
+        rlBegin(RL_QUADS);
+            float limit = 220.0f;
+            float h = 60.0f;
+            DrawCubeBatched((Vector3){0, h/2, -limit}, (Vector3){limit*2, h, 1.0f}, fogSolid);
+            DrawCubeBatched((Vector3){0, h/2, limit}, (Vector3){limit*2, h, 1.0f}, fogSolid);
+            DrawCubeBatched((Vector3){-limit, h/2, 0}, (Vector3){1.0f, h, limit*2}, fogSolid);
+            DrawCubeBatched((Vector3){limit, h/2, 0}, (Vector3){1.0f, h, limit*2}, fogSolid);
+        rlEnd();
+
+        Color groundFog = Fade(COLOR_FOG, 0.5f); 
+        DrawCube((Vector3){0, 2.5f, 0}, 450.0f, 5.0f, 450.0f, groundFog);
+    rlEnableDepthMask();
 }
 
 float EaseOutCubic(float t) {
     return 1.0f - powf(1.0f - t, 3.0f);
 }
 
-// --- DRAWING HELPER ---
+// --- LOADING UI (Scaled) ---
 void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, const char* status) {
-    // Background - Slightly Transparent so we can see the game spawning behind it in Phase 2
-    DrawRectangle(0, 0, screenWidth, screenHeight, GetColor(0x151520FF)); 
+    float uiScale = screenHeight / 720.0f;
+
+    DrawRectangle(0, 0, screenWidth, screenHeight, COLOR_SKY); 
 
     float cx = screenWidth / 2.0f;
     float cy = screenHeight / 2.0f;
     
     float barWidth = screenWidth * 0.6f;
-    if (barWidth > 600) barWidth = 600;
-    if (barWidth < 300) barWidth = 300;
-    
-    float barHeight = 24.0f;
+    if (barWidth > 800 * uiScale) barWidth = 800 * uiScale;
+    float barHeight = 6.0f * uiScale;
     float barX = cx - (barWidth / 2.0f);
-    float barY = cy + 100.0f;
+    float barY = cy + 80.0f * uiScale;
 
-    const char* title = "LOADING CITY DATA";
-    int titleSize = 28;
-    int titleW = MeasureText(title, titleSize);
-    DrawText(title, cx - titleW/2, barY - 50, titleSize, WHITE);
+    int statSize = (int)(20 * uiScale);
+    int statW = MeasureText(status, statSize);
+    DrawText(status, cx - statW/2, barY - 30*uiScale, statSize, LIGHTGRAY);
 
-    DrawRectangleLinesEx((Rectangle){barX, barY, barWidth, barHeight}, 2.0f, DARKGRAY);
+    DrawRectangle((int)barX, (int)barY, (int)barWidth, (int)barHeight, (Color){30, 30, 40, 255});
     
     if (progress > 1.0f) progress = 1.0f;
     if (progress < 0.0f) progress = 0.0f;
     
-    float time = GetTime();
-    BeginScissorMode((int)barX + 2, (int)barY + 2, (int)((barWidth - 4) * progress), (int)barHeight - 4);
-        DrawRectangle((int)barX, (int)barY, (int)barWidth, (int)barHeight, DARKGREEN);
-        for (int i = 0; i < (int)(barWidth/20) + 2; i++) {
-            float xPos = barX + (i * 40) + (time * 60); 
-            float localX = fmodf(xPos - barX, barWidth + 40); 
-            DrawRectangle((int)(barX + localX - 40), (int)barY, 15, (int)barHeight, LIME);
-        }
-    EndScissorMode();
-
-    int dotCount = (int)(time * 3.0f) % 4;
-    char dotStr[5] = "";
-    for(int i=0; i<dotCount; i++) strcat(dotStr, ".");
+    int fillW = (int)(barWidth * progress);
+    DrawRectangle((int)barX, (int)barY, fillW, (int)barHeight, (Color){0, 200, 255, 255}); 
     
-    char fullStatus[128];
-    snprintf(fullStatus, 128, "%s%s", status, dotStr);
-    
-    int statSize = 20;
-    int statW = MeasureText(fullStatus, statSize);
-    DrawText(fullStatus, cx - statW/2, barY + 35, statSize, LIGHTGRAY);
+    if (progress > 0) DrawRectangle((int)barX + fillW - 2, (int)barY - 2, 4, (int)barHeight + 4, WHITE);
 
-    DrawRectangleGradientV(0, 0, screenWidth, screenHeight/4, BLACK, BLANK);
-    DrawRectangleGradientV(0, screenHeight - screenHeight/4, screenWidth, screenHeight/4, BLANK, BLACK);
+    char pctText[10];
+    sprintf(pctText, "%d%%", (int)(progress * 100));
+    int pctSize = (int)(20 * uiScale);
+    DrawText(pctText, cx - MeasureText(pctText, pctSize)/2, barY + 20*uiScale, pctSize, DARKGRAY);
 }
 
 // ============================================================================
@@ -180,7 +403,6 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
     float time = 0.0f;
     int menuState = -1; 
     
-    // Reset Shared State
     sharedProgress = 0.0f;
     sharedStage = 0;
 
@@ -188,19 +410,20 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
+    camera.position = (Vector3){ 0.0f, 3.5f, 9.0f };
+    camera.target = (Vector3){ 0.0f, 1.2f, 0.0f }; 
 
-    Vector3 camStartPos = {0};
+    Vector3 camStartPos = camera.position;
     Vector3 camEndPos = { 0.0f, 2.5f, -5.0f }; 
-    Vector3 camCurrentTarget = { 0.0f, 0.8f, 0.0f }; 
     float zoomTimer = 0.0f;
 
     const char* preLoadMessages[] = {
-        "Initializing Physics Engine",  
-        "Parsing City Graph",           
-        "Generating Traffic Nodes",     
-        "Baking Static Geometry",       
-        "Calculating Navigation Mesh",  
-        "Initializing Map File..."
+        "Initializing Physics Engine...",
+        "Parsing City Graph Nodes...",
+        "Generating Traffic Network...",
+        "Baking Static Geometry...",
+        "Optimizing Navigation Mesh...",
+        "Allocating Memory..."
     };
 
     while (!WindowShouldClose()) {
@@ -208,101 +431,119 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
         time += dt;
         int sw = GetScreenWidth();
         int sh = GetScreenHeight();
+        float uiScale = sh / 720.0f;
 
         if (menuState == -1) {
             LoadMenuAssets();
             menuState = 0;
-            continue;
+            continue; 
         }
 
-        if (menuState == 0) { // IDLE
-            float camRadius = 9.0f;
-            camera.position = (Vector3){ sinf(time * 0.3f) * camRadius, 3.5f, cosf(time * 0.3f) * camRadius };
-            camera.target = camCurrentTarget;
+        if (menuState == 0) { // Orbit
+            float camRadius = 12.0f;
+            camera.position = (Vector3){ sinf(time * 0.15f) * camRadius, 4.5f, cosf(time * 0.15f) * camRadius };
             if (IsKeyPressed(KEY_ENTER)) {
                 menuState = 1;
                 camStartPos = camera.position;
                 zoomTimer = 0.0f;
             }
         }
-        else if (menuState == 1) { // ZOOM
+        else if (menuState == 1) { // Zoom
             zoomTimer += dt;
             float t = zoomTimer / 1.5f; 
             if (t >= 1.0f) { t = 1.0f; menuState = 2; }
-            camera.position.x = camStartPos.x + (camEndPos.x - camStartPos.x) * EaseOutCubic(t);
-            camera.position.y = camStartPos.y + (camEndPos.y - camStartPos.y) * EaseOutCubic(t);
-            camera.position.z = camStartPos.z + (camEndPos.z - camStartPos.z) * EaseOutCubic(t);
+            float st = EaseOutCubic(t);
+            camera.position.x = camStartPos.x + (camEndPos.x - camStartPos.x) * st;
+            camera.position.y = camStartPos.y + (camEndPos.y - camStartPos.y) * st;
+            camera.position.z = camStartPos.z + (camEndPos.z - camStartPos.z) * st;
         }
-        else if (menuState == 2) { // FAKE LOAD 0% -> 50%
-            float speed = 0.0f;
-            if (sharedStage == 0) speed = 0.8f;
-            else if (sharedStage == 3) speed = 0.2f; 
-            else speed = 0.5f;
-
+        else if (menuState == 2) { // Fake Load
+            float speed = (sharedStage == 3) ? 0.3f : 0.9f; 
             sharedProgress += speed * dt;
-            
-            // Advance fake stages
             if (sharedProgress > 0.10f) sharedStage = 1;
             if (sharedProgress > 0.20f) sharedStage = 2;
             if (sharedProgress > 0.30f) sharedStage = 3;
-            if (sharedProgress > 0.40f) sharedStage = 4;
+            if (sharedProgress > 0.45f) sharedStage = 4;
             
-            // STOP AT 50%
             if (sharedProgress >= 0.50f) {
                 sharedProgress = 0.50f;
-                sharedStage = 5; // "Initializing Map File..."
-                
-                // Force a few frames of drawing the 50% state so the user sees it
-                // before we return and freeze for the Real Load.
-                static int bufferFrames = 0;
-                bufferFrames++;
-                if (bufferFrames > 5) {
-                    UnloadMenuAssets(); // Free memory for the map
-                    return true; // SIGNAL TO LOAD REAL MAP
-                }
+                sharedStage = 5; 
+                static int f = 0; f++;
+                if (f > 10) { UnloadMenuAssets(); return true; }
             }
         }
 
+        // --- DRAWING ---
         BeginDrawing();
+            
             if (menuState <= 1) {
-                ClearBackground((Color){15, 15, 30, 255}); 
+                ClearBackground(COLOR_FOG); 
+                
                 BeginMode3D(camera);
-                    DrawMenuDiorama();
-                    DrawSimpleVespa();
+                    DrawMenuDiorama();      
+                    DrawSimpleVespa();      
+                    DrawMenuAtmosphere();   
                 EndMode3D();
                 
-                // UI (Title/Press Start) logic (Simulated here for brevity, same as before)
                 if (menuState == 0) {
-                    DrawText("DELIVERY GAME 3D", (sw - MeasureText("DELIVERY GAME 3D", 40))/2, sh * 0.15f, 40, YELLOW);
-                    if ((int)(time*2)%2==0) DrawText("[ PRESS ENTER ]", (sw - MeasureText("[ PRESS ENTER ]", 20))/2, sh * 0.85f, 20, WHITE);
+                    float boxW = 400 * uiScale;
+                    float boxH = 70 * uiScale;
+                    DrawRectangle(20*uiScale, 20*uiScale, boxW, boxH, Fade(BLACK, 0.7f));
+                    DrawRectangleLines(20*uiScale, 20*uiScale, boxW, boxH, Fade(WHITE, 0.3f));
+                    
+                    DrawText("AUTH ECE - COURSE 004", 35*uiScale, 30*uiScale, 20*uiScale, WHITE);
+                    DrawText("DOMIMENOS PROGRAMMATISMOS", 35*uiScale, 55*uiScale, 12*uiScale, LIGHTGRAY);
+
+                    int titleSize = (int)(60 * uiScale);
+                    const char* title = "DELIVERY GAME 3D";
+                    int tw = MeasureText(title, titleSize);
+                    DrawText(title, (sw - tw)/2 + 4, sh * 0.18f + 4, titleSize, Fade(BLACK, 0.5f));
+                    DrawText(title, (sw - tw)/2, sh * 0.18f, titleSize, YELLOW);
+                    
+                    const char* authors = "CREATED BY: JOHN DOE & JOHN DOE";
+                    int aw = MeasureText(authors, (int)(22*uiScale));
+                    DrawText(authors, (sw - aw)/2, sh * 0.18f + titleSize + 15*uiScale, (int)(22*uiScale), SKYBLUE);
+
+                    float alpha = (sinf(time * 3.0f) + 1.0f) * 0.5f;
+                    const char* prompt = "- PRESS ENTER TO START -";
+                    int pw = MeasureText(prompt, (int)(26*uiScale));
+                    DrawText(prompt, (sw - pw)/2, sh * 0.85f, (int)(26*uiScale), Fade(WHITE, alpha));
+
+                    const char* copy = "(c) 2025 COPYRIGHT PLACEHOLDER";
+                    int cw = MeasureText(copy, (int)(12*uiScale));
+                    DrawText(copy, sw - cw - 20*uiScale, sh - 20*uiScale, (int)(12*uiScale), DARKGRAY);
+                }
+                
+                if (menuState == 1) {
+                    float zoomT = zoomTimer / 1.5f; 
+                    if (zoomT > 0.6f) {
+                        float fadeAlpha = (zoomT - 0.6f) / 0.4f;
+                        if (fadeAlpha > 1.0f) fadeAlpha = 1.0f;
+                        DrawRectangle(0, 0, sw, sh, Fade(COLOR_SKY, fadeAlpha));
+                    }
                 }
             } else {
                 DrawLoadingInterface(sw, sh, sharedProgress, preLoadMessages[sharedStage]);
             }
+            
         EndDrawing();
     }
     
-    return false; // Window closed
+    return false;
 }
 
-// ============================================================================
-// PHASE 2: OVERLAY 50% -> 100%
-// ============================================================================
 bool DrawPostLoadOverlay(int screenWidth, int screenHeight, float dt) {
-    // Continue from 50%
     if (sharedProgress < 0.5f) sharedProgress = 0.5f;
 
-    // Fake stages for post-load
     const char* postLoadMessages[] = {
-        "Initializing Map File...", // < 0.6
-        "Generating Chunks",        // 0.6 - 0.7
-        "Populating Sectors",       // 0.7 - 0.8
-        "Spawning Traffic",         // 0.8 - 0.9
-        "Starting Engine",          // 0.9 - 1.0
+        "Loading Map File...", 
+        "Generating Terrain Chunks...", 
+        "Populating City Sectors...", 
+        "Spawning AI Traffic...", 
+        "Igniting Engine...",
         "Ready"
     };
 
-    // Determine current message based on progress
     int msgIndex = 0;
     if (sharedProgress > 0.6f) msgIndex = 1;
     if (sharedProgress > 0.7f) msgIndex = 2;
@@ -310,15 +551,12 @@ bool DrawPostLoadOverlay(int screenWidth, int screenHeight, float dt) {
     if (sharedProgress > 0.9f) msgIndex = 4;
     if (sharedProgress >= 1.0f) msgIndex = 5;
 
-    // Slow, steady progress (Take ~3 seconds)
-    // 0.5 remaining / 0.15 speed = ~3.3 seconds
-    sharedProgress += 0.1f * dt; 
+    sharedProgress += 0.15f * dt; 
 
-    // Draw the overlay ON TOP of the game
     DrawLoadingInterface(screenWidth, screenHeight, sharedProgress, postLoadMessages[msgIndex]);
 
     if (sharedProgress >= 1.0f) {
-        return false; // Done!
+        return false; 
     }
-    return true; // Keep drawing
+    return true; 
 }

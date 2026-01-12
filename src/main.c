@@ -52,7 +52,7 @@ int main(void)
         return 0; // User closed window
         }
 
-        GameMap map = LoadGameMap("resources/Maps/real_city.map");
+        GameMap map = LoadGameMap("resources/Maps/smaller_city.map");
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
@@ -102,6 +102,10 @@ int main(void)
             
             // --- 1. UPDATE PHASE ---
             bool lockInput = UpdateTutorial(&player, &phone, &map, dt, isRefueling, isMechanicOpen);
+
+            if (!lockInput && !isRefueling && !isMechanicOpen && !isDead) {
+                UpdateDeliveryInteraction(&phone, &player, &map, dt);
+            }
 
             // [DEALERSHIP CHECK]
             if (GetDealershipState() == DEALERSHIP_ACTIVE) {
@@ -218,6 +222,10 @@ int main(void)
                                 else if (map.locations[i].type == LOC_MECHANIC) {
                                     if (IsKeyPressed(KEY_E)) isMechanicOpen = true;
                                 }
+                                
+                                else if (map.locations[i].type == LOC_DEALERSHIP && IsKeyPressed(KEY_E)) {
+                                    EnterDealership(&player);
+                                }
                             }
                         }
                     }
@@ -242,17 +250,29 @@ int main(void)
                         UpdateRuntimeParks(&map, camera.position);
                         
                         // Draw Deliveries
-                        for(int i=0; i<5; i++) {
+                        for(int i = 0; i < 5; i++) {
                             DeliveryTask *t = &phone.tasks[i];
+
                             if (t->status == JOB_ACCEPTED) {
-                                Vector3 pickupPos = { t->restaurantPos.x, 0.0f, t->restaurantPos.y };
-                                DrawZoneMarker(pickupPos, LIME);
+                                // 1. Get the raw center of the building
+                                Vector3 rawPos = { t->restaurantPos.x, 0.0f, t->restaurantPos.y };
+                                
+                                // 2. Calculate the position on the street (OUTSIDE the building)
+                                Vector3 smartPos = GetSmartDeliveryPos(&map, rawPos);
+                                
+                                // 3. Draw the marker at the smart position
+                                DrawZoneMarker(&map, smartPos, LIME);
                             }
                             else if (t->status == JOB_PICKED_UP) {
-                                Vector3 dropPos = { t->customerPos.x, 0.0f, t->customerPos.y };
-                                DrawZoneMarker(dropPos, ORANGE);
+                                // Same logic for the customer drop-off
+                                Vector3 rawPos = { t->customerPos.x, 0.0f, t->customerPos.y };
+                                Vector3 smartPos = GetSmartDeliveryPos(&map, rawPos);
+                                
+                                DrawZoneMarker(&map, smartPos, ORANGE);
                             }
                         }
+
+                        UpdateAndDrawPickupEffects(player.position);
 
                         // Draw Interaction Markers
                         if (!isDead && !isRefueling && !isMechanicOpen) {
@@ -339,6 +359,29 @@ if (IsKeyPressed(KEY_F5)) {
 
                     // --- 2D UI LAYER ---
                     DrawVisualsWithPinned(&player,&phone); 
+
+                    // [FIXED] Use functions to get data from delivery_app.c
+                    if (IsInteractionActive()) {
+                        int scrW = GetScreenWidth();
+                        int scrH = GetScreenHeight();
+                        float timer = GetInteractionTimer();
+                        
+                        if (timer > 0.0f) {
+                            // Draw Progress Bar
+                            float progress = timer / 4.0f;
+                            int barW = 200;
+                            
+                            DrawRectangle(scrW/2 - barW/2, scrH/2 + 60, barW, 20, Fade(BLACK, 0.5f));
+                            DrawRectangle(scrW/2 - barW/2, scrH/2 + 60, (int)(barW * progress), 20, LIME);
+                            DrawRectangleLines(scrW/2 - barW/2, scrH/2 + 60, barW, 20, WHITE);
+                            DrawText("HOLDING...", scrW/2 - MeasureText("HOLDING...", 20)/2, scrH/2 + 85, 20, WHITE);
+                        } else {
+                            // Draw Prompt
+                            const char* txt = "HOLD [E] TO INTERACT";
+                            DrawText(txt, scrW/2 - MeasureText(txt, 20)/2, scrH/2 + 60, 20, WHITE);
+                        }
+                    }
+                    
                     DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
                     
                     // [NEW] EMERGENCY RESCUE UI

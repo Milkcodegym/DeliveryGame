@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include <stdbool.h> 
 #include "player.h" // Needed for Player struct
+#include "map.h"
 
 // --- Forward Declarations ---
 // We don't need typedef Player Player here if we include player.h
@@ -35,7 +36,7 @@ typedef enum {
     JOB_AVAILABLE,
     JOB_ACCEPTED,
     JOB_PICKED_UP,
-    JOB_DELIVERED
+    JOB_DELIVERED,
 } JobStatus;
 
 typedef struct DeliveryTask {
@@ -87,7 +88,7 @@ typedef struct PhoneState {
     RenderTexture2D screenTexture;
     float slideAnim; 
     bool isOpen;
-    
+    int activeTaskCount;
     // Navigation
     PhoneApp currentApp; // Updated type name
     

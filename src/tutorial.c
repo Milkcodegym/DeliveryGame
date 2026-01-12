@@ -479,7 +479,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_EVENT_INTRO:
-            if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types that have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
+            if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types \nthat have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
                 if (DrawTutWindow("ROAD EVENTS", "The city is unpredictable.\n\nAccidents, Roadworks, and Police stops\ncan block your path.\n\nIf you see cones or signs, slow down\nor find another route.", true)) {
                     currentState = TUT_REFUEL_INTRO;
                 }
