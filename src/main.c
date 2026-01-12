@@ -383,6 +383,7 @@ if (IsKeyPressed(KEY_F5)) {
                     }
                     
                     DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
+                    DrawCargoHUD(&phone, &player);
                     
                     // [NEW] EMERGENCY RESCUE UI
                     if (player.fuel <= 0.0f) {

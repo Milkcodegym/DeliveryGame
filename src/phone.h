@@ -47,6 +47,7 @@ typedef struct DeliveryTask {
     Vector2 customerPos;   
     
     float pay;
+    float maxPay;
     float distance;        
     JobStatus status; 
     int jobType;           

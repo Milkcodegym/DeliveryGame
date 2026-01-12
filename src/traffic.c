@@ -233,7 +233,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         Vector2 centerPos2D = Vector2Lerp(s2d, e2d, v->progress);
         
         // Perpendicular vector for lane offset (Right side of road)
-        Vector2 rightVec2D = { roadDir2D.y, -roadDir2D.x };
+        Vector2 rightVec2D = { -roadDir2D.y, roadDir2D.x };
         
         // Calculate offset (if two-way, move to right lane)
         float offsetVal = currentEdge.oneway ? 0.0f : (currentEdge.width * 0.25f);

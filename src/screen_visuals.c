@@ -482,6 +482,109 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     }
 }
 
+// Add to screen_visuals.c or main.c
+
+void DrawCargoHUD(PhoneState *phone, Player *player) {
+    // 1. Find Active Job
+    DeliveryTask *activeTask = NULL;
+    for (int i = 0; i < 5; i++) {
+        if (phone->tasks[i].status == JOB_PICKED_UP) {
+            activeTask = &phone->tasks[i];
+            break;
+        }
+    }
+    if (!activeTask) return; // Nothing to show
+
+    // 2. Setup HUD Panel
+    float screenW = (float)GetScreenWidth();
+    float screenH = (float)GetScreenHeight();
+    
+    // Position: Top Right, below the money/stats
+    Rectangle panel = { screenW - 270, 100, 250, 90 };
+    
+    DrawRectangleRounded(panel, 0.2f, 4, Fade(BLACK, 0.8f));
+    DrawRectangleRoundedLines(panel, 0.2f, 4, DARKGRAY);
+
+    // 3. Common Data
+    double timeElapsed = GetTime() - activeTask->creationTime;
+    
+    // --- MODE A: FRAGILE (Health Bar) ---
+    if (activeTask->fragility > 0.0f) {
+        float healthPct = activeTask->pay / activeTask->maxPay;
+        if (healthPct < 0.0f) healthPct = 0.0f;
+
+        // Label
+        DrawText("CARGO INTEGRITY", panel.x + 15, panel.y + 10, 16, WHITE);
+        
+        // Bar Background
+        Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
+        DrawRectangleRec(bar, Fade(RED, 0.3f));
+        
+        // Bar Fill
+        DrawRectangle(bar.x, bar.y, bar.width * healthPct, bar.height, (healthPct > 0.5f) ? LIME : RED);
+        DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
+        
+        // Text Overlay
+        DrawText(TextFormat("%d%%", (int)(healthPct * 100)), bar.x + 95, bar.y + 4, 20, WHITE);
+        
+        // Icon (Shield/Box)
+        DrawText("!", panel.x + 225, panel.y + 10, 20, ORANGE);
+    }
+    
+    // --- MODE B: TEMPERATURE (Thermometer) ---
+    else if (activeTask->timeLimit > 0 && (activeTask->jobType == LOC_FOOD || activeTask->jobType == LOC_CAFE)) {
+        // Temperature decay calculation based on insulation
+        double thermalTime = timeElapsed * player->insulationFactor;
+        float tempPct = 1.0f - ((float)thermalTime / activeTask->timeLimit);
+        if (tempPct < 0.0f) tempPct = 0.0f;
+
+        DrawText("TEMPERATURE", panel.x + 15, panel.y + 10, 16, WHITE);
+
+        // Bar
+        Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
+        DrawRectangleRec(bar, Fade(BLUE, 0.3f));
+        
+        // Gradient Color Logic (Hot -> Cold)
+        Color tempColor = ORANGE;
+        if (tempPct < 0.5f) tempColor = YELLOW;
+        if (tempPct < 0.2f) tempColor = BLUE;
+
+        DrawRectangle(bar.x, bar.y, bar.width * tempPct, bar.height, tempColor);
+        DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
+
+        // Insulation Status
+        if (player->insulationFactor < 0.9f) {
+            DrawText("Insulated", bar.x + 140, bar.y + 4, 16, Fade(WHITE, 0.7f));
+        } else {
+            DrawText("Cooling...", bar.x + 140, bar.y + 4, 16, Fade(RED, 0.7f));
+        }
+    }
+    
+    // --- MODE C: STANDARD / TIME RUSH (Timer) ---
+    else {
+        DrawText("DELIVERY TIME", panel.x + 15, panel.y + 10, 16, WHITE);
+        
+        // If there's a hard limit, show bar. If not, just show elapsed time.
+        if (activeTask->timeLimit > 0) {
+            float timePct = 1.0f - ((float)timeElapsed / activeTask->timeLimit);
+            if (timePct < 0.0f) timePct = 0.0f;
+            
+            Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
+            DrawRectangleRec(bar, Fade(GRAY, 0.3f));
+            DrawRectangle(bar.x, bar.y, bar.width * timePct, bar.height, (timePct > 0.3f) ? SKYBLUE : ORANGE);
+            DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
+            
+            // Format mm:ss
+            int remaining = (int)(activeTask->timeLimit - timeElapsed);
+            if (remaining < 0) remaining = 0;
+            DrawText(TextFormat("%02d:%02d", remaining/60, remaining%60), bar.x + 85, bar.y + 4, 20, WHITE);
+        } else {
+            // Just a timer for standard jobs
+            DrawText(TextFormat("Time: %.1fs", (float)timeElapsed), panel.x + 15, panel.y + 45, 24, GREEN);
+        }
+    }
+}
+
 bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 

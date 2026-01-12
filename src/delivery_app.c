@@ -100,6 +100,7 @@ static void GenerateJobDetails(DeliveryTask *t, int locationType) {
             snprintf(t->description, 64, "General Goods - Standard"); break;
     }
     t->pay = (12.0f + (t->distance * 0.15f)) * difficultyMult;
+    t->maxPay = t->pay;
 }
 
 void InitDeliveryApp(PhoneState *phone, GameMap *map) {
@@ -253,10 +254,39 @@ void DrawDeliveryApp(PhoneState *phone, Player *player, GameMap *map, Vector2 mo
     }
 }
 
+// [NEW] Static variables to track physics state between frames
+static Vector2 lastFrameVelocity = { 0.0f, 0.0f };
+static bool physicsInitialized = false;
+
 void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
     double currentTime = GetTime();
     float dt = GetFrameTime();
+    if (dt == 0) dt = 0.016f; // Safety for first frame
 
+    // --- 1. CALCULATE REAL G-FORCE ---
+    // Convert player speed & angle into a 2D Velocity Vector
+    float rad = player->angle * DEG2RAD;
+    Vector2 currentVelocity = { sinf(rad) * player->current_speed, cosf(rad) * player->current_speed };
+
+    if (!physicsInitialized) {
+        lastFrameVelocity = currentVelocity;
+        physicsInitialized = true;
+    }
+
+    // Calculate the difference vector (Change in velocity)
+    Vector2 deltaV = Vector2Subtract(currentVelocity, lastFrameVelocity);
+    
+    // G-Force = Change in Velocity over Time. 
+    // We scale it down (e.g., * 0.05) to make numbers readable (0.0 to 1.0 range usually)
+    float rawG = (Vector2Length(deltaV) / dt) * 0.02f; 
+    
+    // Apply a floor to ignore tiny vibrations (idling/micro-adjustments)
+    if (rawG < 0.1f) rawG = 0.0f;
+
+    // Store for next frame
+    lastFrameVelocity = currentVelocity;
+
+    // --- 2. UPDATE LOGIC ---
     eventFallbackTimer -= dt;
     if (eventFallbackTimer <= 0) {
         Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
@@ -267,9 +297,8 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
     for(int i=0; i<5; i++) {
         DeliveryTask *t = &phone->tasks[i];
         
+        // ... (Keep JOB_DELIVERED recycling logic exactly as before) ...
         if (t->status == JOB_DELIVERED) {
-             // [FIX] ONLY RECYCLE JOBS IF TUTORIAL IS FINISHED
-             // This prevents the tutorial script from losing track of the completed job
              if (player->tutorialFinished) {
                  int storeIdx = GetRandomStoreIndex(map);
                  int houseIdx = GetRandomHouseIndex(map);
@@ -283,38 +312,50 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                     GenerateJobDetails(t, map->locations[storeIdx].type);
                  }
              }
-             // If tutorial NOT finished, do nothing. Job stays "Delivered".
         }
         
         if (t->status == JOB_AVAILABLE && (currentTime - t->creationTime > t->refreshTimer)) {
-            // Also prevent random job expiration during tutorial
             if (player->tutorialFinished) {
                 if (GetRandomValue(0, 100) < 2) t->status = JOB_DELIVERED; 
             }
         }
 
         if (t->status == JOB_PICKED_UP) {
-            Vector2 playerPos2D = { player->position.x, player->position.z };
+            
+            // Grace Period (3 seconds to stabilize)
+            if (currentTime - t->creationTime < 3.0) continue;
 
-            // --- G-FORCE & FRAGILITY LOGIC ---
+            // --- FRAGILITY LOGIC (UPDATED) ---
             if (t->fragility > 0.0f) {
-                float turnG = (fabs(player->current_speed) * 0.02f) * (IsKeyDown(KEY_A) || IsKeyDown(KEY_D) ? 1.0f : 0.0f);
-                float brakeG = (player->brake_power > 0) ? 0.8f : 0.0f;
-                float currentG = turnG + brakeG;
+                
+                // Tolerance Calculation
+                // High fragility (0.9) = Very Low Tolerance (0.2G)
+                // Low fragility (0.1) = High Tolerance (1.8G)
+                float gTolerance = 2.0f * (1.0f - t->fragility);
+                if (gTolerance < 0.2f) gTolerance = 0.2f; // Absolute minimum floor
 
-                float gLimit = 1.5f * (1.0f - t->fragility);
-                if (gLimit < 0.3f) gLimit = 0.3f;
+                if (rawG > gTolerance) {
+                    // Damage is exponential based on how much you exceeded the limit
+                    float excessG = rawG - gTolerance;
+                    
+                    // CRASH DETECTION:
+                    // If G-force is huge (e.g., > 3.0), it's definitely a wall collision.
+                    // Multiply damage massively.
+                    float crashMultiplier = (rawG > 3.0f) ? 5.0f : 1.0f;
 
-                if (currentG > gLimit) {
-                    float penalty = 5.0f * dt; 
+                    float penalty = (excessG * 30.0f * crashMultiplier) * dt;
                     t->pay -= penalty;
-                    if (GetRandomValue(0, 30) == 0) { 
-                        ShowPhoneNotification("CARGO DAMAGED!", COLOR_DANGER);
+
+                    // UI Feedback for Crashes
+                    if (rawG > 3.0f) {
+                        if (GetRandomValue(0, 10) == 0) ShowPhoneNotification("CRITICAL IMPACT!", COLOR_DANGER);
+                    } else {
+                        if (GetRandomValue(0, 60) == 0) ShowPhoneNotification("Cargo Rattling!", COLOR_WARN);
                     }
                 }
             }
             
-            // --- HEAVY LOAD LOGIC [NEW] ---
+            // --- HEAVY LOAD LOGIC ---
             if (t->isHeavy) {
                 if (player->loadResistance > 0.5f) {
                     float heavyPenalty = (fabs(player->current_speed) * 0.05f) * player->loadResistance * dt;
@@ -322,39 +363,54 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 }
             }
 
-            // --- TEMPERATURE & INSULATION LOGIC [NEW] ---
+            // --- TEMPERATURE LOGIC ---
             if (t->timeLimit > 0) {
                 double realElapsed = currentTime - t->creationTime; 
                 double foodElapsed = realElapsed * player->insulationFactor;
-
                 if (foodElapsed > t->timeLimit) {
-                    float penalty = 2.0f * dt;
-                    t->pay -= penalty;
+                    t->pay -= 2.0f * dt;
                 }
             }
             
-            if (t->pay < 5.0f) t->pay = 5.0f;
+            // Minimum Pay Floor
+            if (t->pay < 0.0f) t->pay = 0.0f; // Allow it to hit 0 for total destruction
 
-            // --- DELIVERY COMPLETION ---
-            /*if (Vector2Distance(playerPos2D, t->customerPos) < 5.0f) {
+            // ... (Keep Delivery Completion Logic exactly as before) ...
+            if (Vector2Distance((Vector2){player->position.x, player->position.z}, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
                 ShowPhoneNotification("Delivered!", GREEN);
+                
+                // Add Base Pay
                 AddMoney(player, t->restaurant, t->pay);
                 player->totalEarnings += t->pay;
                 player->totalDeliveries++;
                 
-                // Calculate Tip based on Insulation success
+                // Tip Logic (Updated Low Rates)
                 double realElapsed = currentTime - t->creationTime;
                 double effectiveElapsed = realElapsed * player->insulationFactor;
+                float tip = 0.0f;
 
-                if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit) {
-                    float tip = t->pay * 0.2f;
-                    if (t->fragility > 0.5f) tip += 15.0f;
-                    if (effectiveElapsed < t->timeLimit * 0.5f) tip += 10.0f;
+                if (t->timeLimit <= 0 || effectiveElapsed < t->timeLimit) {
+                    // Base Tip: 10%
+                    tip = t->pay * 0.10f; 
 
-                    player->money += tip;
-                    player->totalEarnings += tip;
-                    ShowPhoneNotification(TextFormat("Paid $%.2f + Tip!", t->pay + tip), GREEN);
+                    // Fragile Bonus: $3 (Only if mostly intact)
+                    if (t->fragility > 0.0f) {
+                        if (t->pay >= t->maxPay * 0.8f) tip += 3.0f; 
+                    }
+
+                    // Speed Bonus: $2
+                    if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.6f) {
+                        tip += 2.0f;
+                    }
+                }
+                
+                // Cap tip
+                if (tip > t->pay * 0.5f) tip = t->pay * 0.5f;
+
+                if (tip > 0) {
+                    AddMoney(player, "Tip", tip);
+                    ShowPhoneNotification(TextFormat("Paid $%.2f + $%.2f Tip!", t->pay, tip), COLOR_ACCENT);
                 } else {
                     ShowPhoneNotification(TextFormat("Paid $%.2f", t->pay), GREEN);
                 }
@@ -363,25 +419,11 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 TriggerRandomEvent(map, player->position, fwd);
                 eventFallbackTimer = 120.0f; 
                 SaveGame(player, phone);
-                ShowPhoneNotification("Auto-Saved", LIME);*/
-            //}
-        }
-        /*else if (t->status == JOB_ACCEPTED) {
-            Vector2 playerPos2D = { player->position.x, player->position.z };
-            if (Vector2Distance(playerPos2D, t->restaurantPos) < 5.0f) {
-                t->status = JOB_PICKED_UP;
-                t->creationTime = currentTime; // Timer starts now
-                SetMapDestination(map, t->customerPos);
-                ShowPhoneNotification("Order Picked Up!", COLOR_ACCENT);
-                
-                Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
-                TriggerRandomEvent(map, player->position, fwd);
-                eventFallbackTimer = 120.0f;
+                ShowPhoneNotification("Auto-Saved", LIME);
             }
-        }*/
+        }
     }
 }
-
 
 // In delivery_app.c
 
@@ -451,15 +493,37 @@ void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, 
                             player->totalEarnings += t->pay;
                             player->totalDeliveries++;
 
+                            // Inside UpdateDeliveryApp -> JOB_DELIVERED block:
+
                             // Tip Logic
                             double realElapsed = GetTime() - t->creationTime;
                             double effectiveElapsed = realElapsed * player->insulationFactor;
                             float tip = 0.0f;
+
+                            // Check if valid for tip (didn't take too long)
                             if (t->timeLimit <= 0 || effectiveElapsed < t->timeLimit) {
-                                tip = t->pay * 0.2f;
-                                if (t->fragility > 0.5f) tip += 15.0f;
-                                if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.5f) tip += 10.0f;
+                                
+                                // [FIX] REDUCED CALCULATION
+                                // Base Tip: 10% of order value (was 20%)
+                                tip = t->pay * 0.10f; 
+
+                                // Fragile Bonus: Flat $3.00 (was $15.00)
+                                if (t->fragility > 0.0f) {
+                                    // If they delivered it safely (pay wasn't deducted heavily)
+                                    if (t->pay >= t->maxPay * 0.9f) {
+                                        tip += 3.0f; 
+                                    }
+                                }
+
+                                // Speed Bonus: Flat $2.00 (was $10.00)
+                                // Only if done in half the required time
+                                if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.6f) {
+                                    tip += 2.0f;
+                                }
                             }
+
+                            // Cap tip so it's never more than 50% of the order value (Reality check)
+                            if (tip > t->pay * 0.5f) tip = t->pay * 0.5f;
 
                             if (tip > 0) {
                                 AddMoney(player, "Tip", tip);

@@ -24,5 +24,6 @@ void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth);
 
 void TriggerPickupAnimation(Vector3 position);
 void UpdateAndDrawPickupEffects(Vector3 targetPos);
+void DrawCargoHUD(PhoneState *phone, Player *player);
 
 #endif
