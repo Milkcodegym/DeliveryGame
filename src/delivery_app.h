@@ -9,7 +9,7 @@
 
 // Initialize the app (fills empty jobs)
 void InitDeliveryApp(PhoneState *phone, GameMap *map);
-
+void SetIgnorePhysics();
 // Update logic (Physics, Timers, Earnings)
 void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map);
 

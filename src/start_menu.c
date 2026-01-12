@@ -500,7 +500,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     DrawText(title, (sw - tw)/2 + 4, sh * 0.18f + 4, titleSize, Fade(BLACK, 0.5f));
                     DrawText(title, (sw - tw)/2, sh * 0.18f, titleSize, YELLOW);
                     
-                    const char* authors = "CREATED BY: JOHN DOE & JOHN DOE";
+                    const char* authors = "CREATED BY: MICHAIL MICHAILIDIS & LUCAS LICO";
                     int aw = MeasureText(authors, (int)(22*uiScale));
                     DrawText(authors, (sw - aw)/2, sh * 0.18f + titleSize + 15*uiScale, (int)(22*uiScale), SKYBLUE);
 

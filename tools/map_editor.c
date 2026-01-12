@@ -13,13 +13,25 @@ const float EDITOR_MAP_SCALE = 0.4f;
 const char* MAP_FILE = "resources/maps/smaller_city.map"; 
 
 #define LOC_DELETED -1 
+// Supports IDs 0-9 (10 types total)
+#define EDITOR_LOC_COUNT 10 
+// --- BOUNDARY DATA ---
+typedef struct {
+    Vector2 start;
+    Vector2 end;
+} EditorBoundary;
+
+#define MAX_EDITOR_BOUNDARIES 1024
+static EditorBoundary boundaries[MAX_EDITOR_BOUNDARIES];
+static int boundaryCount = 0;
 
 // --- EDITOR STATE ---
 typedef enum {
     STATE_VIEW,
     STATE_ADDING,
     STATE_NAMING,
-    STATE_EDITING
+    STATE_EDITING,
+    STATE_DRAWING_BORDER // [NEW] Border Drawing Mode
 } EditorState;
 
 typedef struct {
@@ -27,19 +39,58 @@ typedef struct {
     EditorState state;
     
     // Current Selection
-    LocationType selectedType;
+    int selectedType; // int to handle sparse enums if needed
     Vector2 pendingPos;
     char pendingName[64];
     int nameLen;
     int editingIndex; 
     
+    // Border Tool State
+    Vector2 lastBorderPoint;
+    bool hasStartPoint;
+
     // UI State
-    Rectangle typeButtons[LOC_COUNT]; 
-    const char* typeNames[LOC_COUNT];
-    Color typeColors[LOC_COUNT];
+    Rectangle typeButtons[EDITOR_LOC_COUNT]; 
+    const char* typeNames[EDITOR_LOC_COUNT];
+    Color typeColors[EDITOR_LOC_COUNT];
 } EditorData;
 
-// --- HELPER: SAVE TO FILE ---
+// --- FILE I/O ---
+
+// [NEW] Load Borders from Map File
+void LoadBoundaries() {
+    FILE *f = fopen(MAP_FILE, "r");
+    if (!f) return;
+    
+    char line[256];
+    bool reading = false;
+    boundaryCount = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "BOUNDARIES:", 11) == 0) {
+            reading = true;
+            continue;
+        }
+        if (reading) {
+            // Stop if we hit a new section or empty line
+            if (line[0] == '\n' || line[0] == ' ' || strlen(line) < 5) {
+                if (line[0] >= 'A' && line[0] <= 'Z') break; 
+            }
+            
+            float x1, y1, x2, y2;
+            if (sscanf(line, "%f %f %f %f", &x1, &y1, &x2, &y2) == 4) {
+                if (boundaryCount < MAX_EDITOR_BOUNDARIES) {
+                    boundaries[boundaryCount].start = (Vector2){x1 * EDITOR_MAP_SCALE, y1 * EDITOR_MAP_SCALE};
+                    boundaries[boundaryCount].end   = (Vector2){x2 * EDITOR_MAP_SCALE, y2 * EDITOR_MAP_SCALE};
+                    boundaryCount++;
+                }
+            }
+        }
+    }
+    fclose(f);
+    printf("Loaded %d map boundaries.\n", boundaryCount);
+}
+
 void SaveMapToFile(GameMap *map) {
     FILE *f = fopen(MAP_FILE, "w");
     if (f == NULL) {
@@ -51,7 +102,6 @@ void SaveMapToFile(GameMap *map) {
     for(int i=0; i<map->nodeCount; i++) {
         float rawX = map->nodes[i].position.x / EDITOR_MAP_SCALE;
         float rawY = map->nodes[i].position.y / EDITOR_MAP_SCALE;
-        // Save with 1 decimal precision to save space
         fprintf(f, "%d: %.1f %.1f %d\n", map->nodes[i].id, rawX, rawY, map->nodes[i].flags);
     }
 
@@ -100,18 +150,36 @@ void SaveMapToFile(GameMap *map) {
         fprintf(f, "L %d %.1f %.1f %s\n", map->locations[i].type, rawX, rawY, safeName);
     }
 
+    // [NEW] Save Boundaries
+    fprintf(f, "\nBOUNDARIES:\n");
+    for(int i=0; i<boundaryCount; i++) {
+        float x1 = boundaries[i].start.x / EDITOR_MAP_SCALE;
+        float y1 = boundaries[i].start.y / EDITOR_MAP_SCALE;
+        float x2 = boundaries[i].end.x / EDITOR_MAP_SCALE;
+        float y2 = boundaries[i].end.y / EDITOR_MAP_SCALE;
+        fprintf(f, "%.1f %.1f %.1f %.1f\n", x1, y1, x2, y2);
+    }
+
     fclose(f);
     printf("Map Saved Successfully!\n");
 }
 
+// Optimization: Cull invisible objects
+bool IsVisible(Camera2D cam, Vector2 pos, float margin) {
+    Vector2 min = GetScreenToWorld2D((Vector2){0 - margin, 0 - margin}, cam);
+    Vector2 max = GetScreenToWorld2D((Vector2){GetScreenWidth() + margin, GetScreenHeight() + margin}, cam);
+    return (pos.x >= min.x && pos.x <= max.x && pos.y >= min.y && pos.y <= max.y);
+}
+
 // --- MAIN EDITOR ---
 int main(void) {
-    InitWindow(1280, 720, "Map Editor - v2.0 (Optimized)");
+    InitWindow(1280, 720, "Map Editor v2.5 (Borders + Dealership)");
     SetWindowState(FLAG_WINDOW_RESIZABLE);
     SetTargetFPS(60);
 
     GameMap map = LoadGameMap(MAP_FILE); 
-    
+    LoadBoundaries();
+
     EditorData editor = {0};
     editor.camera.zoom = 1.0f;
     editor.camera.offset = (Vector2){GetScreenWidth()/2.0f, GetScreenHeight()/2.0f};
@@ -119,24 +187,18 @@ int main(void) {
     editor.selectedType = LOC_FUEL; 
     editor.editingIndex = -1;
     
-    // [FIX] Auto-Jump to the first node so we don't look at empty void
-    if (map.nodeCount > 0) {
-        editor.camera.target = map.nodes[0].position;
-        printf("EDITOR: Camera jumped to Node 0 (%.1f, %.1f)\n", map.nodes[0].position.x, map.nodes[0].position.y);
-    } else {
-        editor.camera.target = (Vector2){0,0};
-        printf("EDITOR: Warning - Map is empty. At 0,0.\n");
-    }
+    // Jump to first node to avoid empty screen
+    if (map.nodeCount > 0) editor.camera.target = map.nodes[0].position;
     
-    const char* names[LOC_COUNT] = {
-        "Fuel", "FastFood", "Cafe", "Bar", "Market", "SuperMkt", "Rest.", "House", "Mechanic"
+    // Define UI Buttons
+    const char* names[EDITOR_LOC_COUNT] = {
+        "Fuel", "Food", "Cafe", "Bar", "Market", "SuperMkt", "Rest.", "House", "Mechanic", "DEALER"
+    };
+    Color colors[EDITOR_LOC_COUNT] = {
+        ORANGE, RED, BROWN, PURPLE, BLUE, DARKBLUE, MAROON, MAGENTA, BLACK, GOLD
     };
     
-    Color colors[LOC_COUNT] = {
-        ORANGE, RED, BROWN, PURPLE, BLUE, DARKBLUE, MAROON, MAGENTA, BLACK
-    };
-    
-    for(int i=0; i<LOC_COUNT; i++) { 
+    for(int i=0; i<EDITOR_LOC_COUNT; i++) { 
         editor.typeNames[i] = names[i];
         editor.typeColors[i] = colors[i];
     }
@@ -145,23 +207,35 @@ int main(void) {
         int scrW = GetScreenWidth();
         int scrH = GetScreenHeight();
         
-        // --- SCALING LOGIC ---
-        float uiScale = (float)scrH / 720.0f;
-        int uiHeight = (int)(140 * uiScale);
+        // --- UI SCALING ---
+        float scaleX = (float)scrW / 1280.0f;
+        float scaleY = (float)scrH / 720.0f;
+        float uiScale = (scaleX < scaleY) ? scaleX : scaleY; 
+        if (uiScale < 0.5f) uiScale = 0.5f;
+
+        int uiHeight = (int)(150 * uiScale);
         int uiTop = scrH - uiHeight;
         
-        // Keep camera center focused when resizing window
         editor.camera.offset = (Vector2){scrW/2.0f, scrH/2.0f};
 
-        int btnWidth = (int)(100 * uiScale);
+        // UI Layout
+        int btnWidth = (int)(105 * uiScale);
         int btnHeight = (int)(40 * uiScale);
-        int spacing = (int)(10 * uiScale);
-        int startX = (int)(10 * uiScale);
+        int spacing = (int)(8 * uiScale);
+        int startX = (int)(15 * uiScale);
         
-        for(int i=0; i<LOC_COUNT; i++) { 
+        // Prevent button overflow on small screens
+        int totalW = EDITOR_LOC_COUNT * (btnWidth + spacing) + startX;
+        if (totalW > scrW) {
+            float squash = (float)scrW / (float)totalW;
+            btnWidth = (int)(btnWidth * squash * 0.95f);
+            spacing = (int)(spacing * squash);
+        }
+
+        for(int i=0; i<EDITOR_LOC_COUNT; i++) { 
             editor.typeButtons[i] = (Rectangle){ 
                 (float)(startX + i*(btnWidth+spacing)), 
-                (float)(uiTop + (50 * uiScale)), 
+                (float)(uiTop + (55 * uiScale)), 
                 (float)btnWidth, 
                 (float)btnHeight 
             };
@@ -170,13 +244,12 @@ int main(void) {
         Vector2 mouse = GetMousePosition();
         Vector2 worldMouse = GetScreenToWorld2D(mouse, editor.camera);
 
-        // --- CONTROLS ---
+        // --- CAMERA CONTROLS ---
         if (IsMouseButtonDown(MOUSE_RIGHT_BUTTON)) {
             Vector2 delta = GetMouseDelta();
             Vector2 deltaWorld = Vector2Scale(delta, -1.0f/editor.camera.zoom);
             editor.camera.target = Vector2Add(editor.camera.target, deltaWorld);
         }
-
         float wheel = GetMouseWheelMove();
         if (wheel != 0) {
             Vector2 mouseWorldBefore = GetScreenToWorld2D(mouse, editor.camera);
@@ -186,230 +259,247 @@ int main(void) {
             editor.camera.target = Vector2Add(editor.camera.target, Vector2Subtract(mouseWorldBefore, mouseWorldAfter));
         }
 
-        // --- INTERACTION ---
+        // --- HOTKEYS ---
+        if (IsKeyPressed(KEY_F1)) { editor.state = STATE_VIEW; editor.hasStartPoint = false; }
+        if (IsKeyPressed(KEY_F2)) { editor.state = STATE_DRAWING_BORDER; editor.hasStartPoint = false; }
+
+        // --- MOUSE INTERACTION ---
         if (mouse.y > uiTop) {
-            for(int i=0; i<LOC_COUNT; i++) {
+            // Clicking UI
+            for(int i=0; i<EDITOR_LOC_COUNT; i++) {
                 if (CheckCollisionPointRec(mouse, editor.typeButtons[i]) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                    editor.selectedType = (LocationType)i;
+                    editor.selectedType = i;
                     if (editor.state == STATE_EDITING && editor.editingIndex != -1) {
-                        map.locations[editor.editingIndex].type = editor.selectedType;
-                        map.locations[editor.editingIndex].iconID = (int)editor.selectedType;
+                        map.locations[editor.editingIndex].type = (LocationType)i;
                     } else {
                         editor.state = STATE_ADDING;
+                        editor.hasStartPoint = false; 
                     }
                 }
             }
         }
-        else if (editor.state == STATE_VIEW || editor.state == STATE_ADDING) {
-            int clickedIndex = -1;
-            float hitRadius = (10.0f / editor.camera.zoom) * uiScale;
-            if (hitRadius < 2.0f) hitRadius = 2.0f;
-
-            for(int i=0; i<map.locationCount; i++) {
-                if ((int)map.locations[i].type == LOC_DELETED) continue;
-                if (CheckCollisionPointCircle(worldMouse, map.locations[i].position, hitRadius)) {
-                    clickedIndex = i;
-                    break;
-                }
-            }
-
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                if (clickedIndex != -1) {
-                    editor.state = STATE_EDITING;
-                    editor.editingIndex = clickedIndex;
-                    editor.pendingPos = map.locations[clickedIndex].position;
-                    strncpy(editor.pendingName, map.locations[clickedIndex].name, 64);
-                    editor.nameLen = strlen(editor.pendingName);
-                    editor.selectedType = map.locations[clickedIndex].type;
-                } else {
-                    editor.state = STATE_NAMING;
-                    editor.editingIndex = -1;
-                    editor.pendingPos = worldMouse;
-                    editor.nameLen = 0;
-                    memset(editor.pendingName, 0, 64);
-                    
-                    if (editor.selectedType == LOC_HOUSE) {
-                        snprintf(editor.pendingName, 64, "House_%d", map.locationCount);
-                        map.locations[map.locationCount].position = editor.pendingPos;
-                        map.locations[map.locationCount].type = LOC_HOUSE;
-                        strncpy(map.locations[map.locationCount].name, editor.pendingName, 64);
-                        map.locationCount++;
-                        SaveMapToFile(&map);
-                        editor.state = STATE_ADDING;
+        else {
+            // Clicking Map
+            
+            // --- MODE: DRAW BORDER (F2) ---
+            if (editor.state == STATE_DRAWING_BORDER) {
+                if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                    if (!editor.hasStartPoint) {
+                        editor.lastBorderPoint = worldMouse;
+                        editor.hasStartPoint = true;
+                    } else {
+                        // Create Line Segment
+                        if (boundaryCount < MAX_EDITOR_BOUNDARIES) {
+                            boundaries[boundaryCount].start = editor.lastBorderPoint;
+                            boundaries[boundaryCount].end = worldMouse;
+                            boundaryCount++;
+                            editor.lastBorderPoint = worldMouse; // Continue chain
+                        }
                     }
                 }
+                // Right click cancels chain
+                if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) editor.hasStartPoint = false;
+                
+                // Ctrl+Z to undo last wall
+                if (IsKeyPressed(KEY_Z) && (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))) {
+                    if (boundaryCount > 0) boundaryCount--;
+                    editor.hasStartPoint = false;
+                }
             }
-            else if (IsMouseButtonPressed(MOUSE_MIDDLE_BUTTON)) {
-                if (clickedIndex != -1) {
+            // --- MODE: EDIT/ADD LOCATIONS ---
+            else if (editor.state == STATE_VIEW || editor.state == STATE_ADDING) {
+                int clickedIndex = -1;
+                float hitRadius = (15.0f / editor.camera.zoom);
+                if (hitRadius < 5.0f) hitRadius = 5.0f;
+
+                for(int i=0; i<map.locationCount; i++) {
+                    if ((int)map.locations[i].type == LOC_DELETED) continue;
+                    if (CheckCollisionPointCircle(worldMouse, map.locations[i].position, hitRadius)) {
+                        clickedIndex = i; break;
+                    }
+                }
+
+                if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                    if (clickedIndex != -1) {
+                        editor.state = STATE_EDITING;
+                        editor.editingIndex = clickedIndex;
+                        editor.pendingPos = map.locations[clickedIndex].position;
+                        strncpy(editor.pendingName, map.locations[clickedIndex].name, 64);
+                        editor.nameLen = strlen(editor.pendingName);
+                        editor.selectedType = (int)map.locations[clickedIndex].type;
+                    } else {
+                        editor.state = STATE_NAMING;
+                        editor.editingIndex = -1;
+                        editor.pendingPos = worldMouse;
+                        editor.nameLen = 0;
+                        memset(editor.pendingName, 0, 64);
+                        // Quick-add House
+                        if (editor.selectedType == LOC_HOUSE) {
+                            snprintf(editor.pendingName, 64, "House_%d", map.locationCount);
+                        }
+                    }
+                }
+                // Middle click deletes
+                if (IsMouseButtonPressed(MOUSE_MIDDLE_BUTTON) && clickedIndex != -1) {
                     map.locations[clickedIndex].type = (LocationType)LOC_DELETED; 
-                    SaveMapToFile(&map);
                 }
             }
         }
-        else if (editor.state == STATE_NAMING || editor.state == STATE_EDITING) {
+
+        // --- KEYBOARD INPUT (NAMING) ---
+        if (editor.state == STATE_NAMING || editor.state == STATE_EDITING) {
             int key = GetCharPressed();
             while (key > 0) {
                 if ((key >= 32) && (key <= 125) && (editor.nameLen < 32)) {
-                    editor.pendingName[editor.nameLen] = (char)key;
-                    editor.pendingName[editor.nameLen+1] = '\0';
-                    editor.nameLen++;
+                    editor.pendingName[editor.nameLen++] = (char)key;
+                    editor.pendingName[editor.nameLen] = '\0';
                 }
                 key = GetCharPressed();
             }
             if (IsKeyPressed(KEY_BACKSPACE) && editor.nameLen > 0) {
-                editor.nameLen--;
-                editor.pendingName[editor.nameLen] = '\0';
+                editor.pendingName[--editor.nameLen] = '\0';
             }
-            if (IsKeyPressed(KEY_ENTER) && editor.nameLen > 0) {
+            if (IsKeyPressed(KEY_ENTER)) {
+                MapLocation *l;
                 if (editor.state == STATE_NAMING) {
                     if (map.locationCount < MAX_LOCATIONS) {
-                        MapLocation *l = &map.locations[map.locationCount];
-                        strncpy(l->name, editor.pendingName, 64);
+                        l = &map.locations[map.locationCount++];
                         l->position = editor.pendingPos;
-                        l->type = editor.selectedType;
-                        map.locationCount++;
-                    }
+                    } else l = NULL;
                 } else {
-                    MapLocation *l = &map.locations[editor.editingIndex];
-                    strncpy(l->name, editor.pendingName, 64);
-                    l->type = editor.selectedType;
+                    l = &map.locations[editor.editingIndex];
                 }
-                SaveMapToFile(&map);
-                editor.state = STATE_ADDING; 
-            }
-            if (IsKeyPressed(KEY_F1)) {
-                editor.state = STATE_ADDING; 
+                
+                if (l) {
+                    strncpy(l->name, editor.pendingName, 64);
+                    l->type = (LocationType)editor.selectedType;
+                    // Auto-assign ID for icon
+                    if (l->type == LOC_DEALERSHIP) l->iconID = 9; 
+                    else l->iconID = (int)l->type;
+                    
+                    SaveMapToFile(&map);
+                }
+                editor.state = STATE_ADDING;
             }
         }
 
-        // --- DRAWING ---
+        // --- RENDER ---
         BeginDrawing();
             ClearBackground(RAYWHITE);
-            
             BeginMode2D(editor.camera);
-                float drawScale = 1.0f / editor.camera.zoom;
+                
+                // [OPTIMIZATION] Grid
+                float worldW = GetScreenWidth() / editor.camera.zoom;
+                if (worldW < 3000) {
+                    DrawLine(-3000, 0, 3000, 0, Fade(RED, 0.5f));
+                    DrawLine(0, -3000, 0, 3000, Fade(GREEN, 0.5f));
+                }
 
-                // Draw Origin Grid (To help visualize scale and center)
-                DrawLine(-1000, 0, 1000, 0, Fade(RED, 0.5f)); // X Axis
-                DrawLine(0, -1000, 0, 1000, Fade(GREEN, 0.5f)); // Y Axis
-
-                // Areas
+                // 1. Areas
                 for (int i=0; i<map.areaCount; i++) {
-                    if(map.areas[i].pointCount < 3) continue;
-                    Vector2 center = {0,0};
-                    for(int j=0; j<map.areas[i].pointCount; j++) center = Vector2Add(center, map.areas[i].points[j]);
-                    center = Vector2Scale(center, 1.0f/map.areas[i].pointCount);
-                    for (int j = 0; j < map.areas[i].pointCount; j++) {
-                        Vector2 p1 = map.areas[i].points[j];
-                        Vector2 p2 = map.areas[i].points[(j+1)%map.areas[i].pointCount];
-                        DrawTriangle(center, p2, p1, Fade(map.areas[i].color, 0.3f));
+                    if (map.areas[i].pointCount > 0 && IsVisible(editor.camera, map.areas[i].points[0], 500)) {
+                        DrawLineStrip(map.areas[i].points, map.areas[i].pointCount, Fade(map.areas[i].color, 0.5f));
                     }
                 }
 
-                // Roads
+                // 2. Roads
                 for (int i = 0; i < map.edgeCount; i++) {
                     Vector2 s = map.nodes[map.edges[i].startNode].position;
-                    Vector2 e = map.nodes[map.edges[i].endNode].position;
-                    DrawLineEx(s, e, map.edges[i].width, LIGHTGRAY);
-                }
-                
-                // Buildings
-                // Buildings
-                for (int i = 0; i < map.buildingCount; i++) {
-                    // [FIX] Use Outlines instead of TriangleFan
-                    // TriangleFan creates glitches on L-shaped buildings. 
-                    // Lines show the true shape of the data.
-                    
-                    if (map.buildings[i].pointCount < 2) continue;
-
-                    Color bColor = map.buildings[i].color;
-                    
-                    // Draw filled shape (Optional: uses Raylib's simple triangulation)
-                    // DrawTriangleFan(map.buildings[i].footprint, map.buildings[i].pointCount, Fade(bColor, 0.5f));
-
-                    // Draw Thick Outline (The Truth)
-                    DrawLineStrip(map.buildings[i].footprint, map.buildings[i].pointCount, bColor);
-                    
-                    // Close the loop (Connect last point to first)
-                    Vector2 start = map.buildings[i].footprint[0];
-                    Vector2 end = map.buildings[i].footprint[map.buildings[i].pointCount - 1];
-                    DrawLineEx(start, end, 2.0f, bColor); // 2.0f thickness
-                }
-                
-                // POIs (Scaled Pins)
-                float pinRadius = (6.0f * drawScale) * uiScale; 
-                if (pinRadius < 2.0f) pinRadius = 2.0f;
-                if (pinRadius > 20.0f) pinRadius = 20.0f;
-
-                for(int i=0; i<map.locationCount; i++) {
-                    if((int)map.locations[i].type == LOC_DELETED) continue;
-                    Color c = editor.typeColors[map.locations[i].type];
-                    
-                    DrawCircleV(map.locations[i].position, pinRadius, c);
-                    DrawCircleLines(map.locations[i].position.x, map.locations[i].position.y, pinRadius, BLACK);
-                    
-                    bool hover = CheckCollisionPointCircle(worldMouse, map.locations[i].position, pinRadius * 1.5f);
-                    if (editor.camera.zoom > 0.5f || hover || editor.editingIndex == i) {
-                        float textSize = (20.0f * drawScale) * uiScale;
-                        if (textSize < 10) textSize = 10; 
-                        if (textSize > 50) textSize = 50;
-
-                        DrawText(map.locations[i].name, 
-                                 map.locations[i].position.x, 
-                                 map.locations[i].position.y - (pinRadius * 2), 
-                                 (int)textSize, BLACK);
+                    // Only check start node for speed
+                    if (IsVisible(editor.camera, s, 200)) {
+                        Vector2 e = map.nodes[map.edges[i].endNode].position;
+                        DrawLineEx(s, e, map.edges[i].width, LIGHTGRAY);
                     }
                 }
-                
+
+                // 3. Buildings
+                for (int i = 0; i < map.buildingCount; i++) {
+                    if (map.buildings[i].pointCount > 0 && IsVisible(editor.camera, map.buildings[i].footprint[0], 100)) {
+                        DrawLineStrip(map.buildings[i].footprint, map.buildings[i].pointCount, map.buildings[i].color);
+                    }
+                }
+
+                // 4. BOUNDARIES (Red Lines)
+                for (int i = 0; i < boundaryCount; i++) {
+                    DrawLineEx(boundaries[i].start, boundaries[i].end, 3.0f, RED);
+                    DrawCircleV(boundaries[i].start, 3.0f, RED);
+                    DrawCircleV(boundaries[i].end, 3.0f, RED);
+                }
+                if (editor.state == STATE_DRAWING_BORDER && editor.hasStartPoint) {
+                    DrawLineEx(editor.lastBorderPoint, worldMouse, 2.0f, Fade(RED, 0.5f));
+                }
+
+                // 5. Locations
+                for(int i=0; i<map.locationCount; i++) {
+                    if((int)map.locations[i].type == LOC_DELETED) continue;
+                    // Cull invisible
+                    if (!IsVisible(editor.camera, map.locations[i].position, 50)) continue;
+
+                    // Safe color lookup
+                    int typeIdx = (int)map.locations[i].type;
+                    if (typeIdx < 0) typeIdx = 0;
+                    if (typeIdx >= EDITOR_LOC_COUNT) typeIdx = 0; 
+                    
+                    Color c = editor.typeColors[typeIdx];
+                    
+                    // [FIX] Warning fixed by using braces
+                    float r = 6.0f / editor.camera.zoom;
+                    if(r < 3) { r = 3; } 
+                    if(r > 15) { r = 15; }
+                    
+                    DrawCircleV(map.locations[i].position, r, c);
+                    DrawCircleLines(map.locations[i].position.x, map.locations[i].position.y, r, BLACK);
+
+                    if (editor.camera.zoom > 0.4f) {
+                        int labelSize = (int)(20.0f * uiScale); 
+                        // [FIX] Warning fixed by using braces
+                        if(labelSize > 40) { labelSize = 40; } 
+                        if(labelSize < 10) { labelSize = 10; }
+                        DrawText(map.locations[i].name, map.locations[i].position.x, map.locations[i].position.y - r*2, labelSize, BLACK);
+                    }
+                }
+
                 if (editor.state == STATE_NAMING || editor.state == STATE_EDITING) {
-                    DrawCircleV(editor.pendingPos, pinRadius * 1.2f, RED);
-                    DrawCircleLines(editor.pendingPos.x, editor.pendingPos.y, pinRadius * 1.2f, BLACK);
+                    DrawCircleV(editor.pendingPos, 12.0f / editor.camera.zoom, RED);
                 }
 
             EndMode2D();
 
-            // UI DRAWING
+            // UI
             DrawRectangle(0, uiTop, scrW, uiHeight, LIGHTGRAY);
             DrawLine(0, uiTop, scrW, uiTop, GRAY);
             
-            for(int i=0; i<LOC_COUNT; i++) {
+            for(int i=0; i<EDITOR_LOC_COUNT; i++) {
                 Rectangle btn = editor.typeButtons[i];
                 bool isSelected = (editor.selectedType == i);
                 DrawRectangleRec(btn, isSelected ? WHITE : editor.typeColors[i]);
                 DrawRectangleLinesEx(btn, isSelected ? 3 : 1, BLACK);
                 
-                int fontSize = (int)(18 * uiScale);
-                if (fontSize < 10) fontSize = 10;
-                
+                int fontSize = (int)(14 * uiScale);
                 int txtW = MeasureText(editor.typeNames[i], fontSize);
                 DrawText(editor.typeNames[i], btn.x + (btn.width - txtW)/2, btn.y + (btn.height - fontSize)/2, fontSize, isSelected ? BLACK : WHITE);
             }
-            
-            int helpFontSize = (int)(16 * uiScale);
-            DrawText("Left: Edit/Add | Middle: Delete | Right: Pan | Scroll: Zoom", 10, uiTop + 10, helpFontSize, DARKGRAY);
-            // Debug Text for Camera
-            DrawText(TextFormat("Cam: %.1f, %.1f | Zoom: %.2f", editor.camera.target.x, editor.camera.target.y, editor.camera.zoom), 10, 10, 20, DARKGRAY);
 
+            int infoSize = (int)(20 * uiScale);
+            DrawText(TextFormat("Mode: %s (F1: View, F2: Draw Border)", 
+                (editor.state == STATE_DRAWING_BORDER ? "BORDER DRAWING" : "EDITING")), 
+                (int)(10*uiScale), (int)(10*uiScale), infoSize, (editor.state == STATE_DRAWING_BORDER ? RED : DARKGRAY));
+
+            // Input Popup
             if (editor.state == STATE_NAMING || editor.state == STATE_EDITING) {
-                float mw = 480 * uiScale; float mh = 120 * uiScale;
-                float mx = (scrW - mw)/2; float my = (uiTop - mh)/2; 
+                float mw = 400 * uiScale; 
+                float mh = 120 * uiScale;
+                float mx = (scrW - mw)/2; 
+                float my = (uiTop - mh)/2; 
                 
                 DrawRectangle(mx, my, mw, mh, Fade(WHITE, 0.95f));
                 DrawRectangleLines(mx, my, mw, mh, BLACK);
                 
-                int titleSize = (int)(20 * uiScale);
-                int inputSize = (int)(30 * uiScale);
+                int popupFont = (int)(24 * uiScale);
+                DrawText(editor.pendingName, mx + 20*uiScale, my + 40*uiScale, popupFont, BLACK);
                 
-                const char* title = (editor.state == STATE_EDITING) ? "EDITING LOCATION:" : "NEW LOCATION:";
-                DrawText(title, mx + 20*uiScale, my + 20*uiScale, titleSize, GRAY);
-                
-                DrawText(TextFormat("Type: %s", editor.typeNames[editor.selectedType]), mx + 20*uiScale, my + 45*uiScale, (int)(14*uiScale), editor.typeColors[editor.selectedType]);
-                
-                DrawText(editor.pendingName, mx + 20*uiScale, my + 60*uiScale, inputSize, BLACK);
-                if ((GetTime()*2) - (int)(GetTime()*2) < 0.5f) {
-                    DrawRectangle(mx + 20*uiScale + MeasureText(editor.pendingName, inputSize) + 2, my + 60*uiScale, 2, inputSize, BLACK);
-                }
-                DrawText("Press ENTER to Save, F1 to Cancel", mx + 20*uiScale, my + 100*uiScale, (int)(12*uiScale), DARKGRAY);
+                int subFont = (int)(14 * uiScale);
+                DrawText("Press ENTER", mx + 20*uiScale, my + 80*uiScale, subFont, GRAY);
             }
 
         EndDrawing();
@@ -418,4 +508,18 @@ int main(void) {
     UnloadGameMap(&map);
     CloseWindow();
     return 0;
+}
+// --- STUB FUNCTIONS (To satisfy linker) ---
+// The Map Editor doesn't play the game, so these can be empty.
+
+#include "player.h" // Ensure Player struct is known if needed
+
+void EnterDealership(Player *player) {
+    // Do nothing in the editor
+    printf("EDITOR: EnterDealership called (Stub).\n");
+}
+
+// If you have other missing references like ShowPhoneNotification, stub them too:
+void ShowPhoneNotification(const char *text, Color color) {
+    // Optional: Log to console
 }

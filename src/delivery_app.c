@@ -11,6 +11,13 @@
 // --- EXTERNAL ---
 extern void ShowPhoneNotification(const char *text, Color color);
 
+// Top of delivery_app.c
+bool ignorePhysicsFrame = false; 
+
+void SetIgnorePhysics() {
+    ignorePhysicsFrame = true;
+}
+
 // --- MAP CONSTANTS ---
 #ifndef LOC_HOUSE
     #define LOC_FUEL        0
@@ -272,7 +279,12 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         lastFrameVelocity = currentVelocity;
         physicsInitialized = true;
     }
-
+    if (ignorePhysicsFrame) {
+        lastFrameVelocity = currentVelocity; // Sync velocity so next frame is smooth
+        physicsInitialized = true;
+        ignorePhysicsFrame = false; // Reset flag
+        return; // Skip damage logic this frame
+    }
     // Calculate the difference vector (Change in velocity)
     Vector2 deltaV = Vector2Subtract(currentVelocity, lastFrameVelocity);
     

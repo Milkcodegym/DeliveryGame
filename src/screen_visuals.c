@@ -261,8 +261,8 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     // Calculate approximate Gs
     // X axis = Turning (Lateral)
     float gX = 0.0f;
-    if (IsKeyDown(KEY_A)) gX = -1.0f;
-    if (IsKeyDown(KEY_D)) gX = 1.0f;
+    if (IsKeyDown(KEY_A)) gX = 1.0f;
+    if (IsKeyDown(KEY_D)) gX = -1.0f;
     // Scale by speed (turning faster = more Gs)
     gX *= (player->current_speed / player->max_speed) * 1.5f; 
 
@@ -293,7 +293,7 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     }
 
     DrawCircle(dotX, dotY, 6.0f * scale, dotColor);
-    DrawText("G-FORCE", x - 20*scale, y + radius + 5*scale, 10*scale, LIGHTGRAY);
+    DrawText("G-FORCE", x - 20*scale, y + radius + 5*scale, 10*scale, BLACK);
 }
 
 // [UPDATED] Real Temperature Visualizer
@@ -472,7 +472,7 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     }
 
     if (player->unlockThermometer && player->pinThermometer) {
-        DrawThermometer(activeTask, gadgetX - 10*scale, gadgetY, scale); 
+        DrawThermometer(activeTask, gadgetX - 10*scale, gadgetY - 30*scale, scale); 
         gadgetY -= gap;
     }
     

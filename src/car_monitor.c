@@ -42,8 +42,6 @@ void DrawCarMonitorApp(Player *player, Vector2 localMouse, bool click) {
     startY += gap;
     ToggleBtn((Rectangle){20, startY, 240, 40}, "Fuel Gauge", &player->pinFuel, localMouse, click);
     startY += gap;
-    ToggleBtn((Rectangle){20, startY, 240, 40}, "Debug Accel", &player->pinAccel, localMouse, click);
-    startY += gap;
 
     // Unlockables
     if (player->unlockThermometer) {
@@ -72,13 +70,20 @@ void DrawCarMonitorApp(Player *player, Vector2 localMouse, bool click) {
     DrawText("LIVE DIAGNOSTICS", 20, bY + 10, 10, YELLOW);
     
     // Stats
-    DrawText(TextFormat("Top Speed: %.0f km/h", player->max_speed * 3.0f), 20, bY + 35, 16, WHITE);
+    DrawText(TextFormat("Top Speed: %.0f km/h", player->max_speed * 5.0f), 20, bY + 35, 16, WHITE);
     
     float zeroToHundred = (player->acceleration > 0) ? (10.0f / player->acceleration) : 99.9f;
     DrawText(TextFormat("0-100 Time: %.1f s", zeroToHundred), 20, bY + 55, 16, WHITE);
     
+    
     DrawText(TextFormat("Fuel Capacity: %.0f L", player->maxFuel), 20, bY + 75, 16, WHITE);
     
-    float range = player->fuel / 0.05f; 
-    DrawText(TextFormat("Est. Range: %.0f m", range), 20, bY + 95, 16, LIGHTGRAY);
+    float range = player->maxFuel / player->fuelConsumption*2.0f;
+    char rangeText[32];
+    if (range >= 1000.0f) {
+        snprintf(rangeText, 32, "%.1f km", range *2/ 1000.0f);
+    } else {
+        snprintf(rangeText, 32, "%d m", (int)range*2);
+    }
+    DrawText(TextFormat("Est. Range: %s",rangeText), 20, bY + 95, 16, LIGHTGRAY);
 }

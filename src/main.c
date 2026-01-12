@@ -30,6 +30,7 @@ void FixPath(void) {
 
 int main(void)
 {
+    float borderMessageTimer = 0.0f; // Shows "Turn Back" message
     FixPath();
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(1280, 720, "Delivery Game - v0.5");
@@ -53,6 +54,7 @@ int main(void)
         }
 
         GameMap map = LoadGameMap("resources/Maps/smaller_city.map");
+        LoadMapBoundaries("resources/Maps/smaller_city.map");
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
@@ -166,7 +168,14 @@ int main(void)
                         UpdatePlayer(&player, &map, &traffic, dt);
                         UpdateTraffic(&traffic, player.position, &map, dt);
                         UpdateDevControls(&map, &player);
-                        
+                    }
+                    // --- INVISIBLE BORDER CHECK ---
+                    Vector3 pushVec;
+                    if (CheckInvisibleBorder(player.position, 1.0f, &pushVec)) {
+                        player.position = Vector3Add(player.position, pushVec);
+                        player.current_speed = 0.0f; 
+                        SetIgnorePhysics();
+                        borderMessageTimer = 2.0f; 
                     }
                     UpdateMapStreaming(&map, player.position);
                     UpdateVisuals(dt); 
@@ -245,7 +254,7 @@ int main(void)
                 }
                 else {
                     BeginMode3D(camera);
-                        DrawGrid(100, 1.0f);
+                        //DrawInvisibleBorders(); //for debugging border location
                         DrawGameMap(&map, camera);
                         UpdateRuntimeParks(&map, camera.position);
                         
@@ -261,14 +270,14 @@ int main(void)
                                 Vector3 smartPos = GetSmartDeliveryPos(&map, rawPos);
                                 
                                 // 3. Draw the marker at the smart position
-                                DrawZoneMarker(&map, smartPos, LIME);
+                                DrawZoneMarker(&map, camera, smartPos, LIME);
                             }
                             else if (t->status == JOB_PICKED_UP) {
                                 // Same logic for the customer drop-off
                                 Vector3 rawPos = { t->customerPos.x, 0.0f, t->customerPos.y };
                                 Vector3 smartPos = GetSmartDeliveryPos(&map, rawPos);
                                 
-                                DrawZoneMarker(&map, smartPos, ORANGE);
+                                DrawZoneMarker(&map, camera, smartPos, ORANGE);
                             }
                         }
 
@@ -297,66 +306,80 @@ int main(void)
                     //DEBUG
                     // Paste this inside main.c, AFTER EndMode3D() but BEFORE EndDrawing()
 
-// [DEBUG HUD] Paste this in main.c after DrawFuelOverlay
-if (IsKeyDown(KEY_F1)) { // Hold F1 to see Debug Info
-    DrawRectangle(10, 10, 350, 160, Fade(BLACK, 0.7f));
-    DrawText(TextFormat("FPS: %d", GetFPS()), 20, 20, 20, GREEN);
-    
-    // Check Traffic Count
-    int activeCars = 0;
-    for(int i=0; i<MAX_VEHICLES; i++) if(traffic.vehicles[i].active) activeCars++;
-    DrawText(TextFormat("Active Cars: %d / %d", activeCars, MAX_VEHICLES), 20, 50, 20, activeCars > 0 ? GREEN : RED);
+                    // [DEBUG HUD] Paste this in main.c after DrawFuelOverlay
+                    if (IsKeyDown(KEY_F1)) { // Hold F1 to see Debug Info
+                        DrawRectangle(10, 10, 350, 160, Fade(BLACK, 0.7f));
+                        DrawText(TextFormat("FPS: %d", GetFPS()), 20, 20, 20, GREEN);
+                        
+                        // Check Traffic Count
+                        int activeCars = 0;
+                        for(int i=0; i<MAX_VEHICLES; i++) if(traffic.vehicles[i].active) activeCars++;
+                        DrawText(TextFormat("Active Cars: %d / %d", activeCars, MAX_VEHICLES), 20, 50, 20, activeCars > 0 ? GREEN : RED);
 
-    // Check Map Graph
-    if (map.graph) DrawText("Map Graph: CONNECTED", 20, 80, 20, GREEN);
-    else DrawText("Map Graph: MISSING!", 20, 80, 20, RED);
+                        // Check Map Graph
+                        if (map.graph) DrawText("Map Graph: CONNECTED", 20, 80, 20, GREEN);
+                        else DrawText("Map Graph: MISSING!", 20, 80, 20, RED);
 
-    // Check Node Distance
-    int closest = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
-    if (closest != -1) {
-        float d = Vector2Distance((Vector2){player.position.x, player.position.z}, map.nodes[closest].position);
-        DrawText(TextFormat("Dst to Node: %.1f", d), 20, 110, 20, WHITE);
-    } else {
-        DrawText("Dst to Node: > 500m (Too Far)", 20, 110, 20, RED);
-    }
-    DrawText("F5: Force Spawn", 20, 140, 20, YELLOW);
-}
+                        // Check Node Distance
+                        int closest = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
+                        if (closest != -1) {
+                            float d = Vector2Distance((Vector2){player.position.x, player.position.z}, map.nodes[closest].position);
+                            DrawText(TextFormat("Dst to Node: %.1f", d), 20, 110, 20, WHITE);
+                        } else {
+                            DrawText("Dst to Node: > 500m (Too Far)", 20, 110, 20, RED);
+                        }
+                        DrawText("F5: Force Spawn", 20, 140, 20, YELLOW);
+                    }
 
-// [DEBUG] Force Spawn Logic (F5)
-if (IsKeyPressed(KEY_F5)) {
-    // 1. Find the next empty slot
-    int slot = -1;
-    for(int k=0; k<MAX_VEHICLES; k++) {
-        if (!traffic.vehicles[k].active) { slot = k; break; }
-    }
+                    // [DEBUG] Force Spawn Logic (F5)
+                    if (IsKeyPressed(KEY_F5)) {
+                        // 1. Find the next empty slot
+                        int slot = -1;
+                        for(int k=0; k<MAX_VEHICLES; k++) {
+                            if (!traffic.vehicles[k].active) { slot = k; break; }
+                        }
 
-    if (slot != -1 && map.nodeCount > 0) {
-        int closeNode = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
-        // If regular search fails, pick a random node just to prove cars work
-        if (closeNode == -1) closeNode = GetRandomValue(0, map.nodeCount-1);
+                        if (slot != -1 && map.nodeCount > 0) {
+                            int closeNode = GetClosestNode(&map, (Vector2){player.position.x, player.position.z});
+                            // If regular search fails, pick a random node just to prove cars work
+                            if (closeNode == -1) closeNode = GetRandomValue(0, map.nodeCount-1);
 
-        int edgeIdx = FindNextEdge(&map, closeNode, -1);
-        
-        if (edgeIdx != -1) {
-            Vehicle *v = &traffic.vehicles[slot];
-            v->active = true;
-            v->currentEdgeIndex = edgeIdx;
-            v->speed = 0.0f; // Stopped so you can see it
-            v->startNodeID = map.edges[edgeIdx].startNode;
-            v->endNodeID = map.edges[edgeIdx].endNode;
-            v->progress = 0.5f; 
-            
-            Vector3 p1 = { map.nodes[v->startNodeID].position.x, 0, map.nodes[v->startNodeID].position.y };
-            Vector3 p2 = { map.nodes[v->endNodeID].position.x, 0, map.nodes[v->endNodeID].position.y };
-            v->edgeLength = Vector3Distance(p1, p2);
-            v->color = PURPLE;
-            v->position = player.position; // Spawn ON player to verify
-        }
-    }
-}
+                            int edgeIdx = FindNextEdge(&map, closeNode, -1);
+                            
+                            if (edgeIdx != -1) {
+                                Vehicle *v = &traffic.vehicles[slot];
+                                v->active = true;
+                                v->currentEdgeIndex = edgeIdx;
+                                v->speed = 0.0f; // Stopped so you can see it
+                                v->startNodeID = map.edges[edgeIdx].startNode;
+                                v->endNodeID = map.edges[edgeIdx].endNode;
+                                v->progress = 0.5f; 
+                                
+                                Vector3 p1 = { map.nodes[v->startNodeID].position.x, 0, map.nodes[v->startNodeID].position.y };
+                                Vector3 p2 = { map.nodes[v->endNodeID].position.x, 0, map.nodes[v->endNodeID].position.y };
+                                v->edgeLength = Vector3Distance(p1, p2);
+                                v->color = PURPLE;
+                                v->position = player.position; // Spawn ON player to verify
+                            }
+                        }
+                    }
 
 
-
+                                        // Inside 2D Drawing Loop
+                    if (borderMessageTimer > 0.0f) {
+                        borderMessageTimer -= GetFrameTime();
+                        
+                        const char* text = "RESTRICTED AREA - TURN BACK";
+                        int fontSize = 30;
+                        int txtW = MeasureText(text, fontSize);
+                        int screenW = GetScreenWidth();
+                        int screenH = GetScreenHeight();
+                        
+                        // Draw Red Banner centered near top
+                        DrawRectangle(screenW/2 - txtW/2 - 20, 100, txtW + 40, 50, Fade(RED, 0.8f));
+                        DrawRectangleLines(screenW/2 - txtW/2 - 20, 100, txtW + 40, 50, BLACK);
+                        DrawText(text, screenW/2 - txtW/2, 110, fontSize, WHITE);
+                    }
                     // --- 2D UI LAYER ---
                     DrawVisualsWithPinned(&player,&phone); 
 
@@ -382,7 +405,6 @@ if (IsKeyPressed(KEY_F5)) {
                         }
                     }
                     
-                    DrawFuelOverlay(&player, GetScreenWidth(), GetScreenHeight());
                     DrawCargoHUD(&phone, &player);
                     
                     // [NEW] EMERGENCY RESCUE UI
@@ -423,12 +445,6 @@ if (IsKeyPressed(KEY_F5)) {
                           Vector2 pPos2 = { player.position.x, player.position.z };
                           for(int i=0; i<map.locationCount; i++) {
                               Vector2 locPos2 = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
-                              if (Vector2Distance(pPos2, locPos2) < 12.0f) {
-                                  const char* txt = (map.locations[i].type == LOC_FUEL) ? "PRESS [E] TO REFUEL" : "PRESS [E] FOR MECHANIC";
-                                  int txtW = MeasureText(txt, 20);
-                                  DrawText(txt, GetScreenWidth()/2 - txtW/2, GetScreenHeight() - 100, 20, BLACK);
-                                  DrawText(txt, GetScreenWidth()/2 - txtW/2 - 1, GetScreenHeight() - 100 - 1, 20, YELLOW);
-                              }
                           }
                      }
 

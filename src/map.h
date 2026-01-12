@@ -162,7 +162,7 @@ void UnloadGameMap(GameMap *map);
 void DrawGameMap(GameMap *map, Camera camera); 
 void UpdateMapEffects(GameMap *map, Vector3 playerPos);
 Vector3 GetSmartDeliveryPos(GameMap *map, Vector3 buildingCenter);
-void DrawZoneMarker(GameMap *map,Vector3 pos, Color color);
+void DrawZoneMarker(GameMap *map, Camera camera, Vector3 pos, Color color);
 
 // Navigation
 void BuildMapGraph(GameMap *map);
@@ -191,5 +191,9 @@ void UpdateRuntimeParks(GameMap *map, Vector3 playerPos);
 void DrawRuntimeParks(Vector3 playerPos);
 void UpdateMapStreaming(GameMap *map, Vector3 playerPos);
 void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH);
+// Add to map.h
+void LoadMapBoundaries(const char* fileName);
+bool CheckInvisibleBorder(Vector3 playerPos, float radius, Vector3 *pushOut);
+void DrawInvisibleBorders(); // [NEW]
 
 #endif

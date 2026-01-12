@@ -227,6 +227,129 @@ bool IsTooCloseToBuilding(GameMap *map, Vector2 pos, float minDistance);
 
 // --- HELPER FUNCTIONS ---
 
+// --- INVISIBLE BORDER SYSTEM ---
+
+#define MAX_BOUNDARIES 1024
+typedef struct { Vector2 start; Vector2 end; } MapBoundaryLine;
+static MapBoundaryLine mapBoundaries[MAX_BOUNDARIES];
+static int mapBoundaryCount = 0;
+
+void LoadMapBoundaries(const char* fileName) {
+    FILE *f = fopen(fileName, "r");
+    if (!f) {
+        printf("ERROR: Could not open map file %s for boundaries.\n", fileName);
+        return;
+    }
+    
+    char line[256];
+    bool reading = false;
+    mapBoundaryCount = 0;
+
+    printf("Attempting to load boundaries from %s...\n", fileName);
+
+    while (fgets(line, sizeof(line), f)) {
+        // Start reading when we hit the tag
+        if (strncmp(line, "BOUNDARIES:", 11) == 0) {
+            reading = true;
+            continue;
+        }
+        
+        if (reading) {
+            // Stop if we hit another section header (e.g. "L:")
+            // We ignore empty lines (unlike before which stopped on them)
+            if (line[0] >= 'A' && line[0] <= 'Z') break; 
+            
+            float x1, y1, x2, y2;
+            if (sscanf(line, "%f %f %f %f", &x1, &y1, &x2, &y2) == 4) {
+                if (mapBoundaryCount < MAX_BOUNDARIES) {
+                    // [FIX] APPLY MAP_SCALE
+                    // The editor saves them divided by scale. We must multiply back.
+                    mapBoundaries[mapBoundaryCount].start = (Vector2){x1 * MAP_SCALE, y1 * MAP_SCALE};
+                    mapBoundaries[mapBoundaryCount].end   = (Vector2){x2 * MAP_SCALE, y2 * MAP_SCALE};
+                    mapBoundaryCount++;
+                }
+            }
+        }
+    }
+    fclose(f);
+    printf("SUCCESS: Loaded %d invisible borders.\n", mapBoundaryCount);
+}
+
+// [NEW] DEBUG DRAWING FUNCTION
+void DrawInvisibleBorders() {
+    // Draw walls as tall yellow fences so you can't miss them
+    float height = 5.0f; 
+    
+    for (int i = 0; i < mapBoundaryCount; i++) {
+        Vector2 s = mapBoundaries[i].start;
+        Vector2 e = mapBoundaries[i].end;
+        
+        Vector3 start3D = { s.x, 0.0f, s.y };
+        Vector3 end3D   = { e.x, 0.0f, e.y };
+        Vector3 startTop = { s.x, height, s.y };
+        Vector3 endTop   = { e.x, height, e.y };
+
+        // Draw Base Line
+        DrawLine3D(start3D, end3D, YELLOW);
+        
+        // Draw "Fence" Posts
+        DrawLine3D(start3D, startTop, YELLOW);
+        DrawLine3D(end3D, endTop, YELLOW);
+        
+        // Draw Top Wire
+        DrawLine3D(startTop, endTop, Fade(YELLOW, 0.5f));
+        
+        // Draw Semi-transparent Wall
+        // (Two triangles to make a quad)
+        DrawTriangle3D(start3D, startTop, end3D, Fade(RED, 0.2f));
+        DrawTriangle3D(end3D, startTop, endTop, Fade(RED, 0.2f));
+    }
+}
+
+// CheckInvisibleBorder function remains the same as previous...
+bool CheckInvisibleBorder(Vector3 playerPos, float radius, Vector3 *pushOut) {
+    Vector2 p = { playerPos.x, playerPos.z };
+    bool hit = false;
+    Vector3 totalPush = {0};
+
+    for (int i = 0; i < mapBoundaryCount; i++) {
+        Vector2 a = mapBoundaries[i].start;
+        Vector2 b = mapBoundaries[i].end;
+        
+        Vector2 pa = Vector2Subtract(p, a);
+        Vector2 ba = Vector2Subtract(b, a);
+        float baLenSq = Vector2DotProduct(ba, ba);
+        
+        if (baLenSq == 0) continue; 
+
+        float h = Clamp(Vector2DotProduct(pa, ba) / baLenSq, 0.0f, 1.0f);
+        Vector2 closest = Vector2Add(a, Vector2Scale(ba, h));
+        
+        float distSq = Vector2DistanceSqr(p, closest);
+        float minDist = radius + 0.5f; 
+
+        if (distSq < minDist * minDist) {
+            hit = true;
+            float dist = sqrtf(distSq);
+            Vector2 normal = Vector2Subtract(p, closest);
+            
+            if (dist > 0.001f) {
+                normal = Vector2Scale(normal, 1.0f / dist);
+            } else {
+                normal = (Vector2){-ba.y, ba.x};
+                normal = Vector2Normalize(normal);
+            }
+
+            float overlap = minDist - dist;
+            totalPush.x += normal.x * overlap;
+            totalPush.z += normal.y * overlap;
+        }
+    }
+
+    if (pushOut) *pushOut = totalPush;
+    return hit;
+}
+
 // --- RENDER BOUNDARIES (Dynamic Mode) ---
 void DrawMapBoundaries(Vector3 cameraPos) {
     // [OPTIMIZATION] Pre-calculate distance threshold squared (80m)
@@ -1402,7 +1525,7 @@ float GetRaySegmentIntersection(Vector2 rayOrigin, Vector2 rayDir, Vector2 p1, V
     if (fabs(dot) < 0.000001f) return FLT_MAX; // Parallel
 
 
-    float t1 = Vector2CrossProduct(v2, v1) / dot;
+    float t1 = (v2.x * v1.y - v2.y * v1.x) / dot;
     float t2 = Vector2DotProduct(v1, v3) / dot;
 
 
