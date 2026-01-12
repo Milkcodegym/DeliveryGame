@@ -282,7 +282,7 @@ void DrawTraffic(TrafficManager *traffic) {
 
             // C. [THE FIX] Rotate the "Model" 45 degrees clockwise before drawing
             // We apply this second rotation so all components are baked into this offset
-            rlRotatef(-20.0f, 0, 1, 0); 
+            rlRotatef(-22.0f, 0, 1, 0); 
 
             // 1. Chassis
             DrawCube((Vector3){0, 0, 0}, chassisSize.x, chassisSize.y, chassisSize.z, v->color);

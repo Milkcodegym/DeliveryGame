@@ -1,37 +1,23 @@
-
 Add sea??
 Work on scaling and rendering optimization (important)
-
-Add icons for pickup and drop-off locations
-Finalize scoring system (Time, Distance, Safety)
-Add tip modifier logic (based on general time)
 
 Map Editor Tools
   Fix editability of POIs
   Add functionality to assign delivery kinds to specific shop nodes
   add dealership locations (location id = 9)
 
-
 Finalise car upgrades
 
 make music looping feature?
 
-  handle map edges, add shops and service centers, and gas stations.
+
   decide on pickup and delivery options: interactable on shop doors or pickup areas.
   unlock mycarstats and speedometer, fuelometer after finishing tutorial.
-  add other keyboard shortcuts?
   Add actual shop locations / parking spots to pull into?
   fix camera collisions - many bugs
 
-  an theloume map file size optimisation, sto mapgen.py allazoume 
-  auto for p in b['pts']: f.write(f" {p[0]:.1f} {p[1]:.1f}") se auto for p in b['pts']: f.write(f" {int([0])}{int(p[1])}") auto kanei to arxeio apo 3375 KB se 2600 KB alla xaneis kapoia akriveia.
-
-  fix map app building issues
-  game not saving on exit? (needs testing)
-
 add a bicycle or motorcycle. then, fix graphics for locations 
 dealership loading screen?
-add dealership location to map
 make parks spawn in city gaps fix?
 
 add a notification informing you of hospital bills when you crash and respawn
@@ -39,14 +25,21 @@ safety warning resets your speed fix
 fix building clipping issues
 fix broken traffic
 optimise camera collision?
-fix g forces and temperature logic (fragile packages break instantly)
-add cargo integrity meter
+
 fix traffic models
 make traffic move slower
 
+handle map edges (block player completely)
 increase damage taken?
 fix park glitches in general
 fix player speed depending on frame rate?
 add floating labels to delivery boxes
 
-na rwthsw louka an kanei update ta total deliveries k total earnings me ton neo tropo tou
+add both smaller city and real city and let the user decide in the loading screen
+in the saves, know which map file it is to load it (persistent data)
+
+fixed and needs testing:
+fix g forces and temperature logic (fragile packages break instantly)
+add dealership location to map
+Add icons for pickup and drop-off locations
+cargo damage needs balancing

@@ -2889,104 +2889,131 @@ void UpdateMapEffects(GameMap *map, Vector3 playerPos) {
 }
 
 // Put this in map.c (before DrawZoneMarker)
+// [FIX] Raymarch from building center towards the road to find the first safe spot
 Vector3 GetSmartDeliveryPos(GameMap *map, Vector3 buildingCenter) {
-    // 1. Find the nearest road node
-    int roadNodeIdx = GetClosestNode(map, (Vector2){buildingCenter.x, buildingCenter.z});
+    Vector2 center2D = { buildingCenter.x, buildingCenter.z };
     
-    if (roadNodeIdx != -1) {
-        // 2. Get direction: Building -> Road
-        Vector2 roadPos = map->nodes[roadNodeIdx].position;
-        Vector2 bPos = { buildingCenter.x, buildingCenter.z };
-        
-        Vector2 dir = Vector2Subtract(roadPos, bPos);
-        dir = Vector2Normalize(dir);
+    // 1. Find nearest road
+    int roadNodeIdx = GetClosestNode(map, center2D);
+    if (roadNodeIdx == -1) return buildingCenter;
 
-        // 3. Push OUT towards the road by 15 units
-        Vector2 offsetPos = Vector2Add(bPos, Vector2Scale(dir, 5.0f));
-        
-        // Return the new "Street-Side" position (Height 0.5f)
-        return (Vector3){ offsetPos.x, 1.0f, offsetPos.y };
-    }
+    Vector2 roadPos = map->nodes[roadNodeIdx].position;
+    Vector2 toRoad = Vector2Subtract(roadPos, center2D);
+    float distToRoad = Vector2Length(toRoad);
     
-    // Fallback: Just return center if no road found
-    return buildingCenter;
+    // Avoid division by zero
+    if (distToRoad < 0.1f) return (Vector3){ roadPos.x, 1.0f, roadPos.y };
+    
+    Vector2 dir = Vector2Scale(toRoad, 1.0f / distToRoad);
+
+    // 2. March outwards to find the building edge
+    // Start 2m from center, step by 2m
+    float currentDist = 2.0f;
+    Vector2 spawnPos = center2D;
+    bool foundClearance = false;
+
+    // Stop if we hit the road (don't spawn in the middle of the street)
+    while (currentDist < distToRoad) {
+        Vector2 p = Vector2Add(center2D, Vector2Scale(dir, currentDist));
+        
+        // Check if this point collides with ANY building
+        // We use a small radius (0.5f) for the box
+        if (!CheckMapCollision(map, p.x, p.y, 0.5f, false)) {
+            // No collision! We are outside.
+            // Add a small buffer (1.5m) to ensure we aren't clipping the wall
+            spawnPos = Vector2Add(p, Vector2Scale(dir, 1.5f));
+            foundClearance = true;
+            break;
+        }
+        currentDist += 2.0f;
+    }
+
+    // 3. Fallback: If the building is huge or geometry is weird, 
+    // default to the sidewalk (3.5m back from the road node)
+    if (!foundClearance) {
+        spawnPos = Vector2Subtract(roadPos, Vector2Scale(dir, 3.5f));
+    }
+
+    return (Vector3){ spawnPos.x, 1.0f, spawnPos.y };
 }
 
 // Define custom colors for the package look just above the function
-#define COLOR_CARDBOARD (Color){ 170, 130, 100, 255 } // Brownish tan
-#define COLOR_TAPE      (Color){ 200, 180, 150, 255 } // Lighter tan
+#define COLOR_CARDBOARD (Color){ 170, 130, 100, 255 } 
+#define COLOR_TAPE      (Color){ 200, 180, 150, 255 } 
 
-// In map.c
-
-void DrawZoneMarker(GameMap *map, Vector3 drawPos, Color color) {
-    float time = GetTime();
-
-    // Determine if this is a Pickup or Dropoff based on color
-    // LIME (Pickup) has high Green. ORANGE (Dropoff) has high Red.
+// Updated Signature requires Camera for the 2D label
+void DrawZoneMarker(GameMap *map, Camera camera, Vector3 drawPos, Color color) {
+    float time = (float)GetTime();
     bool isDropOff = (color.r > color.g); 
 
-    // --- ANIMATION CALCULATIONS ---
+    // --- ANIMATION ---
     float bob = sinf(time * 3.0f) * 0.15f;
     float spinAngle = time * 50.0f;
     Vector3 finalPos = { drawPos.x, drawPos.y + 0.4f + bob, drawPos.z };
 
-    // --- PACKAGE DIMENSIONS ---
-    float w = 0.6f;
-    float h = 0.4f;
-    float d = 0.5f;
-
-    // 1. DRAW GROUND INDICATOR (The Ring)
-    // Pulsing effect for the ring
-    float pulse = (sinf(time * 5.0f) + 1.0f) * 0.5f; // 0.0 to 1.0
+    // --- 1. DRAW BOX & RING (3D) ---
+    float w = 0.6f; float h = 0.4f; float d = 0.5f;
+    float pulse = (sinf(time * 5.0f) + 1.0f) * 0.5f;
     float ringAlpha = isDropOff ? 0.3f + (pulse * 0.3f) : 0.6f;
     
     DrawCircle3D((Vector3){finalPos.x, 0.08f, finalPos.z}, 0.8f, (Vector3){1,0,0}, 90.0f, Fade(color, ringAlpha));
-    
-    // Beacon Line
     DrawLine3D(finalPos, (Vector3){finalPos.x, 15.0f, finalPos.z}, Fade(color, 0.25f));
 
-    // 2. DRAW THE BOX
     rlPushMatrix();
         rlTranslatef(finalPos.x, finalPos.y, finalPos.z);
         rlRotatef(15.0f, 1.0f, 0.0f, 0.0f);
         rlRotatef(spinAngle, 0.0f, 1.0f, 0.0f);
 
         if (isDropOff) {
-            // [GHOST STYLE] - For Drop-off
-            // Draws a "Wireframe Blueprint" to show where the box goes
-            
-            // Pulsing transparency
+            // Ghost / Blueprint Style
             float alpha = 0.2f + (pulse * 0.2f);
-            
-            // Faint inner fill
             DrawCube(Vector3Zero(), w, h, d, Fade(color, alpha));
-            // Bright wireframe outline
             DrawCubeWires(Vector3Zero(), w + 0.02f, h + 0.02f, d + 0.02f, color);
-            
-            // "PLACE HERE" Text effect (Floating arrow or just the wires is usually enough)
-        } 
-        else {
-            // [REALISTIC STYLE] - For Pickup
-            // Draws the actual cardboard box
-            
-            // Main Cardboard Body
+        } else {
+            // Realistic Box Style
             DrawCube(Vector3Zero(), w, h, d, COLOR_CARDBOARD);
             DrawCubeWires(Vector3Zero(), w + 0.01f, h + 0.01f, d + 0.01f, DARKBROWN);
-
-            // Shipping Label
-            DrawCube((Vector3){0, h / 2.0f + 0.01f, 0}, w * 0.7f, 0.01f, d * 0.7f, RAYWHITE);
-
-            // Tape
-            DrawCube(Vector3Zero(), w + 0.02f, h * 0.15f, d + 0.02f, COLOR_TAPE);
+            DrawCube((Vector3){0, h/2.0f+0.01f, 0}, w*0.7f, 0.01f, d*0.7f, RAYWHITE); // Label
+            DrawCube(Vector3Zero(), w+0.02f, h*0.15f, d+0.02f, COLOR_TAPE); // Tape
         }
-
     rlPopMatrix();
 
-    // Shadow (Only for real box)
-    if (!isDropOff) {
-        DrawCylinder((Vector3){finalPos.x, 0.05f, finalPos.z}, 0.5f, 0.5f, 0.02f, 16, Fade(BLACK, 0.3f));
+    if (!isDropOff) DrawCylinder((Vector3){finalPos.x, 0.05f, finalPos.z}, 0.5f, 0.5f, 0.02f, 16, Fade(BLACK, 0.3f));
+
+    // --- 2. DRAW FLOATING LABEL (2D OVERLAY) ---
+    // Check distance to camera
+    float distSq = Vector3DistanceSqr(camera.position, finalPos);
+    
+    if (distSq < 15.0f * 15.0f) { // Visible within 15 meters
+        
+        // Calculate screen position
+        Vector2 screenPos = GetWorldToScreen((Vector3){finalPos.x, finalPos.y + 0.8f, finalPos.z}, camera);
+        
+        // Check if behind camera
+        Vector3 forward = Vector3Normalize(Vector3Subtract(camera.target, camera.position));
+        Vector3 toPos = Vector3Subtract(finalPos, camera.position);
+        if (Vector3DotProduct(forward, toPos) > 0.0f) {
+            
+            // Temporarily end 3D mode to draw 2D text (guarantees visibility through walls)
+            EndMode3D();
+            
+                const char* txt = isDropOff ? "DROP ZONE" : "PICKUP";
+                int fontSize = 20;
+                int textW = MeasureText(txt, fontSize);
+                
+                // Draw Background Badge
+                DrawRectangle(screenPos.x - textW/2 - 5, screenPos.y - 10, textW + 10, fontSize + 4, Fade(BLACK, 0.7f));
+                // Draw Border
+                DrawRectangleLines(screenPos.x - textW/2 - 5, screenPos.y - 10, textW + 10, fontSize + 4, color);
+                // Draw Text
+                DrawText(txt, screenPos.x - textW/2, screenPos.y - 8, fontSize, WHITE);
+
+            // Resume 3D mode
+            BeginMode3D(camera);
+        }
     }
 }
+
 int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
     if (strlen(query) == 0 || map->locationCount == 0) return 0;
     int count = 0;
