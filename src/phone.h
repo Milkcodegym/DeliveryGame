@@ -1,10 +1,30 @@
+/*
+ * -----------------------------------------------------------------------------
+ * Game Title: Delivery Game
+ * Authors: Lucas Liço, Michail Michailidis
+ * Copyright (c) 2025-2026
+ *
+ * License: zlib/libpng
+ *
+ * This software is provided 'as-is', without any express or implied warranty.
+ * In no event will the authors be held liable for any damages arising from
+ * the use of this software.
+ *
+ * Full license terms: see the LICENSE file.
+ * -----------------------------------------------------------------------------
+ */
+
 #ifndef PHONE_H
 #define PHONE_H
 
 #include "raylib.h"
 #include <stdbool.h> 
-#include "player.h" // Needed for Player struct
+#include "save.h"
+#include "player.h" 
 #include "map.h"
+#include "maps_app.h" 
+#include "delivery_app.h"
+#include "car_monitor.h"
 
 // --- Forward Declarations ---
 // We don't need typedef Player Player here if we include player.h

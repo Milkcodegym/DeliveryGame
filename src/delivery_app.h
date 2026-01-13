@@ -1,9 +1,28 @@
+/*
+ * -----------------------------------------------------------------------------
+ * Game Title: Delivery Game
+ * Authors: Lucas Liço, Michail Michailidis
+ * Copyright (c) 2025-2026
+ *
+ * License: zlib/libpng
+ *
+ * This software is provided 'as-is', without any express or implied warranty.
+ * In no event will the authors be held liable for any damages arising from
+ * the use of this software.
+ *
+ * Full license terms: see the LICENSE file.
+ * -----------------------------------------------------------------------------
+ */
+
 #ifndef DELIVERY_APP_H
 #define DELIVERY_APP_H
 
 #include "raylib.h"
 #include "player.h"  // Ensure this is included so Player struct is known
 #include "phone.h"   // Ensure PhoneState is known
+#include "save.h"
+#include "maps_app.h" 
+#include "map.h"
 
 // --- Function Prototypes ---
 

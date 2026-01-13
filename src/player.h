@@ -1,9 +1,27 @@
+/*
+ * -----------------------------------------------------------------------------
+ * Game Title: Delivery Game
+ * Authors: Lucas Liço, Michail Michailidis
+ * Copyright (c) 2025-2026
+ *
+ * License: zlib/libpng
+ *
+ * This software is provided 'as-is', without any express or implied warranty.
+ * In no event will the authors be held liable for any damages arising from
+ * the use of this software.
+ *
+ * Full license terms: see the LICENSE file.
+ * -----------------------------------------------------------------------------
+ */
+
 #ifndef PLAYER_H
 #define PLAYER_H
 
 #include "raylib.h"
 #include "map.h"
 #include "traffic.h"
+#include "maps_app.h"
+#include "save.h"
 
 #define MAX_TRANSACTIONS 10
 #define MAX_FUEL 100.0f
