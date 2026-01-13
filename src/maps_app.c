@@ -32,6 +32,7 @@ typedef struct {
     Texture2D icons[20]; 
     Texture2D pinIcon;
     Texture2D playerIcon;
+    Texture2D emergencyIcon;
     
     // Filtering
     int filterType;       // -1 = All, else LOC_TYPE
@@ -57,7 +58,7 @@ void LoadMapIcons() {
     mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/Mapicons/icon_house.png");
     mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/Mapicons/icon_mechanic.png"); 
     mapsState.icons[LOC_DEALERSHIP]  = LoadTexture("resources/Mapicons/icon_dealership.png");
-
+    mapsState.emergencyIcon = LoadTexture("resources/Mapicons/emergency.png");
     mapsState.pinIcon                = LoadTexture("resources/Mapicons/icon_pin.png");
     mapsState.playerIcon = LoadTexture("resources/Mapicons/icon_player.png");
 
@@ -379,12 +380,27 @@ void DrawMapsApp(GameMap *map) {
     // Events
     for(int i=0; i<MAX_EVENTS; i++) {
         if(map->events[i].active) {
-            Color c = (map->events[i].type == EVENT_CRASH) ? RED : RED;
-            DrawCircleV(map->events[i].position, 8.0f * scale, c);
-            DrawText((map->events[i].type == EVENT_CRASH) ? "!" : "W", 
-                     map->events[i].position.x - 2*scale, 
-                     map->events[i].position.y - 4*scale, 
-                     10.0f * scale, WHITE);
+            
+            // IF THE ICON LOADED SUCCESSFULLY:
+            if (mapsState.emergencyIcon.id != 0) {
+                float iconWorldSize = 12.0f; // Adjust size as needed
+                
+                Rectangle source = { 0.0f, 0.0f, (float)mapsState.emergencyIcon.width, (float)mapsState.emergencyIcon.height };
+                Rectangle dest = { map->events[i].position.x, map->events[i].position.y, iconWorldSize, iconWorldSize };
+                Vector2 origin = { iconWorldSize/2, iconWorldSize/2 }; // Center the icon
+                
+                // Draw texture counter-rotated so it stays upright
+                DrawTexturePro(mapsState.emergencyIcon, source, dest, origin, -mapsState.camera.rotation, WHITE);
+            } 
+            // FALLBACK (If image missing, draw the old red circle)
+            else {
+                Color c = RED;
+                DrawCircleV(map->events[i].position, 8.0f * scale, c);
+                DrawText("!", 
+                         map->events[i].position.x - 2*scale, 
+                         map->events[i].position.y - 4*scale, 
+                         10.0f * scale, WHITE);
+            }
         }
     }
 

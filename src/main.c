@@ -53,8 +53,32 @@ int main(void)
         return 0; // User closed window
         }
 
-        GameMap map = LoadGameMap("resources/Maps/smaller_city.map");
-        LoadMapBoundaries("resources/Maps/smaller_city.map");
+        // Determine Map File
+        const char* mapPath = "resources/maps/real_city.map"; // Default
+
+        if (FileExists("map_config.dat")) {
+            FILE *f = fopen("map_config.dat", "rb");
+            if (f) {
+                int choice = 1;
+                fread(&choice, sizeof(int), 1, f);
+                fclose(f);
+                
+                if (choice == 2) {
+                    mapPath = "resources/maps/smaller_city.map"; // Big City
+                    printf("MAIN: Loading Big City based on user choice.\n");
+                } else {
+                    printf("MAIN: Loading Small City based on user choice.\n");
+                }
+            }
+        } else {
+            // If no config but save exists, assume small city (legacy support)
+            // Or just default to small city
+            printf("MAIN: No config found, defaulting to Small City.\n");
+        }
+
+        // Load the chosen map
+        GameMap map = LoadGameMap(mapPath);
+        LoadMapBoundaries(mapPath); // Load corresponding boundaries
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
@@ -397,7 +421,32 @@ int main(void)
                             DrawRectangle(scrW/2 - barW/2, scrH/2 + 60, barW, 20, Fade(BLACK, 0.5f));
                             DrawRectangle(scrW/2 - barW/2, scrH/2 + 60, (int)(barW * progress), 20, LIME);
                             DrawRectangleLines(scrW/2 - barW/2, scrH/2 + 60, barW, 20, WHITE);
-                            DrawText("HOLDING...", scrW/2 - MeasureText("HOLDING...", 20)/2, scrH/2 + 85, 20, WHITE);
+                            
+                            // --- DYNAMIC TEXT LOGIC ---
+                            const char* actionText = "PROCESSING..."; // Fallback
+                            Vector2 pPos = { player.position.x, player.position.z };
+
+                            for(int k=0; k<5; k++) {
+                                DeliveryTask *t = &phone.tasks[k];
+                                
+                                // Case 1: At Restaurant (Job Accepted) -> Picking Up
+                                if (t->status == JOB_ACCEPTED) {
+                                    if (Vector2Distance(pPos, t->restaurantPos) < 20.0f) {
+                                        actionText = "PICKING UP...";
+                                        break;
+                                    }
+                                }
+                                // Case 2: At House (Job Picked Up) -> Delivering
+                                else if (t->status == JOB_PICKED_UP) {
+                                    if (Vector2Distance(pPos, t->customerPos) < 20.0f) {
+                                        actionText = "DELIVERING...";
+                                        break;
+                                    }
+                                }
+                            }
+                            // ---------------------------
+
+                            DrawText(actionText, scrW/2 - MeasureText(actionText, 20)/2, scrH/2 + 85, 20, WHITE);
                         } else {
                             // Draw Prompt
                             const char* txt = "HOLD [E] TO INTERACT";

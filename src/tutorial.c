@@ -443,7 +443,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
         case TUT_CONTROLS:
             // This was already at bottom, kept it safe
             DrawText("USE [W][A][S][D] TO DRIVE", sw/2 - 150*scale, sh - 150*scale, (int)(30*scale), WHITE);
-            DrawText("Reach 45 KH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
+            DrawText("Reach 45 KMH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
             break;
 
         case TUT_CRASH_INTRO: 

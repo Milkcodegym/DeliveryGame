@@ -44,6 +44,48 @@ float RandF(float min, float max) {
     return min + (float)GetRandomValue(0, 10000)/10000.0f * (max - min);
 }
 
+// --- NEW CONFIGURATION ---
+#define SAVE_FILE "save_data.dat"
+#define CONFIG_FILE "map_config.dat"
+
+// 1 = Small (Performance), 2 = Big (Gameplay)
+static int selectedMapOption = 1; 
+
+// Helper to save the choice so main.c can read it later
+void SaveMapChoice(int choice) {
+    FILE *f = fopen(CONFIG_FILE, "wb");
+    if (f) {
+        fwrite(&choice, sizeof(int), 1, f);
+        fclose(f);
+    }
+}
+
+// 0 = Continue, 1 = New Game
+static int selectedMainMenuOption = 0; 
+
+void DeleteSaveData() {
+    if (FileExists(SAVE_FILE)) remove(SAVE_FILE);
+    if (FileExists(CONFIG_FILE)) remove(CONFIG_FILE);
+    // Reset selection vars
+    selectedMainMenuOption = 1; // Default to New Game since Continue is invalid now
+}
+
+// --- UI HELPER ---
+void DrawSelectionBox(int x, int y, int w, int h, const char* title, const char* desc, bool selected) {
+    Color bg = selected ? (Color){40, 60, 100, 200} : (Color){20, 20, 30, 200};
+    Color border = selected ? YELLOW : GRAY;
+    
+    DrawRectangle(x, y, w, h, bg);
+    DrawRectangleLinesEx((Rectangle){x,y,w,h}, selected ? 3 : 1, border);
+    
+    DrawText(title, x + 20, y + 20, 30, selected ? WHITE : LIGHTGRAY);
+    DrawText(desc, x + 20, y + 60, 20, GRAY);
+    
+    if (selected) {
+        DrawText("- SELECTED -", x + w - 160, y + h - 30, 20, YELLOW);
+    }
+}
+
 // [OPTIMIZATION] High-Performance Cube Batcher
 // This writes raw vertex data to the buffer, bypassing Raylib's internal overhead
 void DrawCubeBatched(Vector3 position, Vector3 size, Color color) {
@@ -245,21 +287,40 @@ void UnloadMenuAssets(void) {
     menuAssets.loaded = false;
 }
 
-void DrawSimpleVespa(void) {
-    Color bodyColor = (Color){ 200, 30, 30, 255 }; 
-    Color seatColor = (Color){ 80, 40, 20, 255 };
-    Color metalColor = LIGHTGRAY;
+// Static variables to persist the model between frames
+static Model vespaModel = { 0 };
+static bool isVespaLoaded = false;
 
-    DrawCube((Vector3){0, 0.6f, -0.5f}, 0.8f, 0.7f, 1.4f, bodyColor);
-    DrawCube((Vector3){0, 0.3f, 0.5f}, 0.8f, 0.1f, 1.2f, bodyColor);
-    DrawCube((Vector3){0, 0.8f, 1.2f}, 0.8f, 1.2f, 0.1f, bodyColor);
-    DrawCube((Vector3){0, 1.0f, -0.7f}, 0.7f, 0.15f, 0.7f, seatColor);
-    DrawLine3D((Vector3){0, 0.3f, 1.5f}, (Vector3){0, 1.6f, 1.1f}, metalColor);
-    DrawCube((Vector3){0, 1.6f, 1.1f}, 1.2f, 0.1f, 0.1f, metalColor);
-    DrawSphere((Vector3){0, 1.6f, 1.2f}, 0.15f, RAYWHITE);
-    DrawCylinder((Vector3){0, 0.3f, -1.0f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
-    DrawCylinder((Vector3){0, 0.3f, 1.5f}, 0.3f, 0.3f, 0.2f, 16, BLACK);
-    DrawLine3D((Vector3){-0.2f, 0.3f, 0.0f}, (Vector3){-0.6f, 0.0f, 0.2f}, LIGHTGRAY);
+void DrawSimpleVespa(void) {
+    // 1. Lazy Load: Runs only the first time this function is called
+    if (!isVespaLoaded) {
+        if (FileExists("resources/vespa.obj")) {
+            vespaModel = LoadModel("resources/vespa.obj");
+            
+            // Optional: Load texture manually if the .mtl file is missing
+            // Texture2D tex = LoadTexture("resources/vespa_diffuse.png");
+            // vespaModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tex;
+            
+            isVespaLoaded = true;
+        }
+    }
+
+    // 2. Draw the Model
+    if (isVespaLoaded) {
+        // Transformations to match the previous primitive bike
+        // Note: We rotate 180 degrees because standard OBJ models usually face -Z, 
+        // while your previous primitive code was building towards +Z.
+        Vector3 pos = { 0.0f, 0.0f, 0.0f }; 
+        Vector3 axis = { 0.0f, 1.0f, 0.0f };
+        float rotation = 180.0f; 
+        Vector3 scale = { 1.0f, 1.0f, 1.0f }; // Tweak this if the model is huge/tiny
+
+        DrawModelEx(vespaModel, pos, axis, rotation, scale, WHITE);
+    } 
+    else {
+        // Fallback: Draw a red box if the file isn't found
+        DrawCube((Vector3){0, 0.5f, 0}, 0.5f, 0.5f, 1.0f, RED);
+    }
 }
 
 void DrawMenuDiorama(void) {
@@ -423,7 +484,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
         "Generating Traffic Network...",
         "Baking Static Geometry...",
         "Optimizing Navigation Mesh...",
-        "Allocating Memory..."
+        "Generating Map File..."
     };
 
     while (!WindowShouldClose()) {
@@ -439,15 +500,59 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             continue; 
         }
 
-        if (menuState == 0) { // Orbit
+        // --- LOGIC UPDATES ---
+        
+        // 1. STATE 0 (ORBIT): Check for Save File on Enter
+        // 1. STATE 0: MAIN MENU (Orbit)
+        if (menuState == 0) { 
             float camRadius = 12.0f;
             camera.position = (Vector3){ sinf(time * 0.15f) * camRadius, 4.5f, cosf(time * 0.15f) * camRadius };
+            
+            bool saveExists = FileExists(SAVE_FILE);
+            
+            // Auto-select New Game if no save exists
+            if (!saveExists && selectedMainMenuOption == 0) selectedMainMenuOption = 1;
+
+            // Navigation
+            if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) selectedMainMenuOption = 0;
+            if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) selectedMainMenuOption = 1;
+            
+            // Clamp if save doesn't exist
+            if (!saveExists) selectedMainMenuOption = 1;
+
             if (IsKeyPressed(KEY_ENTER)) {
-                menuState = 1;
+                if (selectedMainMenuOption == 0 && saveExists) {
+                    // CONTINUE
+                    menuState = 1; // Go straight to Zoom/Load
+                    camStartPos = camera.position;
+                    zoomTimer = 0.0f;
+                } 
+                else if (selectedMainMenuOption == 1) {
+                    // NEW GAME
+                    DeleteSaveData(); // Wipe old data
+                    menuState = 3;    // Go to Map Selection
+                }
+            }
+        }
+        
+        // 2. [NEW] STATE 3 (MAP SELECTION)
+        else if (menuState == 3) { 
+            float camRadius = 12.0f;
+            // Slower spin while selecting
+            camera.position = (Vector3){ sinf(time * 0.05f) * camRadius, 4.5f, cosf(time * 0.05f) * camRadius }; 
+            
+            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) selectedMapOption = 1;
+            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) selectedMapOption = 2;
+            
+            if (IsKeyPressed(KEY_ENTER)) {
+                SaveMapChoice(selectedMapOption); // Write config to disk
+                menuState = 1; // Proceed to Zoom/Load
                 camStartPos = camera.position;
                 zoomTimer = 0.0f;
             }
         }
+        
+        // ... (State 1 and State 2 remain exactly the same) ...
         else if (menuState == 1) { // Zoom
             zoomTimer += dt;
             float t = zoomTimer / 1.5f; 
@@ -476,9 +581,8 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
         // --- DRAWING ---
         BeginDrawing();
             
-            if (menuState <= 1) {
+            if (menuState <= 1 || menuState == 3) {
                 ClearBackground(COLOR_FOG); 
-                
                 BeginMode3D(camera);
                     DrawMenuDiorama();      
                     DrawSimpleVespa();      
@@ -504,16 +608,83 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     int aw = MeasureText(authors, (int)(22*uiScale));
                     DrawText(authors, (sw - aw)/2, sh * 0.18f + titleSize + 15*uiScale, (int)(22*uiScale), SKYBLUE);
 
-                    float alpha = (sinf(time * 3.0f) + 1.0f) * 0.5f;
-                    const char* prompt = "- PRESS ENTER TO START -";
-                    int pw = MeasureText(prompt, (int)(26*uiScale));
-                    DrawText(prompt, (sw - pw)/2, sh * 0.85f, (int)(26*uiScale), Fade(WHITE, alpha));
+                    bool saveExists = FileExists(SAVE_FILE);
+                    
+                    int btnW = (int)(300 * uiScale);
+                    int btnH = (int)(60 * uiScale);
+                    int startY = (int)(sh * 0.75f);
+                    int spacing = (int)(20 * uiScale);
+                    int centerX = (sw - btnW) / 2;
+
+                    // --- CONTINUE BUTTON ---
+                    Color contColor = saveExists ? WHITE : GRAY;
+                    Color contBg = (selectedMainMenuOption == 0 && saveExists) ? (Color){0, 100, 0, 200} : (Color){20, 20, 20, 200};
+                    Color contBorder = (selectedMainMenuOption == 0 && saveExists) ? LIME : GRAY;
+                    
+                    DrawRectangle(centerX, startY, btnW, btnH, contBg);
+                    DrawRectangleLinesEx((Rectangle){centerX, startY, btnW, btnH}, 2, contBorder);
+                    
+                    const char* txtCont = "CONTINUE";
+                    int cw = MeasureText(txtCont, (int)(24*uiScale));
+                    DrawText(txtCont, centerX + (btnW - cw)/2, startY + (btnH/2) - (12*uiScale), (int)(24*uiScale), contColor);
+                    
+                    if (!saveExists) {
+                        DrawLine(centerX + 20, startY + btnH/2, centerX + btnW - 20, startY + btnH/2, GRAY);
+                    }
+
+                    // --- NEW GAME BUTTON ---
+                    int ngY = startY + btnH + spacing;
+                    Color ngBg = (selectedMainMenuOption == 1) ? (Color){100, 0, 0, 200} : (Color){20, 20, 20, 200};
+                    Color ngBorder = (selectedMainMenuOption == 1) ? RED : GRAY;
+
+                    DrawRectangle(centerX, ngY, btnW, btnH, ngBg);
+                    DrawRectangleLinesEx((Rectangle){centerX, ngY, btnW, btnH}, 2, ngBorder);
+
+                    const char* txtNew = "NEW GAME";
+                    int nw = MeasureText(txtNew, (int)(24*uiScale));
+                    DrawText(txtNew, centerX + (btnW - nw)/2, ngY + (btnH/2) - (12*uiScale), (int)(24*uiScale), WHITE);
+                    
+                    // Controls hint
+                    const char* hint = "Use W/S or UP/DOWN to Select, ENTER to Confirm";
+                    int hw = MeasureText(hint, (int)(16*uiScale));
+                    DrawText(hint, (sw - hw)/2, sh - (40*uiScale), (int)(16*uiScale), LIGHTGRAY);
 
                     const char* copy = "(c) 2025 COPYRIGHT PLACEHOLDER";
-                    int cw = MeasureText(copy, (int)(12*uiScale));
-                    DrawText(copy, sw - cw - 20*uiScale, sh - 20*uiScale, (int)(12*uiScale), DARKGRAY);
+                    int copyw = MeasureText(copy, (int)(12*uiScale));
+                    DrawText(copy, sw - copyw - 20*uiScale, sh - 20*uiScale, (int)(12*uiScale), DARKGRAY);
                 }
                 
+                // [NEW] Draw Map Selection UI
+                if (menuState == 3) {
+                    DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.85f)); // Dark Overlay
+                    
+                    int titleSize = (int)(40 * uiScale);
+                    const char* title = "SELECT CITY SIZE";
+                    DrawText(title, (sw - MeasureText(title, titleSize))/2, sh * 0.15f, titleSize, WHITE);
+                    
+                    int cardW = (int)(sw * 0.35f);
+                    int cardH = (int)(sh * 0.4f);
+                    int gap = (int)(sw * 0.05f);
+                    int startX = (sw - (cardW*2 + gap)) / 2;
+                    int startY = (int)(sh * 0.3f);
+                    
+                    // Option 1: Small City
+                    DrawSelectionBox(startX, startY, cardW, cardH, 
+                        "SMALL CITY", 
+                        "Optimized Performance\nCompact Layout\nBest for Laptops", 
+                        (selectedMapOption == 1));
+                        
+                    // Option 2: Big City
+                    DrawSelectionBox(startX + cardW + gap, startY, cardW, cardH, 
+                        "METROPOLIS", 
+                        "Complex Traffic\nExpansive World\nNeeds Good GPU", 
+                        (selectedMapOption == 2));
+                        
+                    // Instructions
+                    const char* instr = "Use ARROW KEYS to Select, ENTER to Confirm";
+                    DrawText(instr, (sw - MeasureText(instr, 20))/2, sh * 0.85f, 20, LIGHTGRAY);
+                }
+
                 if (menuState == 1) {
                     float zoomT = zoomTimer / 1.5f; 
                     if (zoomT > 0.6f) {
@@ -551,7 +722,7 @@ bool DrawPostLoadOverlay(int screenWidth, int screenHeight, float dt) {
     if (sharedProgress > 0.9f) msgIndex = 4;
     if (sharedProgress >= 1.0f) msgIndex = 5;
 
-    sharedProgress += 0.15f * dt; 
+    sharedProgress += 0.02f * dt; 
 
     DrawLoadingInterface(screenWidth, screenHeight, sharedProgress, postLoadMessages[msgIndex]);
 
