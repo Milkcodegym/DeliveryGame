@@ -17,6 +17,8 @@
 
 #include "maps_app.h"
 #include "raymath.h"
+#include "map.h" 
+#include "player.h"
 #include <stdio.h>
 #include <string.h>
 #include <float.h> 
@@ -72,7 +74,6 @@ void LoadMapIcons() {
     mapsState.icons[LOC_MARKET]      = LoadTexture("resources/Mapicons/icon_market.png");
     mapsState.icons[LOC_SUPERMARKET] = LoadTexture("resources/Mapicons/icon_supermarket.png");
     mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/Mapicons/icon_restaurant.png");
-    mapsState.icons[LOC_HOUSE]       = LoadTexture("resources/Mapicons/icon_house.png");
     mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/Mapicons/icon_mechanic.png"); 
     mapsState.icons[LOC_DEALERSHIP]  = LoadTexture("resources/Mapicons/icon_dealership.png");
     mapsState.emergencyIcon = LoadTexture("resources/Mapicons/emergency.png");

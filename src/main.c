@@ -194,6 +194,10 @@ int main(void)
                     }
                 } 
                 else {
+                    // In main.c main loop:
+                    if (phone.music.isPlaying && phone.music.songCount > 0) {
+                        UpdateMusicStream(phone.music.library[phone.music.currentSongIdx].stream);
+                    }
                     // --- NORMAL GAME LOOP ---
                     
                     // [TUTORIAL LOCK] If tutorial window is open, stop car and traffic
@@ -296,7 +300,6 @@ int main(void)
                     BeginMode3D(camera);
                         //DrawInvisibleBorders(); //for debugging border location
                         DrawGameMap(&map, camera);
-                        UpdateRuntimeParks(&map, camera.position);
                         
                         // Draw Deliveries
                         for(int i = 0; i < 5; i++) {

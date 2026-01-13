@@ -21,7 +21,7 @@
 #include "map.h"
 #include "traffic.h"
 #include "maps_app.h"
-#include "save.h"
+
 
 #define MAX_TRANSACTIONS 10
 #define MAX_FUEL 100.0f
@@ -48,6 +48,10 @@ typedef struct Player {
     float yVelocity;
     bool isGrounded;
     float angle;
+    // [NEW] Physics
+    float drag;          // Air resistance
+    float turn_speed;    // Max turning capability
+    float steering_val;  // Current steering (-1.0 to 1.0)
     Vector3 prevPosition; 
     float prevAngle;
     float physicsAccumulator;
@@ -57,7 +61,10 @@ typedef struct Player {
     // Rendering
     Model model;
     char currentModelFileName[64]; // [NEW] To save/load the correct car mesh
-
+    bool ownedCars[10];      // Tracks Base Models
+    bool ownedUpgrades[10];  // [NEW] Tracks Upgraded Models
+    int currentCarIndex; 
+    bool isDrivingUpgrade; // To remember what we are driving
     // ECONOMY
     float money;
     Transaction history[MAX_TRANSACTIONS];

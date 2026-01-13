@@ -778,7 +778,7 @@ bool DrawPostLoadOverlay(int screenWidth, int screenHeight, float dt) {
     if (sharedProgress > 0.9f) msgIndex = 4;
     if (sharedProgress >= 1.0f) msgIndex = 5;
 
-    sharedProgress += 0.02f * dt; 
+    sharedProgress += 0.06f * dt; 
 
     DrawLoadingInterface(screenWidth, screenHeight, sharedProgress, postLoadMessages[msgIndex]);
 

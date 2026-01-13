@@ -195,27 +195,98 @@ bool LoadGame(Player *player, PhoneState *phone) {
 }
 
 void ResetSaveGame(Player *player, PhoneState *phone) {
-    remove(SAVE_FILE_NAME);
+    // 1. DELETE FILE
+    if (FileExists(SAVE_FILE_NAME)) {
+        remove(SAVE_FILE_NAME);
+    }
+
+    // 2. RESOURCE CLEANUP
+    // Unload the current vehicle model to prevent leaks/errors
+    if (player->model.meshCount > 0) {
+        UnloadModel(player->model);
+        player->model = (Model){0}; // Safety null
+    }
+
+    // 3. RESET PLAYER STATE (Manual Factory Reset)
+    // --- Physics & Stats ---
+    player->position = (Vector3){ 0.0f, 1.0f, 0.0f }; // Safe spawn height
+    player->angle = 0.0f;
+    player->current_speed = 0.0f;
+    player->health = 100.0f;
     
-    // Reset Critical Logic
-    player->money = 50;
-    player->fuel = MAX_FUEL;
+    // --- Economy ---
+    player->money = 50.0f;
+    player->fuel = 100.0f;
+    player->maxFuel = 100.0f;
+    player->fuelConsumption = 0.04f;
     player->totalDeliveries = 0;
+    player->totalEarnings = 0;
     player->transactionCount = 0;
-    player->hasCarMonitorApp = false;
-    player->tutorialFinished = false; // Reset tutorial
     
-    // Reset to Default Van Stats (Hardcoded default)
-    player->max_speed = 20.0f;
+    // --- Vehicle (Default Van Stats) ---
+    player->max_speed = 22.0f;
     player->acceleration = 1.3f;
     player->brake_power = 2.0f;
-    player->maxFuel = 80.0f;
-    player->fuelConsumption = 0.04f;
-    player->health = 100.0f;
+    player->friction = 0.98f;
+    player->radius = 1.8f;
+    player->insulationFactor = 0.0f;
+    player->loadResistance = 0.0f;
+    
+    // Load Default Model
+    char path[128] = "resources/Playermodels/sedan.obj";
+    if (FileExists(path)) {
+        player->model = LoadModel(path);
+        strcpy(player->currentModelFileName, "sedan.obj");
+    }
+    
+    // --- Clear History ---
+    for(int i=0; i<MAX_TRANSACTIONS; i++) {
+        player->history[i] = (Transaction){0};
+    }
 
+    // --- Reset Upgrades ---
+    player->hasCarMonitorApp = false;
+    player->unlockGForce = false;
+    player->unlockThermometer = false;
+    player->pinSpeed = true;
+    player->pinFuel = true;
+    player->pinAccel = false;
+    player->pinGForce = false;
+    player->pinThermometer = false;
     
-    // Note: Model reset usually requires reloading the scene or restarting app, 
-    // as we don't want to load models in the middle of a reset function.
+    // Reset Garage
+    for(int i=0; i<10; i++) {
+        player->ownedCars[i] = false;
+        player->ownedUpgrades[i] = false; // [NEW]
+    }
     
-    TraceLog(LOG_INFO, "SAVE: Save file deleted and state reset.");
+    player->ownedCars[1] = true; 
+    player->currentCarIndex = 1;
+    player->isDrivingUpgrade = false; // [NEW]
+
+    // --- Progression ---
+    player->tutorialFinished = false; // Restart tutorial
+
+    // 4. RESET PHONE
+    phone->isOpen = false;
+    phone->slideAnim = 0.0f;
+    phone->currentApp = APP_HOME;
+    phone->activeTaskCount = 0;
+    
+    // Clear Tasks
+    for(int i=0; i<5; i++) {
+        phone->tasks[i].status = JOB_AVAILABLE;
+        phone->tasks[i].timeLimit = 0;
+    }
+
+    // Reset Settings
+    phone->settings.masterVolume = 1.0f;
+    phone->settings.sfxVolume = 1.0f;
+    phone->settings.mute = false;
+
+    // Reset Music
+    phone->music.isPlaying = false;
+    phone->music.currentSongIdx = 0;
+
+    TraceLog(LOG_INFO, "SAVE: Save file deleted and game state manually reset.");
 }

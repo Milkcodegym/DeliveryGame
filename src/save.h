@@ -23,6 +23,8 @@
 #define SAVE_FILE_NAME "save_data.dat"
 #define SAVE_VERSION 2  
 
+typedef struct PhoneState PhoneState;
+
 typedef struct GameSaveData {
     int version;
     

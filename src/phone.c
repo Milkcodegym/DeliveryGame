@@ -20,7 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h> 
 #include <time.h> 
- 
+#include <string.h>
+#include "save.h"
+#include "player.h" 
+#include "map.h"
+#include "maps_app.h" 
+#include "delivery_app.h"
+#include "car_monitor.h" 
 
 // --- CONSTANTS ---
 #define BASE_SCREEN_H 720.0f
@@ -87,10 +93,6 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     InitDeliveryApp(phone, map);
 
     // Init Music
-    phone->music.library[0] = (Song){"Banger beat", "Milk", "resources/music/song1.ogg", {0}, 0};
-    phone->music.library[1] = (Song){"Fire track", "Coolartist", "resources/music/song2.ogg", {0}, 0};
-    phone->music.library[2] = (Song){"Melodic tune", "Litsolou19", "resources/music/song3.ogg", {0}, 0};
-
     for(int i=0; i<3; i++) {
         phone->music.library[i].stream = LoadMusicStream(phone->music.library[i].filePath);
         phone->music.library[i].duration = GetMusicTimeLength(phone->music.library[i].stream);
@@ -191,51 +193,167 @@ void DrawAppBank(PhoneState *phone, Player *player) {
     }
 }
 
+// Helper to parse "Artist - Title.mp3" into clean strings
+void ParseFilename(const char* filename, char* titleOut, char* artistOut) {
+    // 1. Remove extension
+    char raw[64];
+    strncpy(raw, filename, 63);
+    raw[63] = '\0';
+    char *dot = strrchr(raw, '.');
+    if (dot) *dot = '\0';
+
+    // 2. Check for " - " separator
+    char *dash = strstr(raw, " - ");
+    if (dash) {
+        // Found separator: "Artist - Title"
+        *dash = '\0'; // Split string
+        strncpy(artistOut, raw, 63);
+        strncpy(titleOut, dash + 3, 63); // Skip " - "
+    } else {
+        // No separator: Use filename as title
+        strncpy(titleOut, raw, 63);
+        strcpy(artistOut, "Unknown Artist");
+    }
+}
+
+void LoadMusicLibrary(PhoneState *phone) {
+    if (phone->music.isInitialized) return;
+
+    phone->music.songCount = 0;
+    phone->music.currentSongIdx = 0;
+    
+    // 1. Scan Directory
+    if (DirectoryExists("resources/Music")) {
+        FilePathList files = LoadDirectoryFiles("resources/Music");
+        
+        for (int i = 0; i < files.count; i++) {
+            if (phone->music.songCount >= MAX_SONGS) break;
+            
+            const char* ext = GetFileExtension(files.paths[i]);
+            
+            // 2. Filter Valid Audio Files
+            if (IsFileExtension(files.paths[i], ".mp3") || 
+                IsFileExtension(files.paths[i], ".wav") || 
+                IsFileExtension(files.paths[i], ".ogg") || 
+                IsFileExtension(files.paths[i], ".qoa")) 
+            {
+                Song *s = &phone->music.library[phone->music.songCount];
+                
+                // Load Stream
+                s->stream = LoadMusicStream(files.paths[i]);
+                s->stream.looping = false; // We handle playlist looping manually
+                
+                // Get Metadata
+                s->duration = GetMusicTimeLength(s->stream);
+                ParseFilename(GetFileName(files.paths[i]), s->title, s->artist);
+                
+                phone->music.songCount++;
+            }
+        }
+        UnloadDirectoryFiles(files);
+    }
+
+    if (phone->music.songCount > 0) {
+        printf("MUSIC: Loaded %d songs.\n", phone->music.songCount);
+    } else {
+        printf("MUSIC: No songs found in resources/Music.\n");
+    }
+    
+    phone->music.isInitialized = true;
+}
+
 void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
-    DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (Color){20, 20, 30, 255}); 
+    // 1. Ensure Library is Loaded
+    if (!phone->music.isInitialized) LoadMusicLibrary(phone);
+
+    DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, (Color){20, 20, 30, 255});
+
+    // --- CASE A: NO SONGS FOUND ---
+    if (phone->music.songCount == 0) {
+        DrawText("No Music Found", 60, 200, 20, RED);
+        DrawText("Add .mp3 files to", 50, 230, 10, GRAY);
+        DrawText("resources/Music/", 50, 245, 10, GRAY);
+        return;
+    }
+
+    // --- CASE B: MUSIC PLAYER ---
     Song *s = &phone->music.library[phone->music.currentSongIdx];
 
-    DrawRectangle(40, 60, 200, 200, DARKPURPLE);
-    DrawText("ALBUM", 100, 150, 20, WHITE);
-    DrawText(s->title, 20, 300, 24, WHITE);
-    DrawText(s->artist, 20, 330, 18, GRAY);
+    // Update Stream Buffer (MUST be called every frame while playing)
+    if (phone->music.isPlaying) {
+        UpdateMusicStream(s->stream);
+        
+        // Auto-Next song when finished
+        if (GetMusicTimePlayed(s->stream) >= s->duration - 0.1f) {
+            StopMusicStream(s->stream);
+            phone->music.currentSongIdx++;
+            if (phone->music.currentSongIdx >= phone->music.songCount) phone->music.currentSongIdx = 0;
+            PlayMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
+        }
+    }
 
+    // Album Art Placeholder (Dynamic Color based on Title Hash)
+    int colorSeed = 0;
+    for(int i=0; s->title[i]; i++) colorSeed += s->title[i];
+    Color artColor = (Color){ (colorSeed * 50)%255, (colorSeed * 30)%255, (colorSeed * 90)%255, 255 };
+    
+    DrawRectangle(40, 60, 200, 200, artColor);
+    DrawText("MUSIC", 110, 150, 20, Fade(WHITE, 0.5f)); // Placeholder text
+
+    // Song Info
+    DrawText(s->title, 20, 280, 24, WHITE);
+    DrawText(s->artist, 20, 310, 18, GRAY);
+
+    // Progress Bar
     float timePlayed = GetMusicTimePlayed(s->stream);
-    float progress = timePlayed / s->duration;
+    float progress = 0.0f;
+    if (s->duration > 0) progress = timePlayed / s->duration;
     
     float barWidth = SCREEN_WIDTH - 40;
-    DrawRectangle(20, 380, barWidth, 4, GRAY);
-    DrawRectangle(20, 380, barWidth * progress, 4, GREEN);
-    DrawText(TextFormat("%02d:%02d", (int)timePlayed/60, (int)timePlayed%60), 20, 390, 10, LIGHTGRAY);
+    DrawRectangle(20, 360, barWidth, 4, GRAY);
+    DrawRectangle(20, 360, barWidth * progress, 4, GREEN);
+    
+    // Time Text (Current / Total)
+    DrawText(TextFormat("%02d:%02d", (int)timePlayed/60, (int)timePlayed%60), 20, 370, 10, LIGHTGRAY);
+    DrawText(TextFormat("%02d:%02d", (int)s->duration/60, (int)s->duration%60), SCREEN_WIDTH - 50, 370, 10, LIGHTGRAY);
 
-    Rectangle btnPrev = { 30, 420, 60, 60 };
-    Rectangle btnPlay = { 110, 420, 60, 60 };
-    Rectangle btnNext = { 190, 420, 60, 60 };
+    // Controls
+    Rectangle btnPrev = { 30, 400, 60, 60 };
+    Rectangle btnPlay = { 110, 400, 60, 60 };
+    Rectangle btnNext = { 190, 400, 60, 60 };
 
+    // PREV
     if (GuiButton(btnPrev, "|<", DARKBLUE, mouse, click)) {
         StopMusicStream(s->stream); 
         phone->music.isPlaying = true; 
         phone->music.currentSongIdx--;
-        if(phone->music.currentSongIdx < 0) phone->music.currentSongIdx = 2; 
+        // Dynamic Wrap-around
+        if(phone->music.currentSongIdx < 0) phone->music.currentSongIdx = phone->music.songCount - 1; 
         PlayMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
     }
     
+    // PLAY/PAUSE
     const char* playIcon = phone->music.isPlaying ? "||" : ">";
     Color playColor = phone->music.isPlaying ? GREEN : ORANGE;
     
     if (GuiButton(btnPlay, playIcon, playColor, mouse, click)) {
         phone->music.isPlaying = !phone->music.isPlaying;
-        if (phone->music.isPlaying) ResumeMusicStream(s->stream);
+        if (phone->music.isPlaying) PlayMusicStream(s->stream); // Use Play instead of Resume for safer state
         else PauseMusicStream(s->stream);
     }
 
+    // NEXT
     if (GuiButton(btnNext, ">|", DARKBLUE, mouse, click)) {
         StopMusicStream(s->stream); 
         phone->music.isPlaying = true; 
         phone->music.currentSongIdx++;
-        if(phone->music.currentSongIdx > 2) phone->music.currentSongIdx = 0; 
+        // Dynamic Wrap-around
+        if(phone->music.currentSongIdx >= phone->music.songCount) phone->music.currentSongIdx = 0; 
         PlayMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
     }
+    
+    // Song Counter (e.g. "1 / 12")
+    DrawText(TextFormat("%d / %d", phone->music.currentSongIdx + 1, phone->music.songCount), 120, 470, 10, GRAY);
 }
 
 void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool click) {

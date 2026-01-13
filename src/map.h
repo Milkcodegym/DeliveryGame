@@ -60,32 +60,10 @@ typedef enum {
 #define PARK_RAYS 16            // How many vertices the park polygon has (more = smoother)
 #define PARK_MAX_PER_CHUNK 5    // Max parks to generate per chunk
 
-typedef struct {
-    Vector2 center;
-    Vector2 vertices[PARK_RAYS]; // The outline of the park
-    float radius;
-    bool active;
-} DynamicPark;
-
-typedef struct {
-    bool generated;
-    int parkCount;
-    int parkIndices[PARK_MAX_PER_CHUNK]; // Indices into the global pool
-} ParkChunk;
-
 #define MAX_DYNAMIC_PARKS 2048
 #define PARK_GRID_ROWS 100
 #define PARK_GRID_COLS 100
 #define PARK_OFFSET 3000.0f // To handle negative coordinates
-
-typedef struct {
-    DynamicPark parks[MAX_DYNAMIC_PARKS];
-    int totalParks;
-    ParkChunk chunks[PARK_GRID_ROWS][PARK_GRID_COLS];
-    bool initialized;
-} RuntimeParkSystem;
-
-static RuntimeParkSystem parkSystem = {0};
 
 typedef enum {
     EVENT_NONE = 0,

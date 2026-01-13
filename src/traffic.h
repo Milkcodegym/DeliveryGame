@@ -18,7 +18,8 @@
 #define TRAFFIC_H
 
 #include "raylib.h"
-#include "map.h"
+
+typedef struct GameMap GameMap;
 
 #define MAX_VEHICLES 100
 

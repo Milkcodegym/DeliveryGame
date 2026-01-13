@@ -25,7 +25,7 @@ typedef enum {
     TUT_INACTIVE,
     TUT_WELCOME,          
     TUT_PHONE_INTRO,      
-    TUT_PHONE_APPS,       
+    TUT_PHONE_APPS,      
     TUT_CONTROLS,
     TUT_CRASH_INTRO,
     TUT_SPAWN_FIRST_JOB,  
@@ -261,7 +261,7 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     if (currentAppTab == 0) expl = "JOBS (Key: 1)\n\nAccept delivery contracts here.\nPay attention to Pay, Distance,\nand Constraints (Fragile/Heavy).";
     if (currentAppTab == 1) expl = "MAPS (Key: 2)\n\nLive GPS Navigation.\nUse the Black Button to re-center.\nFind Gas Stations (Yellow)\nand Mechanics (Black).\nDouble-click your destination \nto find the shortest route.";
     if (currentAppTab == 2) expl = "BANK (Key: 3)\n\nTrack your financial health.\nView income and debts.\n(You start with debt).";
-    if (currentAppTab == 3) expl = "MUSIC (Key: 4)\n\nPlay your own MP3/OGG files\nor use the built-in radio.";
+    if (currentAppTab == 3) expl = "MUSIC (Key: 4)\n\nPlay your own MP3/OGG files\nor use the built-in radio.\nTo insert files, just put them\nin the resources/music folder\nand restart the game!";
     if (currentAppTab == 4) expl = "SETTINGS (Key: 5)\n\nAdjust Volume levels.\nReset Save Data if stuck.\nAccess this help menu.";
     
     DrawText(expl, cx + 250*scale, cy + 60*scale, (int)(18*scale), DARKGRAY);

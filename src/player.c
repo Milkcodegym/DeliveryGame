@@ -3,19 +3,13 @@
  * Game Title: Delivery Game
  * Authors: Lucas Liço, Michail Michailidis
  * Copyright (c) 2025-2026
- *
  * License: zlib/libpng
- *
- * This software is provided 'as-is', without any express or implied warranty.
- * In no event will the authors be held liable for any damages arising from
- * the use of this software.
- *
- * Full license terms: see the LICENSE file.
  * -----------------------------------------------------------------------------
  */
 
 #include "player.h"
 #include "raymath.h" 
+#include "save.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,7 +35,7 @@ void AddMoney(Player *player, const char* desc, float amount) {
 void LoadPlayerContent(Player *player) {
     char path[128];
     if (strlen(player->currentModelFileName) > 0) sprintf(path, "resources/Playermodels/%s", player->currentModelFileName);
-    else sprintf(path, "resources/Playermodels/delivery.obj");
+    else sprintf(path, "resources/Playermodels/sedan.obj");
     player->model = LoadModel(path);
 }
 
@@ -76,14 +70,17 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
         }
         player->current_speed *= -0.4f; 
     } 
-    // 3. Wall Crash? Stop.
+    // 3. Wall Crash? HARD STOP.
     else {
+        // Impact Damage
         if (fabs(player->current_speed) > 8.0f) { 
             int damage = (int)((fabs(player->current_speed) - 8.0f) * 3.0f);
             player->health -= damage;
             if (player->health < 0) player->health = 0;
         }
-        player->current_speed = 0;
+        
+        // Kill momentum instantly (No sliding)
+        player->current_speed = 0.0f;
     }
 }
 
@@ -93,48 +90,87 @@ Player InitPlayer(Vector3 startPos) {
     Player p = {0};
     p.position = startPos;
     
-    // [FIX] Force spawn height to match the flat map logic
-    p.radius = 0.4f; 
-    p.position.y = p.radius; 
+    p.radius = 1.6f;  // Sedan Radius
+    p.position.y = 0.4f; 
 
     p.health = 100.0f;
     p.current_speed = 0.0f;
     
-    // [TUNING]
-    p.friction = 2.0f;      
-    p.acceleration = 0.5f; 
-    p.max_speed = 22.0f;
-    p.brake_power = 15.0f; 
-    p.rotationSpeed = 120.0f;
+    // [TUNING - UPDATED FOR BETTER COASTING/BRAKING]
+    p.max_speed = 22.0f;       // Reduced slightly for control
+    p.acceleration = 1.0f;     
+    p.brake_power = 22.0f;     // [FIX] Very strong brakes (Was 4.5)
+    p.turn_speed = 3.0f;       
+    
+    // [FIX] Friction set to 0.999 allows "Rolling"
+    // Previously 0.98 meant 2% speed loss PER FRAME (huge drag)
+    p.friction = 0.992f;        
+    
+    p.drag = 0.002f;           // Very low air drag
+    p.steering_val = 0.0f;     
+    
+    p.rotationSpeed = 120.0f; 
     
     p.yVelocity = 0.0f;
-    p.isGrounded = true; // Always grounded on flat map
+    p.isGrounded = true; 
     p.angle = 0.0f;
 
-    strcpy(p.currentModelFileName, "delivery.obj"); 
-    p.maxFuel = 80.0f;
-    p.fuelConsumption = 0.03f;
-    p.insulationFactor = 1.0f;
-    p.loadResistance = 1.0f;
-    p.pinSpeed = 1;
+    // Initialize Garage
+    for(int i=0; i<10; i++) {
+        p.ownedCars[i] = false;
+        p.ownedUpgrades[i] = false; // [NEW]
+    }
+    
+    // Default Car (Sedan Base)
+    p.ownedCars[1] = true; 
+    p.currentCarIndex = 1; 
+    p.isDrivingUpgrade = false; // [NEW] Driving Base Model 
+    
+    strcpy(p.currentModelFileName, "sedan.obj");
+    p.maxFuel = 100.0f;
+    p.fuel = 100.0f;
+    p.fuelConsumption = 0.04f;
+    p.insulationFactor = 0.0f;
+    p.loadResistance = 0.0f;
+    
     p.money = 0.0f;
     p.transactionCount = 0;
     AddMoney(&p, "Initial Funds", 50.00f);
-    AddMoney(&p, "DEVELOPER MONEY", 50450.00f);
-    p.fuel = p.maxFuel * 0.85f;
+    
     return p;
 }
 
 void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt) {
-    // 1. Cap dt to prevent "Spiral of Death" at very low FPS
     if (dt > 0.04f) dt = 0.04f; 
     
     bool inputBlocked = IsMapsAppTyping();
 
-    // 2. Rotation
+    // 2. STEERING LOGIC
+    float steerInput = 0.0f;
     if (!inputBlocked) {
-        if (IsKeyDown(KEY_A)) player->angle += player->rotationSpeed * dt;
-        if (IsKeyDown(KEY_D)) player->angle -= player->rotationSpeed * dt;
+        if (IsKeyDown(KEY_A)) steerInput = 1.0f;
+        if (IsKeyDown(KEY_D)) steerInput = -1.0f;
+    }
+
+    if (steerInput != 0.0f) {
+        player->steering_val += steerInput * 4.0f * dt;
+    } else {
+        if (player->steering_val > 0) {
+            player->steering_val -= 4.0f * dt;
+            if (player->steering_val < 0) player->steering_val = 0;
+        } else if (player->steering_val < 0) {
+            player->steering_val += 4.0f * dt;
+            if (player->steering_val > 0) player->steering_val = 0;
+        }
+    }
+    if (player->steering_val > 1.0f) player->steering_val = 1.0f;
+    if (player->steering_val < -1.0f) player->steering_val = -1.0f;
+
+    bool attemptingMove = !inputBlocked && (IsKeyDown(KEY_W) || IsKeyDown(KEY_S));
+    
+    if (fabs(player->current_speed) > 0.1f || attemptingMove) {
+        float turnFactor = player->steering_val * player->turn_speed * dt * 50.0f;
+        player->angle += turnFactor;
     }
 
     // 3. Throttle Logic
@@ -144,29 +180,21 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     if (!inputBlocked && player->fuel > 0) {
         if (IsKeyDown(KEY_W)) {
             target_speed = player->max_speed;
+            // If moving backwards and press W, we are braking to a stop first
             if (player->current_speed < -0.1f) isBraking = true;
         }
         else if (IsKeyDown(KEY_S)) {
             target_speed = -player->max_speed * 0.5f; 
+            // If moving forward and press S, we are braking
             if (player->current_speed > 0.1f) isBraking = true;
         }
     }
 
     // --- PHYSICS INTEGRATION ---
 
-    // A. COASTING
-    if (target_speed == 0.0f) {
-        if (player->current_speed > 0) {
-            player->current_speed -= player->friction * dt;
-            if (player->current_speed < 0) player->current_speed = 0;
-        } 
-        else if (player->current_speed < 0) {
-            player->current_speed += player->friction * dt;
-            if (player->current_speed > 0) player->current_speed = 0;
-        }
-    }
-    // B. BRAKING
-    else if (isBraking) {
+    // A. BRAKING (High Friction Mode)
+    // We apply this logic if the player is actively trying to stop
+    if (isBraking) {
         if (player->current_speed > 0) {
             player->current_speed -= player->brake_power * dt;
             if (player->current_speed < 0) player->current_speed = 0; 
@@ -175,6 +203,18 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
             player->current_speed += player->brake_power * dt;
             if (player->current_speed > 0) player->current_speed = 0;
         }
+    }
+    // B. COASTING (Low Friction Mode)
+    // No gas, no brake. Just rolling.
+    else if (target_speed == 0.0f) {
+        player->current_speed *= player->friction; // 0.999f (Preserves speed)
+        
+        // Minor Air Drag
+        float dragForce = player->current_speed * player->current_speed * player->drag * dt;
+        if (player->current_speed > 0) player->current_speed -= dragForce;
+        else player->current_speed += dragForce;
+
+        if (fabs(player->current_speed) < 0.1f) player->current_speed = 0.0f;
     }
     // C. ACCELERATING
     else {
@@ -191,37 +231,30 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     // 4. Movement Calculation
     float moveDist = player->current_speed * dt;
 
-    // Safety Cap: 2.0m per frame limit (Prevents tunneling)
     if (moveDist > 2.0f) moveDist = 2.0f;
     if (moveDist < -2.0f) moveDist = -2.0f;
 
     float moveX = sinf(player->angle * DEG2RAD) * moveDist;
     float moveZ = cosf(player->angle * DEG2RAD) * moveDist;
 
-    // [CRITICAL] Store valid state before applying physics
     Vector3 startPos = player->position;
 
     // 5. Collision & Integration
-    // We intentionally REMOVED gravity. The car glides on the X/Z plane.
     ResolveMovement(player, map, traffic, moveX, 1);
     ResolveMovement(player, map, traffic, moveZ, 0);
 
-    // 6. [NEW] Y-AXIS SANITY CHECK
-    // If the physics calculation somehow moved the player vertically (glitch/lag),
-    // we assume the whole frame is corrupted and REVERT everything.
-    // Tolerance is 0.1f to allow for minor floating point drift.
+    // 6. Y-Axis Sanity Check
     if (fabsf(player->position.y - startPos.y) > 0.1f) {
-        player->position = startPos;  // Undo X/Z movement too (Block the illegal move)
-        player->current_speed = 0.0f; // Kill momentum safely
+        player->position = startPos; 
+        player->current_speed = 0.0f; 
     } else {
-        // Enforce exact ground height (Flat Map Logic)
-        player->position.y = player->radius; 
+        player->position.y = 0.4f; 
     }
     
     player->yVelocity = 0.0f;
     player->isGrounded = true;
 
-    // 7. Fuel
+    // 7. Fuel Consumption
     if (fabs(moveDist) > 0.001f && player->fuel > 0) {
         player->fuel -= fabs(moveDist) * player->fuelConsumption;
         if (player->fuel < 0) player->fuel = 0;

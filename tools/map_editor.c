@@ -10,7 +10,7 @@
 
 // --- CONFIGURATION ---
 const float EDITOR_MAP_SCALE = 0.4f; 
-const char* MAP_FILE = "resources/maps/smaller_city.map"; 
+const char* MAP_FILE = "resources/maps/real_city.map"; 
 
 #define LOC_DELETED -1 
 // Supports IDs 0-9 (10 types total)

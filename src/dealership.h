@@ -19,6 +19,7 @@
 
 #include "raylib.h"
 #include "player.h"
+typedef struct Player Player;
 
 // State management for the main game loop
 typedef enum {

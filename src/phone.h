@@ -19,16 +19,12 @@
 
 #include "raylib.h"
 #include <stdbool.h> 
-#include "save.h"
-#include "player.h" 
-#include "map.h"
-#include "maps_app.h" 
-#include "delivery_app.h"
-#include "car_monitor.h"
 
 // --- Forward Declarations ---
-// We don't need typedef Player Player here if we include player.h
-struct GameMap; 
+// [FIX] We use forward declarations instead of #includes to prevent 
+// "Circular Dependency" errors (where phone needs player, and player needs phone).
+typedef struct Player Player;
+typedef struct GameMap GameMap;
 
 // --- Constants ---
 #define PHONE_WIDTH 320
@@ -39,7 +35,6 @@ struct GameMap;
 #define SCREEN_OFFSET_Y 40
 
 // --- App States ---
-// Renamed to PhoneApp to match phone.c logic
 typedef enum {
     APP_HOME,
     APP_DELIVERY,
@@ -80,23 +75,25 @@ typedef struct DeliveryTask {
 } DeliveryTask;
 
 // --- Music Data ---
-typedef struct Song {
-    char title[32];
-    char artist[32];
-    char filePath[64];
-    Music stream;     
-    float duration;    
+#define MAX_SONGS 64 
+
+typedef struct {
+    char title[64];
+    char artist[64];
+    char filePath[128];
+    Music stream;
+    float duration;
 } Song;
 
-// Renamed to MusicPlayer to match phone.c logic
-typedef struct MusicPlayer {
-    bool isPlaying;
+typedef struct {
+    Song library[MAX_SONGS];
+    int songCount;      
     int currentSongIdx;
-    Song library[3]; 
-} MusicPlayer;
+    bool isPlaying;
+    bool isInitialized; 
+} MusicApp;
 
 // --- Settings Data ---
-// Renamed to PhoneSettings to match save.h logic
 typedef struct PhoneSettings {
     float masterVolume;
     float sfxVolume;
@@ -110,22 +107,23 @@ typedef struct PhoneState {
     float slideAnim; 
     bool isOpen;
     int activeTaskCount;
+    
     // Navigation
-    PhoneApp currentApp; // Updated type name
+    PhoneApp currentApp; 
     
     // App Specific Data
     DeliveryTask tasks[5];
-    MusicPlayer music;      // Updated type name
-    PhoneSettings settings; // Updated type name
+    MusicApp music;      
+    PhoneSettings settings; 
 } PhoneState;
 
-// Functions
-void InitPhone(PhoneState *phone, struct GameMap *map); 
-void UpdatePhone(PhoneState *phone, Player *player, struct GameMap *map); 
-void DrawPhone(PhoneState *phone, Player *player, struct GameMap *map, Vector2 mouse, bool click);
+// --- Functions ---
+void InitPhone(PhoneState *phone, GameMap *map); 
+void UpdatePhone(PhoneState *phone, Player *player, GameMap *map); 
+void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 mouse, bool click);
 void UnloadPhone(PhoneState *phone);
-// Added notification helper to header so other files can use it
+
 void ShowPhoneNotification(const char *text, Color color); 
-// Add this to the bottom of phone.h
-void ShowTutorialHelp(void); // From tutorial.c
-#endif
+void ShowTutorialHelp(void); 
+
+#endif // PHONE_H

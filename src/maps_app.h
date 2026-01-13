@@ -19,7 +19,8 @@
 #define MAPS_APP_H
 
 #include "raylib.h"
-#include "map.h"
+
+typedef struct GameMap GameMap;
 #define MAX_PATH_NODES 2048
 
 

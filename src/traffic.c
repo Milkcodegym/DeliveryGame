@@ -17,6 +17,7 @@
 #include "traffic.h"
 #include "raymath.h"
 #include "rlgl.h"
+#include "map.h"
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -340,7 +341,7 @@ Vector3 TrafficCollision(TrafficManager *traffic, float playerX, float playerZ, 
         float distSq = dx*dx + dz*dz;
         
         // Hitbox based on car length (~2.4 units)
-        float minDist = playerRadius; 
+        float minDist = playerRadius - 0.05f; 
         
         if (distSq < minDist * minDist) {
             // [FIX] Handle Stuck together: Return a Push Vector

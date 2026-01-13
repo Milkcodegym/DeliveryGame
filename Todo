@@ -18,10 +18,10 @@ fix traffic movement
 increase damage taken?
 fix park glitches in general
 fix player speed depending on frame rate?
-
-replace procedural vespa with current player car model?
-
-
+decrease render distance and add fog.
+grass going through sidewalks
+add icon to app window
+stuck after collision bug and need to back up.
 
 fixed and needs testing:
 
@@ -29,4 +29,4 @@ fix g forces and temperature logic (fragile packages break instantly)
 Add actual shop locations / parking spots to pull into?
 Add icons for pickup and drop-off locations
 cargo damage needs balancing
-
+other car stats need balancing
