@@ -1,9 +1,10 @@
 Add sea??
-Work on scaling and rendering optimization (important)
+Work on rendering optimization (important)
 
 fix camera collisions - many bugs
 
-add a bicycle or motorcycle. then, fix graphics for locations 
+add a bicycle or motorcycle. 
+fix graphics for locations 
 dealership loading screen?
 make parks spawn in city gaps fix?
 
@@ -18,8 +19,7 @@ increase damage taken?
 fix park glitches in general
 fix player speed depending on frame rate?
 
-add both smaller city and real city and let the user decide in the loading screen
-in the saves, know which map file it is to load it (persistent data)
+replace procedural vespa with current player car model?
 
 
 
@@ -30,4 +30,3 @@ Add actual shop locations / parking spots to pull into?
 Add icons for pickup and drop-off locations
 cargo damage needs balancing
 
-https://www.flaticon.com/free-icon/emergency_4610806?term=emergency+sign&page=1&position=9&origin=search&related_id=4610806

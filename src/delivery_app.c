@@ -153,7 +153,7 @@ static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rect
     DrawRectangleRounded(detailCard, 0.1f, 6, COLOR_CARD_BG);
     float tx = detailCard.x + 15; float ty = detailCard.y + 15;
     DrawText(TextFormat("Pay: $%.2f", t->pay), tx, ty, 22, COLOR_ACCENT); ty += 35;
-    DrawText(TextFormat("Dist: %.0fm", t->distance), tx, ty, 18, COLOR_TEXT_MAIN); ty += 35;
+    //DrawText(TextFormat("Dist: %.0fm", t->distance), tx, ty, 18, COLOR_TEXT_MAIN); ty += 35;
     DrawLine(tx, ty, detailCard.x + detailCard.width - 15, ty, GRAY); ty += 15;
     
     // --- DETAILS ---
@@ -388,7 +388,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             if (t->pay < 0.0f) t->pay = 0.0f; // Allow it to hit 0 for total destruction
 
             // ... (Keep Delivery Completion Logic exactly as before) ...
-            if (Vector2Distance((Vector2){player->position.x, player->position.z}, t->customerPos) < 5.0f) {
+            /*if (Vector2Distance((Vector2){player->position.x, player->position.z}, t->customerPos) < 5.0f) {
                 t->status = JOB_DELIVERED;
                 ShowPhoneNotification("Delivered!", GREEN);
                 
@@ -432,7 +432,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                 eventFallbackTimer = 120.0f; 
                 SaveGame(player, phone);
                 ShowPhoneNotification("Auto-Saved", LIME);
-            }
+            }*/
         }
     }
 }

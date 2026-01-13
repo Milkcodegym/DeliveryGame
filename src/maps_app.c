@@ -206,7 +206,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     if (mapsState.hasDestination) {
         mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
 
-        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 5.0f) {
+        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 0.3f) {
             mapsState.hasDestination = false;
             mapsState.pathLen = 0;
         }
@@ -579,8 +579,29 @@ void DrawMapsApp(GameMap *map) {
 
     // Distance Label
     if (mapsState.hasDestination) {
-        float dist = Vector2Distance(mapsState.playerPos, mapsState.destination);
+        float dist = 0.0f;
+
+        // [NEW] Calculate Total Road Distance by summing path segments
+        if (mapsState.pathLen > 0) {
+            // 1. Distance from Player to the start of the path
+            dist += Vector2Distance(mapsState.playerPos, mapsState.path[0]);
+
+            // 2. Sum of all internal road segments
+            for (int i = 0; i < mapsState.pathLen - 1; i++) {
+                dist += Vector2Distance(mapsState.path[i], mapsState.path[i+1]);
+            }
+
+            // 3. Distance from the last path node to the actual destination pin
+            dist += Vector2Distance(mapsState.path[mapsState.pathLen - 1], mapsState.destination);
+        } 
+        else {
+            // Fallback: If no path nodes (very close), use straight line
+            dist = Vector2Distance(mapsState.playerPos, mapsState.destination);
+        }
+
+        // Apply your map scale factor (from your original code)
         dist *= 5.0;
+
         char distText[32];
         if (dist >= 1000.0f) {
             snprintf(distText, 32, "%.1f km to Target", dist / 1000.0f);

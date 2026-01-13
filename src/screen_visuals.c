@@ -497,90 +497,113 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
 
     // 2. Setup HUD Panel
     float screenW = (float)GetScreenWidth();
-    float screenH = (float)GetScreenHeight();
     
-    // Position: Top Right, below the money/stats
-    Rectangle panel = { screenW - 270, 100, 250, 90 };
-    
+    // Determine if we have a special condition (Fragile or Temp) to decide panel height
+    bool isFragile = (activeTask->fragility > 0.0f);
+    bool isTemp = (activeTask->timeLimit > 0 && (activeTask->jobType == LOC_FOOD || activeTask->jobType == LOC_CAFE));
+    bool hasCondition = isFragile || isTemp;
+
+    // Taller panel if we need to show two bars, shorter if just the timer
+    float panelHeight = hasCondition ? 150.0f : 90.0f;
+    Rectangle panel = { screenW - 270, 100, 250, panelHeight };
+
     DrawRectangleRounded(panel, 0.2f, 4, Fade(BLACK, 0.8f));
     DrawRectangleRoundedLines(panel, 0.2f, 4, DARKGRAY);
 
-    // 3. Common Data
+    // 3. Common Data Calculation
     double timeElapsed = GetTime() - activeTask->creationTime;
+    float contentX = panel.x + 15;
+    float currentY = panel.y + 10; // We will increment this to stack elements
+
+    // ---------------------------------------------------------
+    // SECTION A: TIMER (ALWAYS VISIBLE)
+    // ---------------------------------------------------------
+    DrawText("DELIVERY TIME", contentX, currentY, 16, WHITE);
+    currentY += 25; // Move down for the bar/text
+
+    if (activeTask->timeLimit > 0) {
+        // --- Timer Bar ---
+        float timePct = 1.0f - ((float)timeElapsed / activeTask->timeLimit);
+        if (timePct < 0.0f) timePct = 0.0f;
+
+        Rectangle timeBar = { contentX, currentY, 220, 25 };
+        
+        // Background
+        DrawRectangleRec(timeBar, Fade(GRAY, 0.3f));
+        // Fill
+        DrawRectangle(timeBar.x, timeBar.y, timeBar.width * timePct, timeBar.height, (timePct > 0.3f) ? SKYBLUE : ORANGE);
+        // Outline
+        DrawRectangleLinesEx(timeBar, 2.0f, LIGHTGRAY);
+
+        // Text: mm:ss
+        int remaining = (int)(activeTask->timeLimit - timeElapsed);
+        if (remaining < 0) remaining = 0;
+        DrawText(TextFormat("%02d:%02d", remaining/60, remaining%60), timeBar.x + 85, timeBar.y + 4, 20, WHITE);
+        
+        currentY += 35; // Move Y down for the next section (if any)
+    } else {
+        // --- Standard Timer (No Limit) ---
+        DrawText(TextFormat("%.1fs", (float)timeElapsed), contentX, currentY, 24, GREEN);
+        currentY += 35; 
+    }
+
+    // ---------------------------------------------------------
+    // SECTION B: SUB-CASES (FRAGILE OR TEMP)
+    // ---------------------------------------------------------
     
-    // --- MODE A: FRAGILE (Health Bar) ---
-    if (activeTask->fragility > 0.0f) {
+    // --- SUBCASE 1: FRAGILE ---
+    if (isFragile) {
+        // Divider line (optional, purely aesthetic)
+        DrawLine(panel.x + 10, currentY - 5, panel.x + panel.width - 10, currentY - 5, Fade(LIGHTGRAY, 0.3f));
+
         float healthPct = activeTask->pay / activeTask->maxPay;
         if (healthPct < 0.0f) healthPct = 0.0f;
 
-        // Label
-        DrawText("CARGO INTEGRITY", panel.x + 15, panel.y + 10, 16, WHITE);
+        DrawText("CARGO INTEGRITY", contentX, currentY, 16, WHITE);
         
-        // Bar Background
-        Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
-        DrawRectangleRec(bar, Fade(RED, 0.3f));
+        // Health Bar
+        Rectangle hpBar = { contentX, currentY + 25, 220, 25 };
         
-        // Bar Fill
-        DrawRectangle(bar.x, bar.y, bar.width * healthPct, bar.height, (healthPct > 0.5f) ? LIME : RED);
-        DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
+        DrawRectangleRec(hpBar, Fade(RED, 0.3f)); // Background
+        DrawRectangle(hpBar.x, hpBar.y, hpBar.width * healthPct, hpBar.height, (healthPct > 0.5f) ? LIME : RED);
+        DrawRectangleLinesEx(hpBar, 2.0f, LIGHTGRAY);
         
-        // Text Overlay
-        DrawText(TextFormat("%d%%", (int)(healthPct * 100)), bar.x + 95, bar.y + 4, 20, WHITE);
+        // Percentage Text
+        DrawText(TextFormat("%d%%", (int)(healthPct * 100)), hpBar.x + 95, hpBar.y + 4, 20, WHITE);
         
-        // Icon (Shield/Box)
-        DrawText("!", panel.x + 225, panel.y + 10, 20, ORANGE);
+        // Warning Icon
+        DrawText("!", panel.x + 225, currentY, 20, ORANGE);
     }
     
-    // --- MODE B: TEMPERATURE (Thermometer) ---
-    else if (activeTask->timeLimit > 0 && (activeTask->jobType == LOC_FOOD || activeTask->jobType == LOC_CAFE)) {
-        // Temperature decay calculation based on insulation
+    // --- SUBCASE 2: TEMPERATURE ---
+    else if (isTemp) {
+        // Divider line
+        DrawLine(panel.x + 10, currentY - 5, panel.x + panel.width - 10, currentY - 5, Fade(LIGHTGRAY, 0.3f));
+
         double thermalTime = timeElapsed * player->insulationFactor;
         float tempPct = 1.0f - ((float)thermalTime / activeTask->timeLimit);
         if (tempPct < 0.0f) tempPct = 0.0f;
 
-        DrawText("TEMPERATURE", panel.x + 15, panel.y + 10, 16, WHITE);
+        DrawText("TEMPERATURE", contentX, currentY, 16, WHITE);
 
-        // Bar
-        Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
-        DrawRectangleRec(bar, Fade(BLUE, 0.3f));
+        // Temp Bar
+        Rectangle tempBar = { contentX, currentY + 25, 220, 25 };
         
-        // Gradient Color Logic (Hot -> Cold)
+        DrawRectangleRec(tempBar, Fade(BLUE, 0.3f)); // Background
+        
+        // Gradient Logic
         Color tempColor = ORANGE;
         if (tempPct < 0.5f) tempColor = YELLOW;
-        if (tempPct < 0.2f) tempColor = BLUE;
+        if (tempPct < 0.2f) tempColor = BLUE; // Too cold/spoiled
 
-        DrawRectangle(bar.x, bar.y, bar.width * tempPct, bar.height, tempColor);
-        DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
+        DrawRectangle(tempBar.x, tempBar.y, tempBar.width * tempPct, tempBar.height, tempColor);
+        DrawRectangleLinesEx(tempBar, 2.0f, LIGHTGRAY);
 
-        // Insulation Status
+        // Insulation Text
         if (player->insulationFactor < 0.9f) {
-            DrawText("Insulated", bar.x + 140, bar.y + 4, 16, Fade(WHITE, 0.7f));
+            DrawText("Insulated", tempBar.x + 140, tempBar.y + 4, 16, Fade(WHITE, 0.7f));
         } else {
-            DrawText("Cooling...", bar.x + 140, bar.y + 4, 16, Fade(RED, 0.7f));
-        }
-    }
-    
-    // --- MODE C: STANDARD / TIME RUSH (Timer) ---
-    else {
-        DrawText("DELIVERY TIME", panel.x + 15, panel.y + 10, 16, WHITE);
-        
-        // If there's a hard limit, show bar. If not, just show elapsed time.
-        if (activeTask->timeLimit > 0) {
-            float timePct = 1.0f - ((float)timeElapsed / activeTask->timeLimit);
-            if (timePct < 0.0f) timePct = 0.0f;
-            
-            Rectangle bar = { panel.x + 15, panel.y + 40, 220, 25 };
-            DrawRectangleRec(bar, Fade(GRAY, 0.3f));
-            DrawRectangle(bar.x, bar.y, bar.width * timePct, bar.height, (timePct > 0.3f) ? SKYBLUE : ORANGE);
-            DrawRectangleLinesEx(bar, 2.0f, LIGHTGRAY);
-            
-            // Format mm:ss
-            int remaining = (int)(activeTask->timeLimit - timeElapsed);
-            if (remaining < 0) remaining = 0;
-            DrawText(TextFormat("%02d:%02d", remaining/60, remaining%60), bar.x + 85, bar.y + 4, 20, WHITE);
-        } else {
-            // Just a timer for standard jobs
-            DrawText(TextFormat("Time: %.1fs", (float)timeElapsed), panel.x + 15, panel.y + 45, 24, GREEN);
+            DrawText("Cooling...", tempBar.x + 140, tempBar.y + 4, 16, Fade(RED, 0.7f));
         }
     }
 }

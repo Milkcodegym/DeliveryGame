@@ -2,6 +2,7 @@
 #include "raylib.h"
 #include "rlgl.h"
 #include "raymath.h"
+#include "save.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +58,14 @@ void SaveMapChoice(int choice) {
     if (f) {
         fwrite(&choice, sizeof(int), 1, f);
         fclose(f);
+    }
+}
+
+const unsigned char MENU_KEY = 0xAA; 
+
+void MenuObfuscate(unsigned char* data, size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        data[i] ^= MENU_KEY;
     }
 }
 
@@ -288,40 +297,68 @@ void UnloadMenuAssets(void) {
 }
 
 // Static variables to persist the model between frames
-static Model vespaModel = { 0 };
-static bool isVespaLoaded = false;
+static Model menuCarModel = { 0 };
+static bool isMenuCarLoaded = false;
 
-void DrawSimpleVespa(void) {
-    // 1. Lazy Load: Runs only the first time this function is called
-    if (!isVespaLoaded) {
-        if (FileExists("resources/vespa.obj")) {
-            vespaModel = LoadModel("resources/vespa.obj");
+void DrawMenuPlayerCar(void) {
+    // 1. Lazy Load: Run once on startup
+    if (!isMenuCarLoaded) {
+        char modelPath[256] = "resources/Playermodels/delivery.obj"; // Default Fallback
+
+        // --- TRY READING SAVE FILE ---
+        FILE *file = fopen("save_data.dat", "rb");
+        if (file) {
+            GameSaveData data;
+            size_t read = fread(&data, sizeof(GameSaveData), 1, file);
+            fclose(file);
             
-            // Optional: Load texture manually if the .mtl file is missing
-            // Texture2D tex = LoadTexture("resources/vespa_diffuse.png");
-            // vespaModel.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = tex;
-            
-            isVespaLoaded = true;
+            if (read == 1) {
+                // Decrypt
+                MenuObfuscate((unsigned char*)&data, sizeof(GameSaveData));
+                
+                // If valid save and has a custom car model
+                if (data.version == SAVE_VERSION && strlen(data.modelFileName) > 0) {
+                    snprintf(modelPath, 256, "resources/Playermodels/%s", data.modelFileName);
+                    printf("MENU: Found player vehicle in save: %s\n", modelPath);
+                }
+            }
+        }
+        // -----------------------------
+
+        // 2. Load the Model
+        if (FileExists(modelPath)) {
+            menuCarModel = LoadModel(modelPath);
+            isMenuCarLoaded = true;
+        } 
+        else if (FileExists("resources/Playermodels/delivery.obj")) {
+            // Ultimate fallback if saved mod file is missing
+            menuCarModel = LoadModel("resources/Playermodels/delivery.obj");
+            isMenuCarLoaded = true;
+            isMenuCarLoaded = true;
         }
     }
 
-    // 2. Draw the Model
-    if (isVespaLoaded) {
-        // Transformations to match the previous primitive bike
-        // Note: We rotate 180 degrees because standard OBJ models usually face -Z, 
-        // while your previous primitive code was building towards +Z.
-        Vector3 pos = { 0.0f, 0.0f, 0.0f }; 
+    // 3. Draw the Model
+    if (isMenuCarLoaded) {
+        // Standard Transformation
+        // Most models face -Z, so we rotate 180 to face camera
+        Vector3 pos = { 0.0f, 0.05f, 0.0f }; 
         Vector3 axis = { 0.0f, 1.0f, 0.0f };
         float rotation = 180.0f; 
-        Vector3 scale = { 1.0f, 1.0f, 1.0f }; // Tweak this if the model is huge/tiny
+        Vector3 scale = { 1.0f, 1.0f, 1.0f }; 
 
-        DrawModelEx(vespaModel, pos, axis, rotation, scale, WHITE);
+        DrawModelEx(menuCarModel, pos, axis, rotation, scale, WHITE);
+        
+        // Simple Shadow Blob
+        DrawCylinder((Vector3){0, 0.02f, 0}, 1.2f, 1.2f, 0.0f, 16, Fade(BLACK, 0.4f));
     } 
     else {
-        // Fallback: Draw a red box if the file isn't found
-        DrawCube((Vector3){0, 0.5f, 0}, 0.5f, 0.5f, 1.0f, RED);
+        // Red Box Error State
+        DrawCube((Vector3){0, 0.5f, 0}, 1.0f, 1.0f, 2.0f, RED);
     }
 }
+
+// Static variables to persist the model between frames
 
 void DrawMenuDiorama(void) {
     // 1. Endless Road
@@ -585,7 +622,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                 ClearBackground(COLOR_FOG); 
                 BeginMode3D(camera);
                     DrawMenuDiorama();      
-                    DrawSimpleVespa();      
+                    DrawMenuPlayerCar();      
                     DrawMenuAtmosphere();   
                 EndMode3D();
                 
@@ -699,7 +736,11 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             
         EndDrawing();
     }
-    
+    // At the end of RunStartMenu_PreLoad before return:
+if (isMenuCarLoaded) {
+    UnloadModel(menuCarModel);
+    isMenuCarLoaded = false;
+}
     return false;
 }
 
