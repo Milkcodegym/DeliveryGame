@@ -244,7 +244,6 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->ownedCars[1] = true; 
     player->currentCarIndex = 1;
     player->isDrivingUpgrade = false; 
-
     player->tutorialFinished = false; 
 
     // 4. RESET PHONE

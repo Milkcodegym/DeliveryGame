@@ -59,6 +59,15 @@ int main(void)
 
     SetWindowSize(screenWidth, screenHeight);
     SetWindowPosition((monitorWidth - screenWidth) / 2,(monitorHeight - screenHeight) / 2);
+
+    Image icon = LoadImage("resources/icon1.png"); 
+
+    // 3. Set the icon
+    // The OS copies the image data, so we don't need to keep it
+    SetWindowIcon(icon);
+
+    // 4. Free the CPU memory immediately
+    UnloadImage(icon);
     
     InitAudioDevice(); 
 
@@ -98,7 +107,7 @@ int main(void)
 
         Vector3 startPos = {0, 0, 0};
         if (map.nodeCount > 0) {
-            startPos = (Vector3){ map.nodes[0].position.x, 0.5f , map.nodes[0].position.y };
+            startPos = (Vector3){ map.nodes[10].position.x, 0.5f , map.nodes[10].position.y };
         }
 
         bool isLoading = true;
@@ -267,7 +276,7 @@ int main(void)
                             Vector2 locPos2D = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
                             float dist = Vector2Distance(playerPos2D, locPos2D);
 
-                            if (dist < 3.0f) {
+                            if (dist < 6.0f) {
                                 if (map.locations[i].type == LOC_FUEL) {
                                     if (IsKeyPressed(KEY_E)) {
                                         isRefueling = true;
@@ -288,10 +297,18 @@ int main(void)
 
             // --- 2. DRAW PHASE ---
             BeginDrawing();
+                
                 ClearBackground((Color){ 60, 150, 250, 255 });
                             
 
-                
+                // --- DEBUG: PLAYER COORDINATES OVERLAY ---
+        // Use these coordinates to define your manual sea planes.
+        const char* coordText = TextFormat("POS: %.1f, %.1f", player.position.x, player.position.z);
+        int cw = MeasureText(coordText, 20);
+        DrawRectangle(10, 10, cw + 20, 30, Fade(BLACK, 0.7f));
+        DrawText(coordText, 20, 15, 20, RED);
+
+        
                 if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                     DrawDealership(&player);
                     // Draw Tutorial Overlay on top of Dealership if needed (e.g. "Buy a car")

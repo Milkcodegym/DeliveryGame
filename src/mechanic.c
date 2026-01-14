@@ -41,7 +41,7 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
 
     float scale = (float)screenH / 720.0f;
     float w = 700 * scale; 
-    float h = 600 * scale; // Increased height for more options
+    float h = 600 * scale; 
     float x = (screenW - w) / 2;
     float y = (screenH - h) / 2;
     Vector2 mouse = GetMousePosition();
@@ -75,17 +75,9 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
         AddMoney(player, "Car Repair", -repairCost);
         player->health = 100.0f;
     }
-    startY += 70 * scale;
+    startY += 80 * scale; // Increased spacing
 
-    // 2. ACCELERATION
-    DrawText(TextFormat("Engine Tune (Accel: %.1f)", player->acceleration), col1X, startY, 16*scale, DARKGRAY);
-    if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Upgrade ($200)", ORANGE, mouse, player->money < 200)) {
-        AddMoney(player, "Engine Upgrade", -200);
-        player->acceleration += 0.5f;
-    }
-    startY += 70 * scale;
-
-    // 3. BRAKES
+    // 2. BRAKES (Shifted Up)
     DrawText(TextFormat("Brake Pads (Power: %.1f)", player->brake_power), col1X, startY, 16*scale, DARKGRAY);
     if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Upgrade ($150)", ORANGE, mouse, player->money < 150)) {
         AddMoney(player, "Brake Upgrade", -150);
@@ -97,7 +89,7 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     DrawText("Utility & Tech", col2X, startY, 20*scale, BLACK);
     startY += 30 * scale;
 
-    // 4. FUEL TANK
+    // 3. FUEL TANK
     DrawText(TextFormat("Fuel Tank (Max: %.0fL)", player->maxFuel), col2X, startY, 16*scale, DARKGRAY);
     if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, "Expand Tank ($350)", BLUE, mouse, player->money < 350)) {
         AddMoney(player, "Tank Expansion", -350);
@@ -105,48 +97,20 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     }
     startY += 70 * scale;
 
-    // 5. THERMAL INSULATION [NEW]
-    // Uses insulationFactor. 1.0 is default. Lower is better.
-    // Display as "Quality %" where 1.0 is 0% quality and 0.0 is 100% quality for UI clarity.
+    // 4. THERMAL INSULATION
     int insulationPct = (int)((1.0f - player->insulationFactor) * 100.0f);
     if (insulationPct < 0) insulationPct = 0;
 
     DrawText(TextFormat("Thermal Insulation (Qual: %d%%)", insulationPct), col2X, startY, 16*scale, DARKGRAY);
     
-    bool maxedInsulation = (player->insulationFactor <= 0.2f); // Cap at 80% effectiveness
+    bool maxedInsulation = (player->insulationFactor <= 0.2f);
     const char* insLabel = maxedInsulation ? "Maxed Out" : "Add Lining ($400)";
     
     if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, insLabel, BLUE, mouse, (maxedInsulation || player->money < 400))) {
         AddMoney(player, "Insulation Upgrade", -400);
-        player->insulationFactor *= 0.85f; // Improve by 15% exponentially
+        player->insulationFactor *= 0.85f; 
     }
     startY += 70 * scale;
-
-    // 6. APPS
-    /*if (!player->hasCarMonitorApp) {
-        DrawText("MyCarMonitor App", col2X, startY, 16*scale, GRAY);
-        if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, "Buy App ($100)", PURPLE, mouse, player->money < 100)) {
-            AddMoney(player, "Bought App", -100);
-            player->hasCarMonitorApp = true;
-        }
-    } else {
-        // App Upgrades Mini-Section
-        DrawText("Sensor Modules", col2X, startY, 16*scale, DARKGRAY);
-        
-        // Thermometer
-        const char* labelT = player->unlockThermometer ? "Owned" : "Thermo ($300)";
-        if (MechButton((Rectangle){col2X, startY + 20*scale, 135*scale, 40*scale}, labelT, PURPLE, mouse, (player->unlockThermometer || player->money < 300))) {
-            AddMoney(player, "Thermometer", -300);
-            player->unlockThermometer = true;
-        }
-
-        // G-Force
-        const char* labelG = player->unlockGForce ? "Owned" : "G-Meter ($500)";
-        if (MechButton((Rectangle){col2X + 145*scale, startY + 20*scale, 135*scale, 40*scale}, labelG, PURPLE, mouse, (player->unlockGForce || player->money < 500))) {
-            AddMoney(player, "G-Force Meter", -500);
-            player->unlockGForce = true;
-        }
-    }*/
 
     // Close Button
     if (MechButton((Rectangle){x + w/2 - 60*scale, y + h - 50*scale, 120*scale, 40*scale}, "LEAVE", DARKGRAY, mouse, false)) {

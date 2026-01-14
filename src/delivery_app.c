@@ -208,11 +208,20 @@ static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rect
 
     btnY += 55;
     bool isActive = (t->status != JOB_AVAILABLE);
-    const char* txt = isActive ? "ABANDON JOB" : "ACCEPT JOB";
-    Color col = isActive ? COLOR_DANGER : COLOR_ACCENT;
+    
+    // [NEW] Check suitability logic
+    bool isUnsuitable = (!isActive && t->isHeavy && player->loadResistance > 0.6f);
 
+    const char* txt = isActive ? "ABANDON JOB" : (isUnsuitable ? "VEHICLE TOO WEAK" : "ACCEPT JOB");
+    Color col = isActive ? COLOR_DANGER : (isUnsuitable ? GRAY : COLOR_ACCENT);
+
+    // [NEW] Updated Button Logic
     if (GuiButton((Rectangle){screenRect.x + 20, btnY, screenRect.width - 40, 45}, txt, col, mouse, click)) {
-        if (!isActive) {
+        if (isUnsuitable) {
+            // Prevent acceptance and warn user
+            ShowPhoneNotification("Upgrade Chassis Required!", COLOR_DANGER);
+        }
+        else if (!isActive) {
              for(int j=0; j<5; j++) {
                 if (phone->tasks[j].status == JOB_AVAILABLE) phone->tasks[j].status = JOB_AVAILABLE; 
              }

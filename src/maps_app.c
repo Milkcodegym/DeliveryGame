@@ -187,21 +187,38 @@ void ResetMapCamera(Vector2 playerPos) {
 }
 
 void SetMapDestination(GameMap *map, Vector2 dest) {
+    // 1. Try exact pathfinding first (fastest if it works)
     int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
+
+    // 2. If exact path fails, snap to the closest road within a tight radius
     if (len == 0) {
-        float dist = Vector2Distance(mapsState.playerPos, dest);
-        if (dist < 0.2f) {
-            mapsState.destination = dest;
-            mapsState.hasDestination = false; 
-            return;
+        // Reduced radius from 500.0f to 20.0f for optimization. 
+        // This is usually enough to span a sidewalk + parking strip.
+        Vector2 closestRoadPoint = SnapToRoad(map, dest, 20.0f);
+        
+        // Try pathfinding again to this snapped point
+        len = FindPath(map, mapsState.playerPos, closestRoadPoint, mapsState.path, MAX_PATH_NODES);
+        
+        // 3. Connect the street point to the building entrance visually
+        if (len > 0 && len < MAX_PATH_NODES) {
+            mapsState.path[len] = dest; 
+            len++;
         }
-        return; 
     }
+
+    // 4. Update State
     mapsState.destination = dest;
     mapsState.hasDestination = true;
-    mapsState.pathLen = len;
     mapsState.isFollowingPlayer = true; 
     mapsState.isHeadingUp = true; 
+    mapsState.pathLen = len;
+
+    // Fallback: If still zero, the store is likely disconnected or bugged; draw direct line.
+    if (len == 0) {
+        mapsState.path[0] = mapsState.playerPos;
+        mapsState.path[1] = dest;
+        mapsState.pathLen = 2;
+    }
 }
 
 void PreviewMapLocation(GameMap *map, Vector2 target) {
@@ -222,9 +239,34 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     mapsState.playerAngle = playerAngle;
 
     if (mapsState.hasDestination) {
+        // 1. Try standard pathfinding
         mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
 
-        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 0.3f) {
+        // [FIX] If standard pathfinding fails (e.g., store is in a parking lot/off-road)
+        if (mapsState.pathLen == 0) {
+            
+            // OPTIONAL: Try to snap to the closest road dynamically (if map isn't huge)
+            // Using a small radius (60.0) ensures it's fast enough for the Update loop.
+            Vector2 snappedPos = SnapToRoad(map, mapsState.destination, 60.0f);
+            
+            // Try pathfinding to the road edge
+            int roadLen = FindPath(map, mapsState.playerPos, snappedPos, mapsState.path, MAX_PATH_NODES);
+            
+            if (roadLen > 0 && roadLen < MAX_PATH_NODES) {
+                // Success! We found a path to the street.
+                // Now manually draw the final line from street -> store
+                mapsState.path[roadLen] = mapsState.destination;
+                mapsState.pathLen = roadLen + 1;
+            } else {
+                // Total failure (no roads nearby) -> Fallback to direct Straight Line
+                mapsState.path[0] = mapsState.playerPos;
+                mapsState.path[1] = mapsState.destination;
+                mapsState.pathLen = 2;
+            }
+        }
+
+        // Arrival check
+        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 0.5f) { // Increased radius slightly to 15.0f for smoother arrival
             mapsState.hasDestination = false;
             mapsState.pathLen = 0;
         }

@@ -643,7 +643,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     DrawRectangle(20*uiScale, 20*uiScale, boxW, boxH, Fade(BLACK, 0.7f));
                     DrawRectangleLines(20*uiScale, 20*uiScale, boxW, boxH, Fade(WHITE, 0.3f));
                     
-                    DrawText("AUTH ECE - COURSE 004", 35*uiScale, 30*uiScale, 20*uiScale, WHITE);
+                    DrawText("AUTH ECE - 1st Semester", 35*uiScale, 30*uiScale, 20*uiScale, WHITE);
                     DrawText("Structured Programming", 35*uiScale, 55*uiScale, 12*uiScale, LIGHTGRAY);
 
                     int titleSize = (int)(60 * uiScale);

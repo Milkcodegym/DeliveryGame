@@ -1,24 +1,16 @@
-Add sea??
-fix camera collisions - many bugs
-fix graphics for locations 
-fix building clipping issues
+fix graphics for mechanic 
 
-fix traffic models rotation
-fix traffic movement
+unsuitable vehicle for heavy loads 
+map food filter replace with dealership.
 
-increase damage taken?
 fix player speed depending on frame rate?
-grass going through sidewalks
-add icon to app window
-
 
 add sebastian comments to every function
-
+remove handbrake from documents, add known bugs and that it needs playtesting
+tell performance and map differences (small map is just proof of concept)
+ 
 fixed and needs testing:
 
 cargo damage needs balancing
-other car stats need balancing
 g force and order fragility balancing
-
-na bgaloume to aceleration upgrade
-dealership show player money
+balance damage taken

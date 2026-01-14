@@ -1205,7 +1205,51 @@ void BakeSingleEdgeDetails(GameMap *map, int edgeIdx) {
 }
 
 
-// [NEW] Global Vegetation Logic (High Density, Safe Placement)
+// --- MANUAL SEA BOUNDARIES ---
+// Defined by points: P1(92, 465) -> P2(-119, 269) -> P3(-314, 122)
+// Ocean is to the "Left" of the path walking P1->P2->P3 (Negative X direction roughly)
+
+bool IsPointInManualSea(Vector2 pos) {
+    // We define the coast as two segments. If the point is "left" of either, it's sea.
+    // Segment 1: (92, 465) -> (-119, 269)
+    Vector2 a1 = { 92.0f, 465.0f };
+    Vector2 b1 = { -119.0f, 269.0f };
+    
+    // Segment 2: (-119, 269) -> (-314, 122)
+    Vector2 a2 = { -119.0f, 269.0f };
+    Vector2 b2 = { -314.0f, 122.0f };
+
+    // Math: 2D Cross Product (Determinant) to find which side of the line a point is on.
+    // Val = (Bx - Ax) * (Py - Ay) - (By - Ay) * (Px - Ax)
+    // Based on the winding, we determine the "Sea" side.
+    // For P1->P2, Ocean is roughly -X (Left).
+    
+    // Let's use a simpler Normal approach for clarity and margin support.
+    
+    // Check Segment 1
+    Vector2 dir1 = Vector2Subtract(b1, a1);
+    Vector2 norm1 = { dir1.y, -dir1.x }; // Rotated 90 deg
+    float dot1 = Vector2DotProduct(Vector2Subtract(pos, a1), norm1);
+    
+    // Check Segment 2
+    Vector2 dir2 = Vector2Subtract(b2, a2);
+    Vector2 norm2 = { dir2.y, -dir2.x };
+    float dot2 = Vector2DotProduct(Vector2Subtract(pos, a2), norm2);
+
+    // Safety Margin: Positive value means "Ocean Side". 
+    // We use -50.0f (roughly 5 meters scaled) to keep trees back from the edge.
+    // Note: Since normals aren't normalized, the magnitude varies, but > 0 is definitely sea.
+    // To be precise with 1m margin, we should normalize, but a rough threshold works for "hard code".
+    
+    if (dot1 > -2000.0f && pos.y > 269.0f) return true; // Upper coast
+    if (dot2 > -2000.0f && pos.y <= 269.0f) return true; // Lower coast
+    
+    // Also block anything extremely far out in the ocean direction
+    if (pos.x < -320.0f && pos.y < 465.0f) return true;
+
+    return false;
+}
+
 void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
     float startX = (gx * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET;
     float startY = (gy * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET;
@@ -1228,8 +1272,11 @@ void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
             float jy = py + GetRandomValue(-15, 15) / 10.0f;
             Vector2 pos = {jx, jy};
 
-            // 2. "Sea" Check
+            // 2. "Sea" Check (Context)
             if (!IsInsideCityContext(map, pos)) continue;
+
+            // [NEW] HARDCODED SEA EXCLUSION
+            if (IsPointInManualSea(pos)) continue;
 
             // 3. Building Check [FIX] Increased buffer to 4.5m
             if (IsTooCloseToBuilding(map, pos, 4.5f)) continue;
@@ -1244,7 +1291,6 @@ void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
                 Vector2 p2 = map->nodes[e.endNode].position;
                 
                 // [FIX] Road Half Width + Sidewalk (2.5m) + Tree Radius Buffer (3.5m)
-                // Total buffer ensures no foliage touches the pavement.
                 float safeThreshold = (e.width * MAP_SCALE) + 6.0f;
                 
                 if (IsPointNearSegment(pos, p1, p2, safeThreshold)) {
@@ -2172,7 +2218,7 @@ void DrawEventCluster(MapEvent *evt) {
             
             Vector3 pPos = {
                 center.x + cosf(angleRad) * boundaryRadius,
-                0.0f,
+                0.2f,
                 center.z + sinf(angleRad) * boundaryRadius
             };
             //sign
@@ -2233,7 +2279,7 @@ void DrawEventCluster(MapEvent *evt) {
             float angleRad = (k / (float)perimeterCount) * 360.0f * DEG2RAD;
             Vector3 pPos = {
                 center.x + cosf(angleRad) * boundaryRadius,
-                0.0f,
+                0.2f,
                 center.z + sinf(angleRad) * boundaryRadius
             };
             DrawModel(cityRenderer.models[ASSET_PROP_CONE], pPos, 0.5f, WHITE);
@@ -2637,8 +2683,46 @@ void DrawGameMap(GameMap *map, Camera camera) {
     // 1. Infinite Floor
     DrawPlane((Vector3){0, -0.05f, 0}, (Vector2){10000.0f, 10000.0f}, (Color){25, 50, 25, 255});
     
-    // [FIX] REMOVED: DrawRuntimeParks(camera.position); 
-    // The "everywhere" props are now baked into the sectors in Stage 4.
+    Vector2 coastPoints[] = { 
+            {92.0f, 465.0f}, 
+            {-119.0f, 269.0f}, 
+            {-314.0f, 122.0f} 
+        };
+        int pointCount = 3;
+        float waterY = 0.05f;
+
+        rlDisableBackfaceCulling();
+        rlBegin(RL_QUADS);
+        rlColor4ub(0, 105, 148, 255); // Deep Sea Blue
+
+        for (int i = 0; i < pointCount - 1; i++) {
+            Vector2 pStart = coastPoints[i];
+            Vector2 pEnd = coastPoints[i+1];
+
+            // 1. Calculate Ocean Direction (Normal)
+            // Direction of coast segment
+            Vector2 dir = Vector2Subtract(pEnd, pStart);
+            // Rotate 90 degrees to point to sea (x, y) -> (y, -x) gives (-X, +Z) here
+            Vector2 normal = { dir.y, -dir.x }; 
+            normal = Vector2Normalize(normal);
+
+            // 2. Coastline Edge (Pulled 1m INLAND for safety overlap)
+            Vector2 c1 = Vector2Subtract(pStart, Vector2Scale(normal, 1.0f));
+            Vector2 c2 = Vector2Subtract(pEnd, Vector2Scale(normal, 1.0f));
+
+            // 3. Horizon Edge (Extruded 5000m outward)
+            Vector2 h1 = Vector2Add(c1, Vector2Scale(normal, 5000.0f));
+            Vector2 h2 = Vector2Add(c2, Vector2Scale(normal, 5000.0f));
+
+            // 4. Draw Quad (Counter-Clockwise winding)
+            rlVertex3f(c1.x, waterY, c1.y);
+            rlVertex3f(c2.x, waterY, c2.y);
+            rlVertex3f(h2.x, waterY, h2.y);
+            rlVertex3f(h1.x, waterY, h1.y);
+        }
+
+        rlEnd();
+        rlEnableBackfaceCulling();
 
     DrawMapBoundaries(camera.position);
     // Only draw dynamic parks if close (Performance Optimization)
@@ -3510,22 +3594,19 @@ GameMap LoadGameMap(const char *fileName) {
 // --- 2D MAP OPTIMIZATION ---
 // Uses the Sector Grid to draw ONLY what is visible on the phone screen.
 // This is 100x faster than looping through all buildings.
+// --- 2D MAP OPTIMIZATION ---
 void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
     if (!cityRenderer.loaded) return;
 
-    // 1. Calculate Visible World Bounds (Robust Rotation Support)
-    // We must check ALL four corners, not just top-left/bottom-right,
-    // because rotation changes which corner is the "min" or "max".
+    // 1. Calculate Visible World Bounds
     Vector2 corners[4];
     corners[0] = GetScreenToWorld2D((Vector2){0, 0}, cam);             // Top Left
     corners[1] = GetScreenToWorld2D((Vector2){screenW, 0}, cam);       // Top Right
     corners[2] = GetScreenToWorld2D((Vector2){0, screenH}, cam);       // Bottom Left
     corners[3] = GetScreenToWorld2D((Vector2){screenW, screenH}, cam); // Bottom Right
 
-    float minWorldX = corners[0].x;
-    float maxWorldX = corners[0].x;
-    float minWorldY = corners[0].y;
-    float maxWorldY = corners[0].y;
+    float minWorldX = corners[0].x; float maxWorldX = corners[0].x;
+    float minWorldY = corners[0].y; float maxWorldY = corners[0].y;
 
     for(int i = 1; i < 4; i++) {
         if (corners[i].x < minWorldX) minWorldX = corners[i].x;
@@ -3534,15 +3615,13 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
         if (corners[i].y > maxWorldY) maxWorldY = corners[i].y;
     }
 
-    // 2. Convert to Grid Coordinates with Buffer
-    // We add a +/- 2 chunk buffer to ensure smooth edges when zooming out
+    // 2. Convert to Grid Coordinates
     int buffer = 2;
     int minX = (int)((minWorldX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - buffer;
     int minY = (int)((minWorldY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - buffer;
     int maxX = (int)((maxWorldX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + buffer;
     int maxY = (int)((maxWorldY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + buffer;
 
-    // Clamp to map bounds
     if (minX < 0) minX = 0;
     if (minY < 0) minY = 0;
     if (maxX >= SECTOR_GRID_COLS) maxX = SECTOR_GRID_COLS - 1;
@@ -3550,19 +3629,30 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
 
     float scale = 1.0f / cam.zoom;
 
-    // 3. Iterate ONLY visible sectors
+    // 3. Iterate Visible Sectors
     for (int y = minY; y <= maxY; y++) {
         for (int x = minX; x <= maxX; x++) {
             SectorManifest *man = &cityRenderer.manifests[y][x];
 
-            // A. Draw Areas (Parks)
+            // A. Draw Areas (Parks & Water)
             for (int i = 0; i < man->areaCount; i++) {
                 MapArea *area = &map->areas[man->areaIndices[i]];
                 if (area->pointCount < 3) continue;
-                Color areaColor = Fade(area->color, 0.4f);
-                DrawTriangleFan(area->points, area->pointCount, areaColor);
-                if (cam.zoom > 1.0f) {
-                    DrawLineStrip(area->points, area->pointCount, areaColor);
+                
+                if (area->type == 2) {
+                    // [FIX] Water: Opaque Blue (Fixes overlap blending artifacts)
+                    // No alpha blend means they merge visually into one solid mass
+                    Color waterCol = (Color){0, 121, 241, 255}; 
+                    DrawTriangleFan(area->points, area->pointCount, waterCol);
+                } else {
+                    // [FIX] Park: Transparent Green (Standard)
+                    Color areaColor = Fade(area->color, 0.4f);
+                    DrawTriangleFan(area->points, area->pointCount, areaColor);
+                    
+                    // Only draw outline for parks
+                    if (cam.zoom > 1.0f) {
+                        DrawLineStrip(area->points, area->pointCount, areaColor);
+                    }
                 }
             }
 
@@ -3573,10 +3663,8 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
                 Vector2 s = map->nodes[e.startNode].position;
                 Vector2 en = map->nodes[e.endNode].position;
                 
-                // Draw Base Asphalt
                 DrawLineEx(s, en, e.width, LIGHTGRAY);
                 
-                // Draw White Lines (Detail Level)
                 if (e.width > 5.0f && cam.zoom > 2.0f) {
                     DrawLineEx(s, en, 1.0f * scale, WHITE);
                 }
@@ -3586,10 +3674,8 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
             for (int i = 0; i < man->buildingCount; i++) {
                 Building *b = &map->buildings[man->buildingIndices[i]];
                 
-                // LOD: If zoomed out far, just draw a simple rectangle/fan without outlines
                 DrawTriangleFan(b->footprint, b->pointCount, Fade(b->color, 0.5f));
                 
-                // Only draw outlines if zoomed in
                 if (cam.zoom > 1.5f) {
                     for(int j=0; j<b->pointCount; j++) {
                         Vector2 p1 = b->footprint[j];
@@ -3601,4 +3687,3 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
         }
     }
 }
-
