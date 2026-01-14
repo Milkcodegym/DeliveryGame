@@ -14,7 +14,6 @@
  * -----------------------------------------------------------------------------
  */
 
-
 #include "maps_app.h"
 #include "raymath.h"
 #include "map.h" 
@@ -62,10 +61,20 @@ MapsAppState mapsState = {0};
 
 float scale;
 
+/*
+ * Description: Checks if the user is currently typing in the search bar.
+ * Parameters: None.
+ * Returns: True if searching, false otherwise.
+ */
 bool IsMapsAppTyping() {
     return mapsState.isSearching;
 }
 
+/*
+ * Description: Loads all necessary texture assets (icons) for the map application.
+ * Parameters: None.
+ * Returns: None.
+ */
 void LoadMapIcons() {
     mapsState.icons[LOC_FUEL]        = LoadTexture("resources/Mapicons/icon_fuel.png");
     mapsState.icons[LOC_FOOD]        = LoadTexture("resources/Mapicons/icon_fastfood.png");
@@ -76,31 +85,52 @@ void LoadMapIcons() {
     mapsState.icons[LOC_RESTAURANT]  = LoadTexture("resources/Mapicons/icon_restaurant.png");
     mapsState.icons[LOC_MECHANIC]    = LoadTexture("resources/Mapicons/icon_mechanic.png"); 
     mapsState.icons[LOC_DEALERSHIP]  = LoadTexture("resources/Mapicons/icon_dealership.png");
-    mapsState.emergencyIcon = LoadTexture("resources/Mapicons/emergency.png");
+    mapsState.emergencyIcon          = LoadTexture("resources/Mapicons/emergency.png");
     mapsState.pinIcon                = LoadTexture("resources/Mapicons/icon_pin.png");
-    mapsState.playerIcon = LoadTexture("resources/Mapicons/icon_player.png");
+    mapsState.playerIcon             = LoadTexture("resources/Mapicons/icon_player.png");
 
-    for(int i=0; i<20; i++) {
+    for(int i = 0; i < 20; i++) {
         if(mapsState.icons[i].id != 0) SetTextureFilter(mapsState.icons[i], TEXTURE_FILTER_BILINEAR);
     }
     if(mapsState.pinIcon.id != 0) SetTextureFilter(mapsState.pinIcon, TEXTURE_FILTER_BILINEAR);
 }
 
 // --- Math Helpers ---
+
+/*
+ * Description: Calculates the closest point on a line segment (ab) to a given point (p).
+ * Parameters:
+ * - p: The point to project.
+ * - a: Start point of the segment.
+ * - b: End point of the segment.
+ * Returns: The 2D coordinates of the closest point on the segment.
+ */
 Vector2 GetClosestPointOnSegment(Vector2 p, Vector2 a, Vector2 b) {
     Vector2 ap = Vector2Subtract(p, a);
     Vector2 ab = Vector2Subtract(b, a);
     float abLenSq = Vector2LengthSqr(ab);
+    
     if (abLenSq == 0.0f) return a; 
+    
     float t = Vector2DotProduct(ap, ab) / abLenSq;
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
+    
     return Vector2Add(a, Vector2Scale(ab, t));
 }
 
+/*
+ * Description: Finds the closest point on any road edge within a threshold distance of a click.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - clickPos: The position clicked by the user.
+ * - threshold: The maximum distance to search for a road.
+ * Returns: The snapped position on the road, or the original position if no road is found.
+ */
 Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
     Vector2 bestPoint = clickPos;
     float minDistSq = threshold * threshold;
+    
     for (int i = 0; i < map->edgeCount; i++) {
         Vector2 start = map->nodes[map->edges[i].startNode].position;
         Vector2 end = map->nodes[map->edges[i].endNode].position;
@@ -109,15 +139,27 @@ Vector2 SnapToRoad(GameMap *map, Vector2 clickPos, float threshold) {
         float maxX = (start.x > end.x ? start.x : end.x) + threshold;
         float minY = (start.y < end.y ? start.y : end.y) - threshold;
         float maxY = (start.y > end.y ? start.y : end.y) + threshold;
+        
         if (clickPos.x < minX || clickPos.x > maxX || clickPos.y < minY || clickPos.y > maxY) continue; 
         
         Vector2 closest = GetClosestPointOnSegment(clickPos, start, end);
         float dSq = Vector2DistanceSqr(clickPos, closest);
-        if (dSq < minDistSq) { minDistSq = dSq; bestPoint = closest; }
+        
+        if (dSq < minDistSq) { 
+            minDistSq = dSq; 
+            bestPoint = closest; 
+        }
     }
     return bestPoint;
 }
 
+/*
+ * Description: Converts a string to lowercase.
+ * Parameters:
+ * - src: Source string.
+ * - dest: Buffer to store the result.
+ * Returns: None.
+ */
 void ToLowerStr(const char* src, char* dest) {
     for (int i = 0; src[i]; i++) {
         dest[i] = tolower((unsigned char)src[i]);
@@ -125,6 +167,14 @@ void ToLowerStr(const char* src, char* dest) {
     dest[strlen(src)] = '\0'; 
 }
 
+/*
+ * Description: Searches for map locations matching the query string.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - query: The search text.
+ * - results: Array to populate with matching locations.
+ * Returns: The number of results found.
+ */
 int SearchMapInternal(GameMap *map, const char *query, MapLocation *results) {
     int count = 0;
     char queryLower[64];
@@ -146,6 +196,12 @@ int SearchMapInternal(GameMap *map, const char *query, MapLocation *results) {
     return count;
 }
 
+/*
+ * Description: Populates search results with recommended places based on current filters.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * Returns: None.
+ */
 void ShowRecommendedPlaces(GameMap *map) {
     mapsState.resultCount = 0;
     
@@ -162,6 +218,11 @@ void ShowRecommendedPlaces(GameMap *map) {
     }
 }
 
+/*
+ * Description: Initializes the map application state, camera, and icons.
+ * Parameters: None.
+ * Returns: None.
+ */
 void InitMapsApp() {
     mapsState.camera.zoom = 4.0f; 
     mapsState.camera.offset = (Vector2){140, 280}; 
@@ -176,6 +237,12 @@ void InitMapsApp() {
     LoadMapIcons(); 
 }
 
+/*
+ * Description: Resets the map camera to focus on the player and reset zoom/filters.
+ * Parameters:
+ * - playerPos: The player's current position.
+ * Returns: None.
+ */
 void ResetMapCamera(Vector2 playerPos) {
     mapsState.isFollowingPlayer = true;
     mapsState.isHeadingUp = true; 
@@ -186,14 +253,19 @@ void ResetMapCamera(Vector2 playerPos) {
     mapsState.isFilterMenuOpen = false;
 }
 
+/*
+ * Description: Sets a navigation destination, calculates a path, and snaps to roads if necessary.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - dest: The target 2D destination.
+ * Returns: None.
+ */
 void SetMapDestination(GameMap *map, Vector2 dest) {
     // 1. Try exact pathfinding first (fastest if it works)
     int len = FindPath(map, mapsState.playerPos, dest, mapsState.path, MAX_PATH_NODES);
 
     // 2. If exact path fails, snap to the closest road within a tight radius
     if (len == 0) {
-        // Reduced radius from 500.0f to 20.0f for optimization. 
-        // This is usually enough to span a sidewalk + parking strip.
         Vector2 closestRoadPoint = SnapToRoad(map, dest, 20.0f);
         
         // Try pathfinding again to this snapped point
@@ -213,7 +285,7 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
     mapsState.isHeadingUp = true; 
     mapsState.pathLen = len;
 
-    // Fallback: If still zero, the store is likely disconnected or bugged; draw direct line.
+    // Fallback: If still zero, draw direct line.
     if (len == 0) {
         mapsState.path[0] = mapsState.playerPos;
         mapsState.path[1] = dest;
@@ -221,6 +293,13 @@ void SetMapDestination(GameMap *map, Vector2 dest) {
     }
 }
 
+/*
+ * Description: Centers the map on a target location to preview it without starting navigation.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - target: The target location coordinates.
+ * Returns: None.
+ */
 void PreviewMapLocation(GameMap *map, Vector2 target) {
     int len = FindPath(map, mapsState.playerPos, target, mapsState.path, MAX_PATH_NODES);
     
@@ -234,19 +313,28 @@ void PreviewMapLocation(GameMap *map, Vector2 target) {
     mapsState.camera.zoom = 3.0f; 
 }
 
+/*
+ * Description: Updates the map logic, handles input (drag, zoom, search), and updates pathfinding.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - currentPlayerPos: The player's current position.
+ * - playerAngle: The player's rotation angle.
+ * - localMouse: Mouse position relative to the app window.
+ * - isClicking: Boolean indicating if the mouse is clicked.
+ * Returns: None.
+ */
 void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Vector2 localMouse, bool isClicking) {
     mapsState.playerPos = currentPlayerPos; 
     mapsState.playerAngle = playerAngle;
 
     if (mapsState.hasDestination) {
-        // 1. Try standard pathfinding
+        // Try standard pathfinding
         mapsState.pathLen = FindPath(map, mapsState.playerPos, mapsState.destination, mapsState.path, MAX_PATH_NODES);
 
-        // [FIX] If standard pathfinding fails (e.g., store is in a parking lot/off-road)
+        // If standard pathfinding fails (e.g., store is in a parking lot/off-road)
         if (mapsState.pathLen == 0) {
             
-            // OPTIONAL: Try to snap to the closest road dynamically (if map isn't huge)
-            // Using a small radius (60.0) ensures it's fast enough for the Update loop.
+            // Try to snap to the closest road dynamically
             Vector2 snappedPos = SnapToRoad(map, mapsState.destination, 60.0f);
             
             // Try pathfinding to the road edge
@@ -266,7 +354,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
 
         // Arrival check
-        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 0.5f) { // Increased radius slightly to 15.0f for smoother arrival
+        if (Vector2Distance(mapsState.playerPos, mapsState.destination) < 0.5f) { 
             mapsState.hasDestination = false;
             mapsState.pathLen = 0;
         }
@@ -307,7 +395,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 if (idx == 0) mapsState.filterType = -1;           
                 else if (idx == 1) mapsState.filterType = LOC_FUEL;     
                 else if (idx == 2) mapsState.filterType = LOC_MECHANIC; 
-                else if (idx == 3) mapsState.filterType = LOC_FOOD;     
+                else if (idx == 3) mapsState.filterType = LOC_DEALERSHIP;     
                 
                 mapsState.isFilterMenuOpen = false;
                 if (mapsState.isSearching && mapsState.searchCharCount == 0) {
@@ -329,7 +417,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
         }
 
         if (!handled && mapsState.isSearching) {
-            for(int i=0; i<mapsState.resultCount; i++) {
+            for(int i = 0; i < mapsState.resultCount; i++) {
                 Rectangle resRect = {10, 80 + i*45, 260, 40};
                 if (CheckCollisionPointRec(localMouse, resRect)) {
                     SetMapDestination(map, mapsState.searchResults[i].position);
@@ -419,7 +507,7 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
                 mapsState.searchQuery[mapsState.searchCharCount] = '\0';
                 
                 if (mapsState.searchCharCount == 0) ShowRecommendedPlaces(map);
-                else mapsState.resultCount = SearchLocations(map, mapsState.searchQuery, mapsState.searchResults);
+                else mapsState.resultCount = SearchMapInternal(map, mapsState.searchQuery, mapsState.searchResults);
             }
         }
         if (IsKeyPressed(KEY_ENTER) && mapsState.resultCount > 0) {
@@ -429,30 +517,36 @@ void UpdateMapsApp(GameMap *map, Vector2 currentPlayerPos, float playerAngle, Ve
     }
 }
 
+/*
+ * Description: Renders the map application visuals, including the map view, icons, paths, and UI overlay.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * Returns: None.
+ */
 void DrawMapsApp(GameMap *map) {
     ClearBackground(RAYWHITE);
     BeginMode2D(mapsState.camera);
     scale = 1.0f / mapsState.camera.zoom;
 
-    // --- MAP RENDER (Optimized) ---
+    // --- MAP RENDER ---
     DrawMap2DView(map, mapsState.camera, 280.0f, 600.0f);
 
     // Events
-    for(int i=0; i<MAX_EVENTS; i++) {
+    for(int i = 0; i < MAX_EVENTS; i++) {
         if(map->events[i].active) {
             
-            // IF THE ICON LOADED SUCCESSFULLY:
+            // Draw Icon if available
             if (mapsState.emergencyIcon.id != 0) {
-                float iconWorldSize = 12.0f; // Adjust size as needed
+                float iconWorldSize = 12.0f; 
                 
                 Rectangle source = { 0.0f, 0.0f, (float)mapsState.emergencyIcon.width, (float)mapsState.emergencyIcon.height };
                 Rectangle dest = { map->events[i].position.x, map->events[i].position.y, iconWorldSize, iconWorldSize };
-                Vector2 origin = { iconWorldSize/2, iconWorldSize/2 }; // Center the icon
+                Vector2 origin = { iconWorldSize/2, iconWorldSize/2 }; 
                 
                 // Draw texture counter-rotated so it stays upright
                 DrawTexturePro(mapsState.emergencyIcon, source, dest, origin, -mapsState.camera.rotation, WHITE);
             } 
-            // FALLBACK (If image missing, draw the old red circle)
+            // Fallback Circle
             else {
                 Color c = RED;
                 DrawCircleV(map->events[i].position, 8.0f * scale, c);
@@ -469,7 +563,7 @@ void DrawMapsApp(GameMap *map) {
     float screenH = 600.0f;
     float border = 30.0f; 
 
-    for(int i=0; i<map->locationCount; i++) {
+    for(int i = 0; i < map->locationCount; i++) {
         if (map->locations[i].type == LOC_HOUSE) continue; 
         
         // Filter Check
@@ -528,9 +622,7 @@ void DrawMapsApp(GameMap *map) {
         Rectangle dst = {mapsState.playerPos.x, mapsState.playerPos.y, pSize, pSize};
         Vector2 origin = {pSize/2, pSize/2};
         
-        // [FIX] Player Rotation Logic
-        // 1. Negate playerAngle to match Raylib 2D rotation direction (CCW vs CW)
-        // 2. Subtract 90 degrees for base CCW offset.
+        // Adjust player rotation to match 2D view
         float finalPlayerAngle = -mapsState.playerAngle - 180.0f;
 
         DrawTexturePro(mapsState.playerIcon, src, dst, origin, finalPlayerAngle, WHITE);
@@ -566,8 +658,7 @@ void DrawMapsApp(GameMap *map) {
 
     EndMode2D();
 
-    // --- UI OVERLAY (Standard) ---
-    // ... (The rest of the function remains exactly the same) ...
+    // --- UI OVERLAY ---
     DrawRectangle(0, 0, 280, 80, WHITE);
     DrawText("Maps", 10, 10, 20, BLACK);
     
@@ -600,13 +691,13 @@ void DrawMapsApp(GameMap *map) {
         DrawRectangleRec(menuRect, WHITE);
         DrawRectangleLinesEx(menuRect, 1, DARKGRAY);
         
-        const char* opts[] = {"All", "Gas", "Mech", "Food"};
-        for(int i=0; i<4; i++) {
+        const char* opts[] = {"All", "Gas", "Mech", "Dealer"};
+        for(int i = 0; i < 4; i++) {
             bool selected = false;
-            if(i==0 && mapsState.filterType == -1) selected = true;
-            if(i==1 && mapsState.filterType == LOC_FUEL) selected = true;
-            if(i==2 && mapsState.filterType == LOC_MECHANIC) selected = true;
-            if(i==3 && mapsState.filterType == LOC_FOOD) selected = true;
+            if(i == 0 && mapsState.filterType == -1) selected = true;
+            if(i == 1 && mapsState.filterType == LOC_FUEL) selected = true;
+            if(i == 2 && mapsState.filterType == LOC_MECHANIC) selected = true;
+            if(i == 3 && mapsState.filterType == LOC_DEALERSHIP) selected = true;
             
             Color itemColor = selected ? SKYBLUE : WHITE;
             if (CheckCollisionPointRec(GetMousePosition(), (Rectangle){190, 75 + i*25, 80, 25})) itemColor = LIGHTGRAY;
@@ -622,7 +713,7 @@ void DrawMapsApp(GameMap *map) {
         DrawRectangle(10, 80, 260, mapsState.resultCount * 45, WHITE);
         DrawRectangleLines(10, 80, 260, mapsState.resultCount * 45, LIGHTGRAY);
         
-        for(int i=0; i<mapsState.resultCount; i++) {
+        for(int i = 0; i < mapsState.resultCount; i++) {
             float yPos = 85 + i*45;
             Rectangle itemRect = {10, 80 + i*45, 260, 45};
             if (CheckCollisionPointRec(GetMousePosition(), itemRect)) { 
@@ -641,7 +732,7 @@ void DrawMapsApp(GameMap *map) {
     if (mapsState.hasDestination) {
         float dist = 0.0f;
 
-        // [NEW] Calculate Total Road Distance by summing path segments
+        // Calculate Total Road Distance by summing path segments
         if (mapsState.pathLen > 0) {
             // 1. Distance from Player to the start of the path
             dist += Vector2Distance(mapsState.playerPos, mapsState.path[0]);
@@ -659,7 +750,7 @@ void DrawMapsApp(GameMap *map) {
             dist = Vector2Distance(mapsState.playerPos, mapsState.destination);
         }
 
-        // Apply your map scale factor (from your original code)
+        // Apply map scale factor
         dist *= 5.0;
 
         char distText[32];

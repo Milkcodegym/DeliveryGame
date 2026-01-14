@@ -21,12 +21,17 @@
 #include <string.h>
 #include <math.h>
 
-// --- EXTERNAL ---
 extern void ShowPhoneNotification(const char *text, Color color);
+extern bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed);
 
 // Top of delivery_app.c
 bool ignorePhysicsFrame = false; 
 
+/*
+ * Description: Sets a flag to skip physics calculations for the current frame (useful after teleporting).
+ * Parameters: None.
+ * Returns: None.
+ */
 void SetIgnorePhysics() {
     ignorePhysicsFrame = true;
 }
@@ -62,8 +67,20 @@ static AppScreenState currentScreen = SCREEN_HOME;
 static int selectedJobIndex = -1;
 static float eventFallbackTimer = 120.0f; 
 
-extern bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed);
+// Static variables to track physics state between frames
+static Vector2 lastFrameVelocity = { 0.0f, 0.0f };
+static bool physicsInitialized = false;
 
+// Static variables for interaction
+static float interactionTimer = 0.0f;
+static bool isPlayerNearBox = false;
+
+/*
+ * Description: Validates if a specific location type corresponds to a commercial store.
+ * Parameters:
+ * - type: The location type ID.
+ * Returns: True if valid, false otherwise.
+ */
 static bool IsValidStoreType(int type) {
     switch (type) {
         case LOC_FOOD: case LOC_CAFE: case LOC_BAR:
@@ -73,24 +90,43 @@ static bool IsValidStoreType(int type) {
     }
 }
 
+/*
+ * Description: Finds a random index in the map locations array that matches a store type.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * Returns: The index of the location, or -1 if not found.
+ */
 static int GetRandomStoreIndex(GameMap *map) {
     if (map->locationCount == 0) return -1;
-    for(int i=0; i<50; i++) {
+    for(int i = 0; i < 50; i++) {
         int idx = GetRandomValue(0, map->locationCount - 1);
         if (IsValidStoreType(map->locations[idx].type)) return idx;
     }
     return -1;
 }
 
+/*
+ * Description: Finds a random index in the map locations array that matches a residential house.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * Returns: The index of the location, or -1 if not found.
+ */
 static int GetRandomHouseIndex(GameMap *map) {
     if (map->locationCount == 0) return -1;
-    for(int i=0; i<50; i++) {
+    for(int i = 0; i < 50; i++) {
         int idx = GetRandomValue(0, map->locationCount - 1);
         if (map->locations[idx].type == LOC_HOUSE) return idx;
     }
     return -1;
 }
 
+/*
+ * Description: Generates the specific details (difficulty, pay, fragility) for a delivery job based on location.
+ * Parameters:
+ * - t: Pointer to the DeliveryTask to populate.
+ * - locationType: The type of the pickup location.
+ * Returns: None.
+ */
 static void GenerateJobDetails(DeliveryTask *t, int locationType) {
     t->creationTime = GetTime();
     t->refreshTimer = GetRandomValue(120, 300); 
@@ -103,28 +139,47 @@ static void GenerateJobDetails(DeliveryTask *t, int locationType) {
     switch(locationType) {
         case LOC_FOOD:
             snprintf(t->description, 64, "Hot Food - RUSH!");
-            t->timeLimit = 180.0f; difficultyMult = 1.1f; break;
+            t->timeLimit = 180.0f; 
+            difficultyMult = 1.1f; 
+            break;
         case LOC_RESTAURANT:
             snprintf(t->description, 64, "Fine Dining - Gentle Drive");
-            t->fragility = (float)GetRandomValue(30, 60) / 100.0f; difficultyMult = 1.3f; break;
+            t->fragility = (float)GetRandomValue(30, 60) / 100.0f; 
+            difficultyMult = 1.3f; 
+            break;
         case LOC_CAFE:
             snprintf(t->description, 64, "Hot Coffee - Fast & Stable");
-            t->timeLimit = 240.0f; t->fragility = 0.2f; difficultyMult = 1.15f; break;
+            t->timeLimit = 240.0f; 
+            t->fragility = 0.2f; 
+            difficultyMult = 1.15f; 
+            break;
         case LOC_BAR:
             snprintf(t->description, 64, "Drinks - EXTREME SPILL RISK");
-            t->fragility = (float)GetRandomValue(70, 95) / 100.0f; difficultyMult = 2.0f; break;
+            t->fragility = (float)GetRandomValue(70, 95) / 100.0f; 
+            difficultyMult = 2.0f; 
+            break;
         case LOC_SUPERMARKET:
             snprintf(t->description, 64, "Groceries - Heavy Load");
-            t->isHeavy = true; difficultyMult = 1.2f; break;
+            t->isHeavy = true; 
+            difficultyMult = 1.2f; 
+            break;
         case LOC_MARKET: default:
-            snprintf(t->description, 64, "General Goods - Standard"); break;
+            snprintf(t->description, 64, "General Goods - Standard"); 
+            break;
     }
     t->pay = (12.0f + (t->distance * 0.15f)) * difficultyMult;
     t->maxPay = t->pay;
 }
 
+/*
+ * Description: Initializes the delivery application state and clears all tasks.
+ * Parameters:
+ * - phone: Pointer to the PhoneState.
+ * - map: Pointer to the GameMap.
+ * Returns: None.
+ */
 void InitDeliveryApp(PhoneState *phone, GameMap *map) {
-    for(int i=0; i<5; i++) {
+    for(int i = 0; i < 5; i++) {
         // Initialize as Delivered (Hidden)
         phone->tasks[i].status = JOB_DELIVERED; 
         phone->tasks[i].creationTime = -9999;
@@ -135,27 +190,52 @@ void InitDeliveryApp(PhoneState *phone, GameMap *map) {
     }
 }
 
+/*
+ * Description: Renders the player profile screen showing earnings and stats.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - screenRect: The screen bounds.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 static void DrawProfileScreen(Player *player, Rectangle screenRect, Vector2 mouse, bool click) {
     DrawRectangleRec(screenRect, COLOR_APP_BG);
     DrawText("DRIVER STATS", screenRect.x + 20, screenRect.y + 30, 24, COLOR_ACCENT);
+    
     float y = screenRect.y + 80;
     const char* labels[] = { "Current Balance", "Lifetime Earnings", "Total Deliveries", "Rating" };
     char sBal[32], sEarn[32], sDel[32];
+    
     sprintf(sBal, "$%.2f", player->money);
     sprintf(sEarn, "$%.2f", player->totalEarnings); 
     sprintf(sDel, "%d", player->totalDeliveries);
+    
     const char* values[] = { sBal, sEarn, sDel, "5.0 Stars" };
-    for(int i=0; i<4; i++) {
+    
+    for(int i = 0; i < 4; i++) {
         Rectangle row = {screenRect.x + 20, y, screenRect.width - 40, 60};
         DrawRectangleRounded(row, 0.2f, 4, COLOR_CARD_BG);
         DrawText(labels[i], row.x + 15, row.y + 10, 14, COLOR_TEXT_SUB);
         DrawText(values[i], row.x + 15, row.y + 30, 20, COLOR_TEXT_MAIN);
         y += 70;
     }
+    
     Rectangle btnBack = { screenRect.x + 20, screenRect.height - 70, screenRect.width - 40, 50 };
     if (GuiButton(btnBack, "BACK", COLOR_BUTTON, mouse, click)) currentScreen = SCREEN_HOME;
 }
 
+/*
+ * Description: Renders the details of a specific job, allowing acceptance or cancellation.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * - screenRect: Screen bounds.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rectangle screenRect, Vector2 mouse, bool click) {
     DeliveryTask *t = &phone->tasks[selectedJobIndex];
     DrawRectangleRec(screenRect, COLOR_APP_BG);
@@ -164,9 +244,10 @@ static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rect
     
     Rectangle detailCard = { screenRect.x + 20, screenRect.y + 110, screenRect.width - 40, 220 }; // Slightly taller
     DrawRectangleRounded(detailCard, 0.1f, 6, COLOR_CARD_BG);
-    float tx = detailCard.x + 15; float ty = detailCard.y + 15;
+    
+    float tx = detailCard.x + 15; 
+    float ty = detailCard.y + 15;
     DrawText(TextFormat("Pay: $%.2f", t->pay), tx, ty, 22, COLOR_ACCENT); ty += 35;
-    //DrawText(TextFormat("Dist: %.0fm", t->distance), tx, ty, 18, COLOR_TEXT_MAIN); ty += 35;
     DrawLine(tx, ty, detailCard.x + detailCard.width - 15, ty, GRAY); ty += 15;
     
     // --- DETAILS ---
@@ -209,13 +290,13 @@ static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rect
     btnY += 55;
     bool isActive = (t->status != JOB_AVAILABLE);
     
-    // [NEW] Check suitability logic
+    // Check suitability logic
     bool isUnsuitable = (!isActive && t->isHeavy && player->loadResistance > 0.6f);
 
     const char* txt = isActive ? "ABANDON JOB" : (isUnsuitable ? "VEHICLE TOO WEAK" : "ACCEPT JOB");
     Color col = isActive ? COLOR_DANGER : (isUnsuitable ? GRAY : COLOR_ACCENT);
 
-    // [NEW] Updated Button Logic
+    // Updated Button Logic
     if (GuiButton((Rectangle){screenRect.x + 20, btnY, screenRect.width - 40, 45}, txt, col, mouse, click)) {
         if (isUnsuitable) {
             // Prevent acceptance and warn user
@@ -236,57 +317,89 @@ static void DrawJobDetails(PhoneState *phone, Player *player, GameMap *map, Rect
     if (GuiButton((Rectangle){screenRect.width - 45, 20, 30, 30}, "X", COLOR_CARD_BG, mouse, click)) currentScreen = SCREEN_HOME;
 }
 
+/*
+ * Description: Renders the home screen showing available jobs.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - screenRect: Screen bounds.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 static void DrawHomeScreen(PhoneState *phone, Player *player, Rectangle screenRect, Vector2 mouse, bool click) {
     Rectangle headerRect = { 0, 0, SCREEN_WIDTH, 85 };
     DrawRectangleRec(headerRect, COLOR_CARD_BG);
     DrawCircle(45, 42, 28, LIGHTGRAY);
     DrawText("Driver", 85, 25, 18, COLOR_TEXT_MAIN);
     DrawText(TextFormat("Wallet: $%.2f", player->money), 85, 48, 16, COLOR_ACCENT);
+    
     if (CheckCollisionPointRec(mouse, headerRect) && click) currentScreen = SCREEN_PROFILE;
 
     float y = 100;
     DrawText("Available Deliveries", 20, y, 16, COLOR_TEXT_SUB);
     y += 25;
+    
     for (int i = 0; i < 5; i++) {
         DeliveryTask *t = &phone->tasks[i];
         if (t->status == JOB_DELIVERED && GetTime() - t->creationTime < 3.0) continue; 
         if (t->status == JOB_DELIVERED) continue; 
         if (strlen(t->restaurant) == 0 && t->pay == 0) continue;
+        
         Rectangle cardRect = { 10, y, SCREEN_WIDTH - 20, 90 };
         Color cardColor = (t->status == JOB_ACCEPTED || t->status == JOB_PICKED_UP) ? (Color){30, 50, 30, 255} : COLOR_CARD_BG;
+        
         DrawRectangleRounded(cardRect, 0.2f, 4, cardColor);
         if (GuiButton(cardRect, "", BLANK, mouse, click)) { 
             selectedJobIndex = i;
             currentScreen = SCREEN_DETAILS;
         }
+        
         DrawText(t->restaurant, cardRect.x + 15, cardRect.y + 12, 20, COLOR_TEXT_MAIN);
         DrawText(t->description, cardRect.x + 15, cardRect.y + 38, 14, COLOR_TEXT_SUB);
+        
         const char* price = TextFormat("$%.0f", t->pay);
         int pw = MeasureText(price, 20);
         DrawRectangleRounded((Rectangle){cardRect.x + cardRect.width - pw - 20, cardRect.y + 10, pw + 10, 26}, 0.5f, 4, COLOR_ACCENT);
         DrawText(price, cardRect.x + cardRect.width - pw - 15, cardRect.y + 13, 20, WHITE);
+        
         const char* dist = TextFormat("%.1fkm", t->distance/1000.0f);
         if(t->status == JOB_ACCEPTED) dist = "PICK UP [E]";
         if(t->status == JOB_PICKED_UP) dist = "DELIVERING [E]";
-        DrawText(dist, cardRect.x + cardRect.width - MeasureText(dist, 14) - 15, cardRect.y + 65, 14, (t->status != JOB_AVAILABLE)?COLOR_ACCENT:GRAY);
+        
+        DrawText(dist, cardRect.x + cardRect.width - MeasureText(dist, 14) - 15, cardRect.y + 65, 14, (t->status != JOB_AVAILABLE) ? COLOR_ACCENT : GRAY);
         y += 100;
     }
 }
 
+/*
+ * Description: Main entry point for drawing the delivery app interface.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 void DrawDeliveryApp(PhoneState *phone, Player *player, GameMap *map, Vector2 mouse, bool click) {
     DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_APP_BG);
     Rectangle screenRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
     switch(currentScreen) {
         case SCREEN_HOME: DrawHomeScreen(phone, player, screenRect, mouse, click); break;
-        case SCREEN_DETAILS: DrawJobDetails(phone, player, map, screenRect, mouse, click); break; // Updated to pass Player
+        case SCREEN_DETAILS: DrawJobDetails(phone, player, map, screenRect, mouse, click); break; 
         case SCREEN_PROFILE: DrawProfileScreen(player, screenRect, mouse, click); break;
     }
 }
 
-// [NEW] Static variables to track physics state between frames
-static Vector2 lastFrameVelocity = { 0.0f, 0.0f };
-static bool physicsInitialized = false;
-
+/*
+ * Description: Updates background logic including physics (damage), random events, and job timers.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * Returns: None.
+ */
 void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
     double currentTime = GetTime();
     float dt = GetFrameTime();
@@ -307,14 +420,14 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         ignorePhysicsFrame = false; // Reset flag
         return; // Skip damage logic this frame
     }
+    
     // Calculate the difference vector (Change in velocity)
     Vector2 deltaV = Vector2Subtract(currentVelocity, lastFrameVelocity);
     
-    // G-Force = Change in Velocity over Time. 
-    // We scale it down (e.g., * 0.05) to make numbers readable (0.0 to 1.0 range usually)
+    // G-Force calculation
     float rawG = (Vector2Length(deltaV) / dt) * 0.02f; 
     
-    // Apply a floor to ignore tiny vibrations (idling/micro-adjustments)
+    // Apply a floor to ignore tiny vibrations
     if (rawG < 0.1f) rawG = 0.0f;
 
     // Store for next frame
@@ -328,10 +441,9 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
         eventFallbackTimer = 120.0f;
     }
 
-    for(int i=0; i<5; i++) {
+    for(int i = 0; i < 5; i++) {
         DeliveryTask *t = &phone->tasks[i];
         
-        // ... (Keep JOB_DELIVERED recycling logic exactly as before) ...
         if (t->status == JOB_DELIVERED) {
              if (player->tutorialFinished) {
                  int storeIdx = GetRandomStoreIndex(map);
@@ -359,12 +471,10 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             // Grace Period (3 seconds to stabilize)
             if (currentTime - t->creationTime < 3.0) continue;
 
-            // --- FRAGILITY LOGIC (UPDATED) ---
+            // --- FRAGILITY LOGIC ---
             if (t->fragility > 0.0f) {
                 
                 // Tolerance Calculation
-                // High fragility (0.9) = Very Low Tolerance (0.2G)
-                // Low fragility (0.1) = High Tolerance (1.8G)
                 float gTolerance = 2.0f * (1.0f - t->fragility);
                 if (gTolerance < 0.2f) gTolerance = 0.2f; // Absolute minimum floor
 
@@ -373,8 +483,6 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
                     float excessG = rawG - gTolerance;
                     
                     // CRASH DETECTION:
-                    // If G-force is huge (e.g., > 3.0), it's definitely a wall collision.
-                    // Multiply damage massively.
                     float crashMultiplier = (rawG > 3.0f) ? 5.0f : 1.0f;
 
                     float penalty = (excessG * 30.0f * crashMultiplier) * dt;
@@ -407,23 +515,34 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             }
             
             // Minimum Pay Floor
-            if (t->pay < 0.0f) t->pay = 0.0f; // Allow it to hit 0 for total destruction
-
-            
+            if (t->pay < 0.0f) t->pay = 0.0f; 
         }
     }
 }
 
-// In delivery_app.c
-
-// Define static variables here so they remember their state
-static float interactionTimer = 0.0f;
-static bool isPlayerNearBox = false;
-
-// Accessor for drawing the UI in main.c
+/*
+ * Description: Returns true if the player is within range of an interaction zone.
+ * Parameters: None.
+ * Returns: Boolean state.
+ */
 bool IsInteractionActive() { return isPlayerNearBox; }
+
+/*
+ * Description: Returns the current progress of the interaction timer.
+ * Parameters: None.
+ * Returns: Time held in seconds.
+ */
 float GetInteractionTimer() { return interactionTimer; }
 
+/*
+ * Description: Handles player input for picking up and dropping off packages when near valid zones.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * - dt: Delta Time.
+ * Returns: None.
+ */
 void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, float dt) {
     isPlayerNearBox = false; // Reset state
 
@@ -482,8 +601,6 @@ void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, 
                             player->totalEarnings += t->pay;
                             player->totalDeliveries++;
 
-                            // Inside UpdateDeliveryApp -> JOB_DELIVERED block:
-
                             // Tip Logic
                             double realElapsed = GetTime() - t->creationTime;
                             double effectiveElapsed = realElapsed * player->insulationFactor;
@@ -492,11 +609,10 @@ void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, 
                             // Check if valid for tip (didn't take too long)
                             if (t->timeLimit <= 0 || effectiveElapsed < t->timeLimit) {
                                 
-                                // [FIX] REDUCED CALCULATION
-                                // Base Tip: 10% of order value (was 20%)
+                                // Base Tip: 10% of order value
                                 tip = t->pay * 0.10f; 
 
-                                // Fragile Bonus: Flat $3.00 (was $15.00)
+                                // Fragile Bonus: Flat $3.00
                                 if (t->fragility > 0.0f) {
                                     // If they delivered it safely (pay wasn't deducted heavily)
                                     if (t->pay >= t->maxPay * 0.9f) {
@@ -504,14 +620,14 @@ void UpdateDeliveryInteraction(PhoneState *phone, Player *player, GameMap *map, 
                                     }
                                 }
 
-                                // Speed Bonus: Flat $2.00 (was $10.00)
+                                // Speed Bonus: Flat $2.00
                                 // Only if done in half the required time
                                 if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.6f) {
                                     tip += 2.0f;
                                 }
                             }
 
-                            // Cap tip so it's never more than 50% of the order value (Reality check)
+                            // Cap tip so it's never more than 50% of the order value
                             if (tip > t->pay * 0.5f) tip = t->pay * 0.5f;
 
                             if (tip > 0) {

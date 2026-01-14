@@ -24,21 +24,33 @@ Camera3D camera = { 0 };
 static float smoothedCollisionDist = 3.2f;
 static Vector3 smoothedTarget = { 0 };
 
-void InitCamera(){
+/*
+ * Description: Initializes the 3D camera with default values.
+ * Parameters: None.
+ * Returns: None.
+ */
+void InitCamera() {
     camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
     camera.fovy = 45.0f;
     camera.projection = CAMERA_PERSPECTIVE;
     camera.position = (Vector3){ 0.0f, 10.0f, -10.0f };
-    smoothedTarget = (Vector3){0,0,0};
+    smoothedTarget = (Vector3){0, 0, 0};
 }
 
-void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt){
-    // [FIX 1] Game Time Clamping (The "Player Physics" Approach)
-    // We use Delta Time so the camera speed is consistent regardless of FPS.
-    // But we CAP it at 0.04 (25 FPS) so lag spikes don't cause explosions.
+/*
+ * Description: Updates the camera position and target based on the player's movement, handling smoothing and collision.
+ * Parameters:
+ * - player_position: The current 3D position of the player.
+ * - map: Pointer to the game map for collision checks.
+ * - player_angle: The facing angle of the player in degrees.
+ * - dt: Delta time for frame-rate independent movement.
+ * Returns: None.
+ */
+void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, float dt) {
+    // Clamp Delta Time to avoid instability during lag spikes (max 25 FPS step)
     float safeDt = (dt > 0.04f) ? 0.04f : dt;
 
-    // Reset logic (Teleport if too far)
+    // Reset logic (Teleport if too far or uninitialized)
     float distToPlayer = Vector3Distance(camera.position, player_position);
     if (smoothedTarget.y == 0 || distToPlayer > 50.0f) {
         smoothedTarget = player_position;
@@ -48,17 +60,15 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
         smoothedCollisionDist = 3.2f;
     }
 
-    // --- 1. SMOOTH TARGET (Time-Based) ---
+    // --- 1. SMOOTH TARGET ---
     Vector3 idealTarget = { player_position.x, player_position.y + 0.5f, player_position.z };
     
-    // Use Lerp with safeDt. 
-    // Speed 10.0f means it tries to cover the distance in ~0.1 seconds.
+    // Time-based Lerp
     float targetSpeed = 10.0f;
     smoothedTarget = Vector3Lerp(smoothedTarget, idealTarget, targetSpeed * safeDt);
 
-    // [FIX 2] Target Tether (Hard Constraint)
-    // If the smoothed target falls more than 2.5m behind, force it closer.
-    // This fixes the "drifting away when accelerating" issue.
+    // Target Tether (Hard Constraint)
+    // If the smoothed target lags too far behind, force it closer
     float targetLag = Vector3Distance(smoothedTarget, idealTarget);
     if (targetLag > 2.5f) {
         Vector3 dir = Vector3Normalize(Vector3Subtract(smoothedTarget, idealTarget));
@@ -81,7 +91,6 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
     float dx = targetOffset.x;
     float dz = targetOffset.z;
     
-    // 4 steps is enough for a smooth camera
     int steps = 4; 
     for (int i = 0; i <= steps; i++) {
         float t = 0.2f + ((float)i / steps) * 0.8f;
@@ -95,12 +104,11 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
         }
     }
 
-    // --- 4. SMOOTH DISTANCE (Time-Based) ---
+    // --- 4. SMOOTH DISTANCE ---
     float zoomSpeed = (currentDist < smoothedCollisionDist) ? 15.0f : 3.0f; // Fast in, Slow out
     smoothedCollisionDist = Lerp(smoothedCollisionDist, currentDist, zoomSpeed * safeDt);
 
-    // [FIX 3] Max Zoom Constraint
-    // Camera cannot be further back than 4.5m, no matter what smoothing says.
+    // Max Zoom Constraint
     if (smoothedCollisionDist > 3.1f) smoothedCollisionDist = 3.1f;
 
     // --- 5. APPLY POSITION ---
@@ -109,16 +117,16 @@ void Update_Camera(Vector3 player_position, GameMap *map, float player_angle, fl
     finalPos.z = smoothedTarget.z - smoothedCollisionDist * cosf(player_angle * DEG2RAD);
     finalPos.y = smoothedTarget.y + camHeight; 
 
-    // Wall lift
+    // Wall lift effect (raise camera if too close)
     if (smoothedCollisionDist < 1.5f) {
         finalPos.y += (1.5f - smoothedCollisionDist) * 0.5f;
     }
 
-    // [FIX 4] Height Constraints
-    if (finalPos.y < 0.5f) finalPos.y = 0.5f;   // Floor clamp
-    if (finalPos.y > 20.0f) finalPos.y = 20.0f; // Ceiling clamp
+    // Height Constraints
+    if (finalPos.y < 0.5f) finalPos.y = 0.5f;   
+    if (finalPos.y > 20.0f) finalPos.y = 20.0f; 
 
-    // Final Position Smoothing (Time-Based)
+    // Final Position Smoothing
     camera.position = Vector3Lerp(camera.position, finalPos, 8.0f * safeDt);
     
     // Final Safety Clamp

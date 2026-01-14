@@ -44,7 +44,6 @@ typedef enum {
     TUT_FINISHED          
 } TutState;
 
-
 // --- LOCALS ---
 static TutState currentState = TUT_INACTIVE;
 static float stateTimer = 0.0f;
@@ -56,7 +55,14 @@ static bool check;
 
 // --- INTERNAL HELPERS ---
 
-// Forces a specific job type for the tutorial into Slot 0
+/*
+ * Description: Forces a specific job type into the first slot of the phone for tutorial purposes.
+ * Parameters:
+ * - phone: Pointer to the PhoneState.
+ * - map: Pointer to the GameMap to find locations.
+ * - isFragile: Boolean indicating if the job should have high fragility.
+ * Returns: None.
+ */
 static void ForceSpawnJob(PhoneState *phone, GameMap *map, bool isFragile) {
     if (!map) {
         TraceLog(LOG_WARNING, "TUTORIAL: Attempted to spawn job with NULL map!");
@@ -67,7 +73,7 @@ static void ForceSpawnJob(PhoneState *phone, GameMap *map, bool isFragile) {
     int storeIdx = -1;
     
     // Find ANY valid store (Food, Cafe, Market, etc.)
-    for(int i=0; i<map->locationCount; i++) {
+    for(int i = 0; i < map->locationCount; i++) {
         if(map->locations[i].type == LOC_HOUSE && houseIdx == -1) houseIdx = i;
         
         int t = map->locations[i].type;
@@ -105,7 +111,16 @@ static void ForceSpawnJob(PhoneState *phone, GameMap *map, bool isFragile) {
     }
 }
 
-// Draw multi-line text centered horizontally
+/*
+ * Description: Draws multi-line text centered horizontally on the screen.
+ * Parameters:
+ * - text: The string to draw (supports \n).
+ * - centerX: The X coordinate for the center.
+ * - startY: The starting Y coordinate.
+ * - fontSize: Size of the font.
+ * - color: Color of the text.
+ * Returns: None.
+ */
 static void DrawCenteredTextMulti(const char* text, float centerX, float startY, int fontSize, Color color) {
     char buffer[1024];
     strncpy(buffer, text, 1024);
@@ -132,6 +147,15 @@ static void DrawCenteredTextMulti(const char* text, float centerX, float startY,
     }
 }
 
+/*
+ * Description: Renders a static visual representation of a phone app for the tutorial guide.
+ * Parameters:
+ * - appIndex: The index ID of the app to simulate.
+ * - x, y: Position coordinates.
+ * - w, h: Dimensions.
+ * - scale: Scaling factor for UI elements.
+ * Returns: None.
+ */
 static void DrawFakeAppScreen(int appIndex, float x, float y, float w, float h, float scale) {
     DrawRectangle(x, y, w, h, RAYWHITE);
     DrawRectangleLines(x, y, w, h, BLACK);
@@ -143,7 +167,7 @@ static void DrawFakeAppScreen(int appIndex, float x, float y, float w, float h, 
         case 0: // JOBS
             DrawRectangle(x, y, w, 40*scale, ORANGE);
             DrawText("JOBS", x + 10*scale, y + 10*scale, titleSize, WHITE);
-            for(int i=0; i<3; i++) {
+            for(int i = 0; i < 3; i++) {
                 float rowY = y + (50*scale) + (i*50*scale);
                 DrawRectangle(x + 10*scale, rowY, w - 20*scale, 40*scale, LIGHTGRAY);
                 DrawText(i==0?"Pizza Delivery":"Package Run", x + 20*scale, rowY + 5*scale, bodySize, BLACK);
@@ -154,8 +178,8 @@ static void DrawFakeAppScreen(int appIndex, float x, float y, float w, float h, 
             
         case 1: // MAPS
             DrawRectangle(x, y, w, h, (Color){220, 220, 220, 255}); 
-            for(int i=0; i<5; i++) DrawLine(x + (i*40*scale), y, x + (i*40*scale), y+h, WHITE);
-            for(int i=0; i<8; i++) DrawLine(x, y + (i*40*scale), x+w, y + (i*40*scale), WHITE);
+            for(int i = 0; i < 5; i++) DrawLine(x + (i*40*scale), y, x + (i*40*scale), y+h, WHITE);
+            for(int i = 0; i < 8; i++) DrawLine(x, y + (i*40*scale), x+w, y + (i*40*scale), WHITE);
             
             DrawCircle(x+w/2, y+h/2, 6*scale, BLUE); 
             DrawCircleLines(x+w/2, y+h/2, 20*scale, Fade(BLUE, 0.3f)); 
@@ -198,30 +222,33 @@ static void DrawFakeAppScreen(int appIndex, float x, float y, float w, float h, 
             DrawCircle(x + 20*scale + (w-40*scale)*0.8f, sy + 23*scale, 8*scale, BLUE);
             break;
         case 5: // CAR MONITOR
-            DrawRectangle(x, y, w, h, (Color){20, 20, 25, 255}); // Dark Background
+            DrawRectangle(x, y, w, h, (Color){20, 20, 25, 255}); 
             DrawText("MyCarMonitor", x + 20*scale, y + 20*scale, titleSize, SKYBLUE);
             DrawLine(x + 20*scale, y + 50*scale, x + w - 20*scale, y + 50*scale, DARKGRAY);
             
-            // Draw Fake Toggles
             const char* fakeToggles[] = { "Speedometer", "Fuel Gauge", "G-Force" };
-            for(int i=0; i<3; i++) {
+            for(int i = 0; i < 3; i++) {
                 float rowY = y + 70*scale + (i*50*scale);
-                // Draw toggle box
                 DrawRectangle(x + 20*scale, rowY, w - 40*scale, 40*scale, (i==0) ? GREEN : Fade(DARKGRAY, 0.5f));
                 DrawRectangleLines(x + 20*scale, rowY, w - 40*scale, 40*scale, BLACK);
                 DrawText(fakeToggles[i], x + 30*scale, rowY + 12*scale, bodySize, WHITE);
-                // Draw toggle circle
                 DrawCircle(x + w - 40*scale, rowY + 20*scale, 6*scale, WHITE);
             }
             
-            // Fake Stats at bottom
             DrawText("Top Speed: 180 km/h", x + 20*scale, y + 250*scale, bodySize, WHITE);
             DrawText("0-100: 4.2 s", x + 20*scale, y + 270*scale, bodySize, WHITE);
             break;
     }
 }
 
-// Generic Window Helper - Returns true if "Next" button is clicked
+/*
+ * Description: Draws a modal tutorial window with a title, description body, and optional Next button.
+ * Parameters:
+ * - title: The header text.
+ * - body: The main content text.
+ * - showNext: Boolean to enable the "Next" button.
+ * Returns: True if the "Next" button was clicked.
+ */
 static bool DrawTutWindow(const char* title, const char* body, bool showNext) {
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
@@ -257,7 +284,16 @@ static bool DrawTutWindow(const char* title, const char* body, bool showNext) {
     return false;
 }
 
-// Reusable App Guide Screen
+/*
+ * Description: Renders the interactive App Guide screen used in the tutorial and help menu.
+ * Parameters:
+ * - sw, sh: Screen dimensions.
+ * - scale: UI scaling factor.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * - isHelpMode: Boolean to change text/exit logic based on context (Tutorial vs Help Menu).
+ * Returns: None.
+ */
 static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool click, bool isHelpMode) {
     DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.7f));
     float w = 800 * scale, h = 500 * scale;
@@ -268,7 +304,7 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     DrawRectangle(x, y, sidebarW, h, LIGHTGRAY);
     const char* tabs[] = { "JOBS", "MAPS", "BANK", "MUSIC", "SETTINGS", "MONITOR" };
     
-    for (int i=0; i<6; i++) {
+    for (int i = 0; i < 6; i++) {
         Rectangle tabRect = { x, y + 50*scale + (i*60*scale), sidebarW, 50*scale };
         bool selected = (currentAppTab == i);
         DrawRectangleRec(tabRect, selected ? WHITE : LIGHTGRAY);
@@ -305,26 +341,55 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
 
 // --- PUBLIC FUNCTIONS ---
 
+/*
+ * Description: Resets the tutorial state machine variables to their default values.
+ * Parameters: None.
+ * Returns: None.
+ */
 void InitTutorial() {
     stateTimer = 0.0f;
     hasEnteredDealership = false;
     showingHelp = false;
     eventStep = 0;
-    check=0;
-    
+    check = 0;
 }
 
+/*
+ * Description: Marks the tutorial as finished and saves the game state.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - phone: Pointer to the PhoneState.
+ * Returns: None.
+ */
 void SkipTutorial(Player *player, PhoneState *phone) {
     player->tutorialFinished = true;
     currentState = TUT_FINISHED;
     SaveGame(player, phone);
 }
 
+/*
+ * Description: Sets the flag to display the tutorial help overlay.
+ * Parameters: None.
+ * Returns: None.
+ */
 void ShowTutorialHelp() {
     showingHelp = true;
     currentAppTab = 0; 
 }
 
+
+
+/*
+ * Description: Updates the tutorial state machine, checking conditions to advance to the next step.
+ * Parameters:
+ * - player: Pointer to Player.
+ * - phone: Pointer to PhoneState.
+ * - map: Pointer to GameMap.
+ * - dt: Delta Time.
+ * - isRefueling: Boolean flag for refueling state.
+ * - isMechanicOpen: Boolean flag for mechanic interaction.
+ * Returns: True if the tutorial needs to block other input (e.g. showing a modal window).
+ */
 bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, bool isRefueling, bool isMechanicOpen) {
     if (showingHelp) return true; 
 
@@ -352,7 +417,7 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
         case TUT_CONTROLS:
             if (player->current_speed > 5.0f) {
                 stateTimer = 0.0f;
-                currentState =TUT_CRASH_INTRO; // To Crash Warning
+                currentState = TUT_CRASH_INTRO; 
             }
             break;
         case TUT_SPAWN_FIRST_JOB:
@@ -390,8 +455,7 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
             break;
 
         case TUT_MECH_ACTION:
-            
-            if (isMechanicOpen) check=1;
+            if (isMechanicOpen) check = 1;
             if (!isMechanicOpen && check) currentState = TUT_DEALER_INTRO;
             break;
 
@@ -412,14 +476,21 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
     return blocking;
 }
 
+/*
+ * Description: Renders the active tutorial step overlays, text, or windows.
+ * Parameters:
+ * - player: Pointer to Player.
+ * - phone: Pointer to PhoneState.
+ * - isRefueling: Boolean flag for refueling UI state.
+ * Returns: None.
+ */
 void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
     float scale = (float)sh / 720.0f;
     if (scale < 0.6f) scale = 0.6f;
 
-    // [FIX] Define a consistent Y position for instructions at the BOTTOM of screen
-    // This puts the text safely below the Speedometer/Center HUD
+    // Standardized Y positions for instructions at the bottom
     int instructionY = sh - (int)(150 * scale);
     int subInstructionY = sh - (int)(110 * scale);
 
@@ -440,7 +511,7 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
             float x = (sw-w)/2, y = (sh-h)/2;
             DrawRectangle(x, y, w, h, RAYWHITE);
             DrawRectangleLines(x, y, w, h, BLACK);
- // Lock fuel consumption during tutorial
+            
             int titleS = (int)(28*scale);
             int bodyS = (int)(18*scale);
             DrawText("WELCOME TO RAY-CITY", x + (w-MeasureText("WELCOME TO RAY-CITY", titleS))/2, y + 30*scale, titleS, DARKBLUE);
@@ -460,7 +531,6 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
         }
 
         case TUT_PHONE_INTRO: {
-            // Intro
             int w = 600 * scale, h = 350 * scale;
             int x = (sw-w)/2, y = (sh-h)/2;
             DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.6f));
@@ -489,7 +559,6 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
             break;
 
         case TUT_CONTROLS:
-            // This was already at bottom, kept it safe
             DrawText("USE [W][A][S][D] TO DRIVE", sw/2 - 150*scale, sh - 150*scale, (int)(30*scale), WHITE);
             DrawText("Reach 25 KMH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
             break;
@@ -502,13 +571,11 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
             break;
 
         case TUT_WAIT_JOB:
-            // [FIX] Moved to Bottom
             DrawText("OPEN PHONE [TAB]", sw/2 - 100*scale, instructionY, (int)(20*scale), YELLOW);
             DrawText("ACCEPT THE JOB IN 'JOBS' APP", sw/2 - 160*scale, subInstructionY, (int)(20*scale), YELLOW);
             break;
 
         case TUT_FIRST_DELIVERY:
-            // [FIX] Moved to Bottom
             DrawText("FOLLOW THE RED GPS LINE", sw/2 - 150*scale, instructionY, (int)(24*scale), RED);
             break;
 
@@ -519,7 +586,6 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
             break;
 
         case TUT_SECOND_DELIVERY:
-            // [FIX] Moved to Bottom
             if (phone->tasks[0].status == JOB_AVAILABLE) 
                 DrawText("OPEN PHONE AND ACCEPT FRAGILE JOB", sw/2 - 200*scale, instructionY, (int)(20*scale), ORANGE);
             else 
@@ -528,13 +594,11 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
 
         case TUT_EVENT_INTRO:
             if (eventStep == 0) {
-                // Show First Window
                 if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types \nthat have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
-                    eventStep = 1; // Move to next step permanently
+                    eventStep = 1; 
                 }
             } 
             else {
-                // Show Second Window
                 if (DrawTutWindow("ROAD EVENTS", "The city is unpredictable.\n\nAccidents, Roadworks, and Police stops\ncan block your path.\n\nIf you see cones or signs, slow down\nor find another route.", true)) {
                     currentState = TUT_REFUEL_INTRO;
                 }
@@ -543,15 +607,12 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
 
         case TUT_REFUEL_INTRO:
             if (DrawTutWindow("RUNNING ON FUMES", "Your fuel gauge is low.\nYou can't deliver if you can't drive.\n\nFind the nearest GAS STATION.\nDrive to the pumps and press [E].", true)) {
-                // --- CHANGE HERE: Drain fuel manually ---
-                player->fuel = 1.0f; 
+                player->fuel = 1.0f; // Drain fuel for demo
                 currentState = TUT_REFUEL_ACTION; 
-                // ----------------------------------------
             }
             break;
 
         case TUT_REFUEL_ACTION:
-            // --- CHANGE HERE: Dynamic Instructions ---
             if (isRefueling) {
                 DrawText("BUY FUEL UNTIL TANK IS FULL", sw/2 - 150*scale, instructionY, (int)(20*scale), GREEN);
             } 
@@ -565,12 +626,12 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
 
         case TUT_MECH_INTRO:
             if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.", true)) {
-                currentState = TUT_MECH_ACTION; player->fuelConsumption = 0.02f;
+                currentState = TUT_MECH_ACTION; 
+                player->fuelConsumption = 0.02f;
             }
             break;
 
         case TUT_MECH_ACTION:
-            // [FIX] Moved to Bottom
             DrawText("VISIT THE MECHANIC", sw/2 - 100*scale, instructionY, (int)(20*scale), BLUE);
             break;
 
@@ -581,7 +642,6 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
             break;
 
         case TUT_DEALER_ACTION:
-            // [FIX] Moved to Bottom
             if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                 DrawText("BROWSE CARS WITH ARROW KEYS", sw/2 - 150*scale, sh - 100*scale, (int)(20*scale), WHITE);
                 DrawText("PRESS [ESC] TO EXIT DEALERSHIP", sw/2 - 160*scale, sh - 70*scale, (int)(20*scale), GOLD);
@@ -601,5 +661,7 @@ void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
                 ShowPhoneNotification("TUTORIAL COMPLETED", GOLD);
             }
             break;
+            
+        default: break;
     }
 }

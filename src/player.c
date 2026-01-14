@@ -3,7 +3,14 @@
  * Game Title: Delivery Game
  * Authors: Lucas Liço, Michail Michailidis
  * Copyright (c) 2025-2026
+ *
  * License: zlib/libpng
+ *
+ * This software is provided 'as-is', without any express or implied warranty.
+ * In no event will the authors be held liable for any damages arising from
+ * the use of this software.
+ *
+ * Full license terms: see the LICENSE file.
  * -----------------------------------------------------------------------------
  */
 
@@ -21,26 +28,60 @@
 
 // --- HELPER FUNCTIONS ---
 
+/*
+ * Description: Adds money to the player's wallet and records the transaction in history.
+ * Parameters:
+ * - player: Pointer to the Player struct.
+ * - desc: Description of the transaction.
+ * - amount: Amount to add (or subtract if negative).
+ * Returns: None.
+ */
 void AddMoney(Player *player, const char* desc, float amount) {
     player->money += amount;
     int max = (player->transactionCount < MAX_TRANSACTIONS) ? player->transactionCount : MAX_TRANSACTIONS - 1;
-    for (int i = max; i > 0; i--) player->history[i] = player->history[i-1];
+    
+    // Shift history
+    for (int i = max; i > 0; i--) {
+        player->history[i] = player->history[i-1];
+    }
+
     Transaction t;
-    strncpy(t.description, desc, 31); t.description[31] = '\0';
+    strncpy(t.description, desc, 31); 
+    t.description[31] = '\0';
     t.amount = amount;
+    
     player->history[0] = t;
     if (player->transactionCount < MAX_TRANSACTIONS) player->transactionCount++;
 }
 
+/*
+ * Description: Loads the 3D model for the player's current vehicle.
+ * Parameters:
+ * - player: Pointer to the Player struct.
+ * Returns: None.
+ */
 void LoadPlayerContent(Player *player) {
     char path[128];
-    if (strlen(player->currentModelFileName) > 0) sprintf(path, "resources/Playermodels/%s", player->currentModelFileName);
-    else sprintf(path, "resources/Playermodels/sedan.obj");
+    if (strlen(player->currentModelFileName) > 0) {
+        sprintf(path, "resources/Playermodels/%s", player->currentModelFileName);
+    } else {
+        sprintf(path, "resources/Playermodels/sedan.obj");
+    }
     player->model = LoadModel(path);
 }
 
 // --- PHYSICS HELPERS ---
 
+/*
+ * Description: Moves the player along a specific axis, checking for collisions with the map or traffic.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - map: Pointer to the GameMap.
+ * - traffic: Pointer to the TrafficManager.
+ * - moveAmount: Distance to move.
+ * - axis: 1 for X-axis, 0 for Z-axis.
+ * Returns: None.
+ */
 void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, float moveAmount, int axis) {
     float testX = player->position.x;
     float testZ = player->position.z;
@@ -48,7 +89,7 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
     if (axis == 1) testX += moveAmount;
     else           testZ += moveAmount;
 
-    // Check Map Collision 
+    // Check Collisions
     bool hitMap = CheckMapCollision(map, testX, testZ, player->radius, 0);
     Vector3 hitCar = TrafficCollision(traffic, testX, testZ, player->radius);
 
@@ -63,6 +104,7 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
     if (hitCar.z != -1) {
         float trafficSpeed = hitCar.z;
         float impactSpeed = fabsf(player->current_speed - trafficSpeed);
+        
         if (impactSpeed > 4.0f) {
             int damage = (int)((impactSpeed - 3.0f) * 8.0f);
             player->health -= damage;
@@ -70,7 +112,7 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
         }
         player->current_speed *= -0.4f; 
     } 
-    // 3. Wall Crash? HARD STOP.
+    // 3. Wall Crash? Hard Stop.
     else {
         // Impact Damage
         if (fabs(player->current_speed) > 8.0f) { 
@@ -86,6 +128,12 @@ void ResolveMovement(Player* player, GameMap* map, TrafficManager* traffic, floa
 
 // --- MAIN FUNCTIONS ---
 
+/*
+ * Description: Initializes a new Player instance with default physics and economy values.
+ * Parameters:
+ * - startPos: The starting 3D position vector.
+ * Returns: A fully initialized Player struct.
+ */
 Player InitPlayer(Vector3 startPos) {
     Player p = {0};
     p.position = startPos;
@@ -96,26 +144,26 @@ Player InitPlayer(Vector3 startPos) {
     p.health = 100.0f;
     p.current_speed = 0.0f;
     
-    // [TUNING - These are defaults, but UpdatePlayer will now enforce limits]
+    // Physics defaults
     p.max_speed = 18.0f;       
-    p.acceleration = 1.0f;     // Increased for better pickup
-    p.brake_power = 3.8f;      // Moderate braking
+    p.acceleration = 1.0f;     
+    p.brake_power = 3.8f;      
     p.turn_speed = 1.8f;       
-    p.friction = 0.995f;       // Good coasting
+    p.friction = 0.995f;       
     p.drag = 0.002f;           
     
     p.steering_val = 0.0f;     
     p.rotationSpeed = 120.0f; 
-    p.pinGForce=true;
-    p.pinFuel=true;
-    p.pinThermometer=true;
-    p.pinSpeed=true;
+    p.pinGForce = true;
+    p.pinFuel = true;
+    p.pinThermometer = true;
+    p.pinSpeed = true;
     p.yVelocity = 0.0f;
     p.isGrounded = true; 
     p.angle = 0.0f;
 
     // Initialize Garage
-    for(int i=0; i<10; i++) {
+    for(int i = 0; i < 10; i++) {
         p.ownedCars[i] = false;
         p.ownedUpgrades[i] = false;
     }
@@ -136,16 +184,26 @@ Player InitPlayer(Vector3 startPos) {
     return p;
 }
 
+
+
+/*
+ * Description: Updates player physics, inputs, movement, and fuel consumption for the current frame.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - map: Pointer to the GameMap.
+ * - traffic: Pointer to the TrafficManager.
+ * - dt: Delta Time.
+ * Returns: None.
+ */
 void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float dt) {
     if (dt > 0.04f) dt = 0.04f; 
     
     bool inputBlocked = IsMapsAppTyping();
 
-    // [FIX] Force Physics Constants (Temporary Override)
-    // This ensures your tuning works even if the Dealership system loads weird stats.
+    // Force Physics Constants to defaults if needed
     player->friction = 0.995f; 
-    if (player->brake_power > 12.0f) player->brake_power = 12.0f; // Cap crazy braking
-    if (player->brake_power < 3.0f) player->brake_power = 3.0f;   // Ensure minimum braking
+    if (player->brake_power > 12.0f) player->brake_power = 12.0f; 
+    if (player->brake_power < 3.0f) player->brake_power = 3.0f;   
 
     // 1. STEERING
     float steerInput = 0.0f;
@@ -177,8 +235,6 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     }
 
     // 2. THROTTLE & BRAKE LOGIC
-    // We separate logic into: ACCELERATING, BRAKING, and REVERSING
-    
     float accel = player->acceleration;
     float brake = player->brake_power;
     float friction = player->friction;
@@ -205,21 +261,18 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
             if (player->current_speed < 0.0f) player->current_speed = 0.0f;
         } else {
             // Reversing (slower acceleration)
-            // [FIX] Reverse is 50% weaker than forward accel to prevent "shooting" back
             player->current_speed -= (accel * 0.5f) * dt; 
         }
     }
     // C. COASTING (No Input)
     else {
         player->current_speed *= friction;
-        
-        // Stop completely if very slow
         if (fabs(player->current_speed) < 0.2f) player->current_speed = 0.0f;
     }
 
     // D. LIMITS
     float maxFwd = player->max_speed;
-    float maxRev = -player->max_speed * 0.4f; // Reverse is slower
+    float maxRev = -player->max_speed * 0.4f; 
     
     if (player->current_speed > maxFwd) player->current_speed = maxFwd;
     if (player->current_speed < maxRev) player->current_speed = maxRev;
@@ -255,6 +308,12 @@ void UpdatePlayer(Player *player, GameMap *map, TrafficManager *traffic, float d
     }
 }
 
+/*
+ * Description: Renders the health bar UI element.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * Returns: None.
+ */
 void DrawHealthBar(Player *player) {
     int screenWidth = GetScreenWidth();
     float barX = (float)(screenWidth - BAR_WIDTH - BAR_MARGIN_X);

@@ -1,10 +1,5 @@
 fix graphics for mechanic 
 
-unsuitable vehicle for heavy loads 
-map food filter replace with dealership.
-
-fix player speed depending on frame rate?
-
 add sebastian comments to every function
 remove handbrake from documents, add known bugs and that it needs playtesting
 tell performance and map differences (small map is just proof of concept)

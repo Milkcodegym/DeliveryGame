@@ -16,7 +16,7 @@
 
 #include "dealership.h"
 #include "raymath.h"
-#include "player.h" // [FIX] Required for Player struct access
+#include "player.h" 
 #include <stdio.h>
 #include <string.h>
 
@@ -33,7 +33,7 @@ typedef struct CarStats {
     float brakePower;
     float price;
     
-    // [NEW] Physics Handling
+    // Physics Handling
     float turnSpeed;
     float friction;
     float drag;
@@ -76,7 +76,11 @@ static bool viewingUpgrade = false;
 static float carRotation = 0.0f;
 static DealershipState currentState = DEALERSHIP_INACTIVE;
 
-// --- Database Population ---
+/*
+ * Description: Populates the car database with hardcoded stats for all vehicle types.
+ * Parameters: None.
+ * Returns: None.
+ */
 void InitCarDatabase() {
     // 0. Delivery Van (Balanced)
     strcpy(carDatabase[0].base.name, "Delivery Van");
@@ -177,7 +181,7 @@ void InitCarDatabase() {
     carDatabase[4].base.acceleration = 1.3f;
     carDatabase[4].base.brakePower = 5.0f;      // Strong brakes
     carDatabase[4].base.turnSpeed = 3.6f;
-    carDatabase[4].base.friction = 0.998f;       // Very low rolling resistance
+    carDatabase[4].base.friction = 0.998f;      // Very low rolling resistance
     carDatabase[4].base.drag = 0.001f;
     carDatabase[4].base.price = 10000.0f;
     carDatabase[4].base.maxFuel = 40.0f;
@@ -235,6 +239,11 @@ void InitCarDatabase() {
 
 // --- Lifecycle Functions ---
 
+/*
+ * Description: Initializes the dealership system, including 3D models and the camera.
+ * Parameters: None.
+ * Returns: None.
+ */
 void InitDealership() {
     InitCarDatabase();
     
@@ -260,6 +269,11 @@ void InitDealership() {
     shopCamera.projection = CAMERA_PERSPECTIVE;
 }
 
+/*
+ * Description: Unloads all models associated with the dealership to free memory.
+ * Parameters: None.
+ * Returns: None.
+ */
 void UnloadDealershipSystem() {
     UnloadModel(tableModel);
     UnloadModel(screenModel);
@@ -273,10 +287,21 @@ void UnloadDealershipSystem() {
     UnloadModel(floorPanelModel);
 }
 
+/*
+ * Description: Returns the current state of the dealership interaction.
+ * Parameters: None.
+ * Returns: The current DealershipState enum value.
+ */
 DealershipState GetDealershipState() {
     return currentState;
 }
 
+/*
+ * Description: Transitions the game into the dealership mode and loads vehicle models for display.
+ * Parameters:
+ * - player: Pointer to the player (unused in function body but kept for signature consistency).
+ * Returns: None.
+ */
 void EnterDealership(Player *player) {
     currentState = DEALERSHIP_ACTIVE;
     currentSelection = 0;
@@ -297,6 +322,11 @@ void EnterDealership(Player *player) {
     }
 }
 
+/*
+ * Description: Exits the dealership mode and unloads vehicle display models.
+ * Parameters: None.
+ * Returns: None.
+ */
 void ExitDealership() {
     currentState = DEALERSHIP_INACTIVE;
     for (int i = 0; i < MAX_CARS; i++) {
@@ -309,6 +339,14 @@ void ExitDealership() {
 
 // --- Logic & Rendering ---
 
+/*
+ * Description: Applies vehicle statistics to the player struct and loads the new model.
+ * Parameters:
+ * - player: Pointer to the Player to update.
+ * - stats: CarStats struct containing the new vehicle data.
+ * - sourceModel: The 3D model of the car (unused, reloaded from file).
+ * Returns: None.
+ */
 void ApplyCarToPlayer(Player *player, CarStats stats, Model sourceModel) {
     AddMoney(player, "Vehicle Purchase", -stats.price);
     UnloadModel(player->model);
@@ -319,13 +357,13 @@ void ApplyCarToPlayer(Player *player, CarStats stats, Model sourceModel) {
     
     strcpy(player->currentModelFileName, stats.modelFileName);
 
-    // [FIX] Sync all stats including turn speed and friction
+    // Sync all stats
     player->max_speed = stats.maxSpeed;
     player->acceleration = stats.acceleration;
     player->brake_power = stats.brakePower;
-    player->turn_speed = stats.turnSpeed; // [NEW]
-    player->friction = stats.friction;    // [NEW]
-    player->drag = stats.drag;            // [NEW]
+    player->turn_speed = stats.turnSpeed; 
+    player->friction = stats.friction;    
+    player->drag = stats.drag;            
     
     player->maxFuel = stats.maxFuel;
     player->fuel = stats.maxFuel;
@@ -336,7 +374,17 @@ void ApplyCarToPlayer(Player *player, CarStats stats, Model sourceModel) {
     BoundingBox box = GetModelBoundingBox(player->model);
     player->radius = (box.max.x - box.min.x) * 0.4f; 
 }
-// [UPDATED] Helper to switch cars
+
+/*
+ * Description: Selects a specific car for the player, updating models and physics stats.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - stats: Stats of the car to select.
+ * - sourceModel: Model reference (unused).
+ * - index: Index of the car in the database.
+ * - isUpgrade: Boolean flag indicating if it's the upgraded version.
+ * Returns: None.
+ */
 void SelectCar(Player *player, CarStats stats, Model sourceModel, int index, bool isUpgrade) {
     if (player->model.meshCount > 0) UnloadModel(player->model);
 
@@ -361,18 +409,26 @@ void SelectCar(Player *player, CarStats stats, Model sourceModel, int index, boo
     BoundingBox box = GetModelBoundingBox(player->model);
     player->radius = (box.max.x - box.min.x) * 0.4f; 
     
-    // [FIX] Update State including Upgrade Status
+    // Update State including Upgrade Status
     player->currentCarIndex = index;
     player->isDrivingUpgrade = isUpgrade; 
     
     TraceLog(LOG_INFO, "DEALERSHIP: Switched to car %d (Upgrade: %d)", index, isUpgrade);
 }
 
-// [UPDATED] Buy function
+/*
+ * Description: Processes a vehicle purchase, updates money, sets ownership, and selects the car.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * - stats: Stats of the car to buy.
+ * - sourceModel: Model reference.
+ * - index: Database index.
+ * - isUpgrade: Boolean flag for upgraded version.
+ * Returns: None.
+ */
 void BuyCar(Player *player, CarStats stats, Model sourceModel, int index, bool isUpgrade) {
     AddMoney(player, "Vehicle Purchase", -stats.price);
     
-    // [FIX] Set specific ownership flag
     if (isUpgrade) {
         player->ownedUpgrades[index] = true;
     } else {
@@ -382,6 +438,12 @@ void BuyCar(Player *player, CarStats stats, Model sourceModel, int index, bool i
     SelectCar(player, stats, sourceModel, index, isUpgrade);
 }
 
+/*
+ * Description: Handles user input within the dealership (navigation, buying, selecting).
+ * Parameters:
+ * - player: Pointer to the Player.
+ * Returns: None.
+ */
 void UpdateDealership(Player *player) {
     carRotation += 0.4f;
 
@@ -406,7 +468,6 @@ void UpdateDealership(Player *player) {
 
     CarStats *currentStats = viewingUpgrade ? &carDatabase[currentSelection].upgrade : &carDatabase[currentSelection].base;
     
-    // [FIX] Ownership Logic
     bool isOwned = viewingUpgrade ? player->ownedUpgrades[currentSelection] : player->ownedCars[currentSelection];
     bool isCurrent = (player->currentCarIndex == currentSelection && player->isDrivingUpgrade == viewingUpgrade);
 
@@ -428,6 +489,12 @@ void UpdateDealership(Player *player) {
     }
 }
 
+/*
+ * Description: Renders the 3D dealership scene and the 2D UI overlay.
+ * Parameters:
+ * - player: Pointer to the Player.
+ * Returns: None.
+ */
 void DrawDealership(Player *player) {
     BeginMode3D(shopCamera);
 
@@ -468,7 +535,7 @@ void DrawDealership(Player *player) {
         // 4. TABLE & FURNITURE (Massive Table)
         DrawModelEx(tableModel, (Vector3){0,0,0}, (Vector3){0,1,0}, 0.0f, (Vector3){4.5f, 4.5f, 4.5f}, WHITE);
         
-        // --- OFFICE EQUIPMENT (Scaled to 3.0x) ---
+        // --- OFFICE EQUIPMENT ---
         float officeScale = 3.0f;
         
         // BACK WALL SCREENS (Expanded)
@@ -477,23 +544,18 @@ void DrawDealership(Player *player) {
         DrawModelEx(wallModel, (Vector3){10, 0, -9}, (Vector3){0,1,0}, -15.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
 
         // RIGHT WALL EQUIPMENT (Facing Left/Center) - Rotated 90
-        // Systems against wall
         DrawModelEx(systemModel, (Vector3){13, 0, -2}, (Vector3){0,1,0}, -90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
         DrawModelEx(systemModel, (Vector3){13, 0, 4}, (Vector3){0,1,0}, -90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
-        // Screens
         DrawModelEx(screenModel, (Vector3){13, 3.5f, 1}, (Vector3){0,1,0}, -90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
         DrawModelEx(screenModel, (Vector3){13, 3.5f, 7}, (Vector3){0,1,0}, -90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
 
         // LEFT WALL EQUIPMENT (Facing Right/Center) - Rotated -90 (270)
-        // Systems against wall
         DrawModelEx(systemModel, (Vector3){-13, 0, -2}, (Vector3){0,1,0}, 90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
         DrawModelEx(systemModel, (Vector3){-13, 0, 4}, (Vector3){0,1,0}, 90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
-        // Screens
         DrawModelEx(screenModel, (Vector3){-13, 3.5f, 1}, (Vector3){0,1,0}, 90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
         DrawModelEx(screenModel, (Vector3){-13, 3.5f, 7}, (Vector3){0,1,0}, 90.0f, (Vector3){officeScale, officeScale, officeScale}, WHITE);
 
-
-        // 5. FLOOR PROPS (Scaled to 3.6f)
+        // 5. FLOOR PROPS
         float propScale = 3.6f;
 
         // Rails
@@ -537,7 +599,7 @@ void DrawDealership(Player *player) {
 
     CarStats *stats = viewingUpgrade ? &carDatabase[currentSelection].upgrade : &carDatabase[currentSelection].base;
     
-    // [FIX] Updated UI Logic
+    // UI Logic
     bool isOwned = viewingUpgrade ? player->ownedUpgrades[currentSelection] : player->ownedCars[currentSelection];
     bool isCurrent = (player->currentCarIndex == currentSelection && player->isDrivingUpgrade == viewingUpgrade);
 
@@ -630,10 +692,8 @@ void DrawDealership(Player *player) {
     DrawText(susStr, col2, ty, fontValue, susCol);
     
     // --- BOTTOM SECTION: BUY/SELECT ---
-    // [FIX] Increased bottom offset to 180 to fit the larger box
     ty = panelY + panelH - (int)(180 * uiScale); 
     
-    // [FIX] Box Height is now 100 (2x previous size)
     int boxH = 76;
     int textY = ty + (boxH / 2) - (fontLabel / 2); // Perfectly centered text
 
@@ -646,7 +706,6 @@ void DrawDealership(Player *player) {
             DrawText("PRESS ENTER TO DRIVE", panelX + 35, textY, fontLabel, BLACK);
         }
     } else {
-        // [FIX] Price moved up (ty - 60) for more spacing
         DrawText(TextFormat("Price: $%.0f", stats->price), tx, ty - 60, fontHeader, GREEN);
         
         if (player->money >= stats->price) {

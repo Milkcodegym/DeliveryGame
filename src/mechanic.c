@@ -17,7 +17,16 @@
 #include "mechanic.h"
 #include <stdio.h>
 
-// Helper for cleaner buttons with Disabled State
+/*
+ * Description: Helper function to draw a button in the mechanic UI, handling hover effects and disabled states.
+ * Parameters:
+ * - rect: The bounding rectangle of the button.
+ * - text: The label to display on the button.
+ * - color: The base color of the button.
+ * - mouse: The current mouse position.
+ * - disabled: Boolean flag indicating if the button is interactive.
+ * Returns: True if clicked, false otherwise.
+ */
 static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mouse, bool disabled) {
     bool hover = CheckCollisionPointRec(mouse, rect);
     
@@ -29,6 +38,7 @@ static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mo
     
     int fontSize = (int)(rect.height * 0.5f);
     if (fontSize < 10) fontSize = 10;
+    
     int txtW = MeasureText(text, fontSize);
     DrawText(text, rect.x + (rect.width - txtW)/2, rect.y + (rect.height - fontSize)/2, fontSize, disabled ? LIGHTGRAY : WHITE);
     
@@ -36,6 +46,16 @@ static bool MechButton(Rectangle rect, const char* text, Color color, Vector2 mo
     return (hover && IsMouseButtonPressed(MOUSE_LEFT_BUTTON));
 }
 
+/*
+ * Description: Renders and updates the mechanic shop window, allowing the player to repair or upgrade their vehicle.
+ * Parameters:
+ * - player: Pointer to the Player struct (to modify stats and money).
+ * - phone: Pointer to PhoneState (unused here, kept for potential future integrations).
+ * - isActive: Boolean flag to determine if the window should be drawn.
+ * - screenW: Width of the screen.
+ * - screenH: Height of the screen.
+ * Returns: True if the window should remain open, false if the player chooses to leave.
+ */
 bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
@@ -71,13 +91,14 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
 
     DrawText(TextFormat("Health: %.0f%%", player->health), col1X, startY, 16*scale, (player->health < 50) ? RED : DARKGREEN);
     const char* repairLabel = (repairCost == 0) ? "No Repairs Needed" : TextFormat("Repair ($%d)", repairCost);
+    
     if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, repairLabel, RED, mouse, (repairCost == 0 || player->money < repairCost))) {
         AddMoney(player, "Car Repair", -repairCost);
         player->health = 100.0f;
     }
-    startY += 80 * scale; // Increased spacing
+    startY += 80 * scale;
 
-    // 2. BRAKES (Shifted Up)
+    // 2. BRAKES
     DrawText(TextFormat("Brake Pads (Power: %.1f)", player->brake_power), col1X, startY, 16*scale, DARKGRAY);
     if (MechButton((Rectangle){col1X, startY + 20*scale, 280*scale, 40*scale}, "Upgrade ($150)", ORANGE, mouse, player->money < 150)) {
         AddMoney(player, "Brake Upgrade", -150);

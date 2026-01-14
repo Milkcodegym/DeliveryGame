@@ -17,10 +17,20 @@
 #include "car_monitor.h"
 #include <stdio.h>
 
-// Helper for toggle buttons
+/*
+ * Description: Draws a toggle button and updates its state based on mouse interaction.
+ * Parameters:
+ * - rect: The rectangle defining the button's position and size.
+ * - label: The text label to display on the button.
+ * - state: Pointer to the boolean state variable to toggle.
+ * - mouse: The current mouse position.
+ * - click: Boolean indicating if the mouse button was pressed.
+ * Returns: None.
+ */
 static void ToggleBtn(Rectangle rect, const char* label, bool *state, Vector2 mouse, bool click) {
     bool hover = CheckCollisionPointRec(mouse, rect);
     Color c = *state ? GREEN : DARKGRAY;
+    
     if (hover) c = Fade(c, 0.8f);
     
     DrawRectangleRec(rect, c);
@@ -39,6 +49,14 @@ static void ToggleBtn(Rectangle rect, const char* label, bool *state, Vector2 mo
     }
 }
 
+/*
+ * Description: Renders the "Car Monitor" app interface, allowing the user to toggle HUD elements and view stats.
+ * Parameters:
+ * - player: Pointer to the Player structure containing car stats and pin states.
+ * - localMouse: The mouse position relative to the phone screen.
+ * - click: Boolean indicating if the mouse button was pressed this frame.
+ * Returns: None.
+ */
 void DrawCarMonitorApp(Player *player, Vector2 localMouse, bool click) {
     // Background
     DrawRectangle(0, 0, 280, 600, (Color){20, 20, 25, 255});
@@ -63,33 +81,32 @@ void DrawCarMonitorApp(Player *player, Vector2 localMouse, bool click) {
     ToggleBtn((Rectangle){20, startY, 240, 40}, "Food Temp.", &player->pinThermometer, localMouse, click);
     startY += gap;
 
-    
     ToggleBtn((Rectangle){20, startY, 240, 40}, "G-Force Meter", &player->pinGForce, localMouse, click);
     
-    
-    // --- LIVE DIAGNOSTICS (Moved Up) ---
-    // Previous Y was 450. Buttons end around 360.
-    // Moving to 390 leaves ~120px buffer at the bottom for the home button.
+    // --- LIVE DIAGNOSTICS ---
+    // Moving to 390 leaves space at the bottom for the home button.
     float bY = 390; 
     
     DrawLine(20, bY, 260, bY, DARKGRAY);
     DrawText("LIVE DIAGNOSTICS", 20, bY + 10, 10, YELLOW);
     
-    // Stats
+    // Stats Display
     DrawText(TextFormat("Top Speed: %.0f km/h", player->max_speed * 5.0f), 20, bY + 35, 16, WHITE);
     
     float zeroToHundred = (player->acceleration > 0) ? (10.0f / player->acceleration) : 99.9f;
     DrawText(TextFormat("0-100 Time: %.1f s", zeroToHundred), 20, bY + 55, 16, WHITE);
     
-    
     DrawText(TextFormat("Fuel Capacity: %.0f L", player->maxFuel), 20, bY + 75, 16, WHITE);
     
-    float range = player->maxFuel / player->fuelConsumption*2.0f;
+    // Range Calculation
+    float range = player->maxFuel / player->fuelConsumption * 2.0f;
     char rangeText[32];
+    
     if (range >= 1000.0f) {
-        snprintf(rangeText, 32, "%.1f km", range *2/ 1000.0f);
+        snprintf(rangeText, 32, "%.1f km", range * 2 / 1000.0f);
     } else {
-        snprintf(rangeText, 32, "%d m", (int)range*2);
+        snprintf(rangeText, 32, "%d m", (int)range * 2);
     }
-    DrawText(TextFormat("Est. Range: %s",rangeText), 20, bY + 95, 16, LIGHTGRAY);
+    
+    DrawText(TextFormat("Est. Range: %s", rangeText), 20, bY + 95, 16, LIGHTGRAY);
 }

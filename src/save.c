@@ -3,7 +3,14 @@
  * Game Title: Delivery Game
  * Authors: Lucas Liço, Michail Michailidis
  * Copyright (c) 2025-2026
+ *
  * License: zlib/libpng
+ *
+ * This software is provided 'as-is', without any express or implied warranty.
+ * In no event will the authors be held liable for any damages arising from
+ * the use of this software.
+ *
+ * Full license terms: see the LICENSE file.
  * -----------------------------------------------------------------------------
  */
 
@@ -13,12 +20,26 @@
 
 const unsigned char KEY = 0xAA; 
 
+/*
+ * Description: Applies a simple XOR obfuscation to a block of memory (used for save encryption/decryption).
+ * Parameters:
+ * - data: Pointer to the data buffer.
+ * - size: Size of the buffer in bytes.
+ * Returns: None.
+ */
 void Obfuscate(unsigned char* data, size_t size) {
     for (size_t i = 0; i < size; i++) {
         data[i] ^= KEY;
     }
 }
 
+/*
+ * Description: Serializes the current game state (player and phone data) into a binary file.
+ * Parameters:
+ * - player: Pointer to the Player struct containing physics, economy, and position data.
+ * - phone: Pointer to PhoneState containing settings and app data.
+ * Returns: True if the save was successful, false otherwise.
+ */
 bool SaveGame(Player *player, PhoneState *phone) {
     GameSaveData data = {0};
     
@@ -39,8 +60,8 @@ bool SaveGame(Player *player, PhoneState *phone) {
     data.insulationFactor = player->insulationFactor;
     data.loadResistance = player->loadResistance;
 
-    // [FIX] Garage Persistence
-    for(int i=0; i<10; i++) {
+    // Garage Persistence
+    for(int i = 0; i < 10; i++) {
         data.ownedCars[i] = player->ownedCars[i];
         data.ownedUpgrades[i] = player->ownedUpgrades[i];
     }
@@ -57,7 +78,7 @@ bool SaveGame(Player *player, PhoneState *phone) {
     data.totalEarnings = player->totalEarnings;
     data.transactionCount = player->transactionCount;
     
-    for(int i=0; i<MAX_TRANSACTIONS; i++) {
+    for(int i = 0; i < MAX_TRANSACTIONS; i++) {
         data.history[i] = player->history[i];
     }
     
@@ -94,6 +115,13 @@ bool SaveGame(Player *player, PhoneState *phone) {
     }
 }
 
+/*
+ * Description: Reads the binary save file, decrypts it, and restores the game state.
+ * Parameters:
+ * - player: Pointer to the Player struct to populate.
+ * - phone: Pointer to PhoneState to populate.
+ * Returns: True if load was successful, false if file missing or version mismatch.
+ */
 bool LoadGame(Player *player, PhoneState *phone) {
     FILE *file = fopen(SAVE_FILE_NAME, "rb");
     if (!file) {
@@ -122,8 +150,8 @@ bool LoadGame(Player *player, PhoneState *phone) {
     player->position = data.position;
     player->angle = data.angle;
     
-    // [FIX] Garage Restoration
-    for(int i=0; i<10; i++) {
+    // Garage Restoration
+    for(int i = 0; i < 10; i++) {
         player->ownedCars[i] = data.ownedCars[i];
         player->ownedUpgrades[i] = data.ownedUpgrades[i];
     }
@@ -165,7 +193,7 @@ bool LoadGame(Player *player, PhoneState *phone) {
     player->totalEarnings = data.totalEarnings;
     player->transactionCount = data.transactionCount;
     
-    for(int i=0; i<MAX_TRANSACTIONS; i++) {
+    for(int i = 0; i < MAX_TRANSACTIONS; i++) {
         player->history[i] = data.history[i];
     }
 
@@ -185,6 +213,13 @@ bool LoadGame(Player *player, PhoneState *phone) {
     return true;
 }
 
+/*
+ * Description: Deletes the existing save file and resets the player/phone structs to default values.
+ * Parameters:
+ * - player: Pointer to the Player struct to reset.
+ * - phone: Pointer to PhoneState to reset.
+ * Returns: None.
+ */
 void ResetSaveGame(Player *player, PhoneState *phone) {
     // 1. DELETE FILE
     if (FileExists(SAVE_FILE_NAME)) {
@@ -211,7 +246,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->totalEarnings = 0;
     player->transactionCount = 0;
     
-    // Reset to Default Van
+    // Reset to Default Sedan
     player->max_speed = 22.0f;
     player->acceleration = 1.3f;
     player->brake_power = 2.0f;
@@ -226,7 +261,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
         strcpy(player->currentModelFileName, "sedan.obj");
     }
     
-    for(int i=0; i<MAX_TRANSACTIONS; i++) {
+    for(int i = 0; i < MAX_TRANSACTIONS; i++) {
         player->history[i] = (Transaction){0};
     }
 
@@ -236,7 +271,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->pinThermometer = true;
     
     // Reset Garage
-    for(int i=0; i<10; i++) {
+    for(int i = 0; i < 10; i++) {
         player->ownedCars[i] = false;
         player->ownedUpgrades[i] = false;
     }
@@ -252,7 +287,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     phone->currentApp = APP_HOME;
     phone->activeTaskCount = 0;
     
-    for(int i=0; i<5; i++) {
+    for(int i = 0; i < 5; i++) {
         phone->tasks[i].status = JOB_AVAILABLE;
         phone->tasks[i].timeLimit = 0;
     }

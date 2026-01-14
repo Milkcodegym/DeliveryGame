@@ -14,7 +14,6 @@
  * -----------------------------------------------------------------------------
  */
 
-
 #include "phone.h"
 #include "raymath.h"
 #include <stdio.h>
@@ -46,6 +45,17 @@ static float notifTimer = 0.0f;
 static Color notifColor = WHITE;
 
 // --- Helper Functions ---
+
+/*
+ * Description: Draws a custom UI button and checks for interactions.
+ * Parameters:
+ * - rect: The bounding rectangle of the button.
+ * - text: The label text centered on the button.
+ * - baseColor: The normal color of the button.
+ * - localMouse: Mouse position relative to the phone screen.
+ * - isPressed: Boolean indicating if the mouse button is down.
+ * Returns: True if the button is hovered and clicked.
+ */
 bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localMouse, bool isPressed) {
     bool hovered = CheckCollisionPointRec(localMouse, rect);
     Color color = hovered ? Fade(baseColor, 0.8f) : baseColor;
@@ -61,6 +71,14 @@ bool GuiButton(Rectangle rect, const char *text, Color baseColor, Vector2 localM
 }
 
 // --- PUBLIC: NOTIFICATIONS ---
+
+/*
+ * Description: Triggers a global notification popup on the phone screen.
+ * Parameters:
+ * - text: The message to display.
+ * - color: The accent color of the notification.
+ * Returns: None.
+ */
 void ShowPhoneNotification(const char *text, Color color) {
     snprintf(notifText, 64, "%s", text);
     notifColor = color;
@@ -68,6 +86,14 @@ void ShowPhoneNotification(const char *text, Color color) {
 }
 
 // --- Initialization ---
+
+/*
+ * Description: Initializes the phone system, loads assets, and sets up sub-apps (Music, Maps, etc.).
+ * Parameters:
+ * - phone: Pointer to the PhoneState structure.
+ * - map: Pointer to the GameMap for initializing the map app.
+ * Returns: None.
+ */
 void InitPhone(PhoneState *phone, GameMap *map) {
     phone->screenTexture = LoadRenderTexture(SCREEN_WIDTH, SCREEN_HEIGHT);
     phone->currentApp = APP_HOME;
@@ -93,7 +119,7 @@ void InitPhone(PhoneState *phone, GameMap *map) {
     InitDeliveryApp(phone, map);
 
     // Init Music
-    for(int i=0; i<3; i++) {
+    for(int i = 0; i < 3; i++) {
         phone->music.library[i].stream = LoadMusicStream(phone->music.library[i].filePath);
         phone->music.library[i].duration = GetMusicTimeLength(phone->music.library[i].stream);
         phone->music.library[i].stream.looping = true; 
@@ -108,6 +134,19 @@ void InitPhone(PhoneState *phone, GameMap *map) {
 
 // --- App Draw Functions ---
 
+/*
+ * Description: Draws a specific app icon on the home screen.
+ * Parameters:
+ * - icon: Texture of the app icon.
+ * - label: Text label below the icon.
+ * - shortcutKey: Keyboard shortcut number (0 to disable).
+ * - x: X position.
+ * - y: Y position.
+ * - size: Size dimension (width/height).
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: True if the icon is clicked.
+ */
 bool DrawAppIcon(Texture2D icon, const char* label, int shortcutKey, float x, float y, float size, Vector2 mouse, bool click) {
     Rectangle bounds = { x, y, size, size + 25 }; 
     bool hover = CheckCollisionPointRec(mouse, bounds);
@@ -131,6 +170,15 @@ bool DrawAppIcon(Texture2D icon, const char* label, int shortcutKey, float x, fl
     return (hover && click);
 }
 
+/*
+ * Description: Renders the home screen with the grid of available apps.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player (unused locally but kept for consistency).
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
     DrawRectangleGradientV(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SKYBLUE, RAYWHITE);
     DrawRectangle(0, 0, SCREEN_WIDTH, 30, Fade(BLACK, 0.2f));
@@ -163,14 +211,19 @@ void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
     if (DrawAppIcon(iconSettings, "Settings", 5, startX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
         phone->currentApp = APP_SETTINGS;
     }
-
     
     if (DrawAppIcon(iconCar, "CarMon", 6, startX + iconSize + gapX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
         phone->currentApp = APP_CAR_MONITOR;
     }
-    
 }
 
+/*
+ * Description: Renders the Bank app, showing current balance and transaction history.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * Returns: None.
+ */
 void DrawAppBank(PhoneState *phone, Player *player) {
     DrawRectangle(0, 0, SCREEN_WIDTH, 140, DARKGREEN);
     DrawText("CURRENT BALANCE", 20, 30, 10, Fade(WHITE, 0.7f));
@@ -193,7 +246,14 @@ void DrawAppBank(PhoneState *phone, Player *player) {
     }
 }
 
-// Helper to parse "Artist - Title.mp3" into clean strings
+/*
+ * Description: Parses a filename to extract Artist and Title information.
+ * Parameters:
+ * - filename: Source filename string.
+ * - titleOut: Buffer to store the title.
+ * - artistOut: Buffer to store the artist.
+ * Returns: None.
+ */
 void ParseFilename(const char* filename, char* titleOut, char* artistOut) {
     // 1. Remove extension
     char raw[64];
@@ -216,6 +276,12 @@ void ParseFilename(const char* filename, char* titleOut, char* artistOut) {
     }
 }
 
+/*
+ * Description: Scans the resources/Music directory and loads compatible audio files.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * Returns: None.
+ */
 void LoadMusicLibrary(PhoneState *phone) {
     if (phone->music.isInitialized) return;
 
@@ -262,6 +328,14 @@ void LoadMusicLibrary(PhoneState *phone) {
     phone->music.isInitialized = true;
 }
 
+/*
+ * Description: Renders the Music player app, handling playback controls and progress visualization.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
     // 1. Ensure Library is Loaded
     if (!phone->music.isInitialized) LoadMusicLibrary(phone);
@@ -294,11 +368,11 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
 
     // Album Art Placeholder (Dynamic Color based on Title Hash)
     int colorSeed = 0;
-    for(int i=0; s->title[i]; i++) colorSeed += s->title[i];
+    for(int i = 0; s->title[i]; i++) colorSeed += s->title[i];
     Color artColor = (Color){ (colorSeed * 50)%255, (colorSeed * 30)%255, (colorSeed * 90)%255, 255 };
     
     DrawRectangle(40, 60, 200, 200, artColor);
-    DrawText("MUSIC", 110, 150, 20, Fade(WHITE, 0.5f)); // Placeholder text
+    DrawText("MUSIC", 110, 150, 20, Fade(WHITE, 0.5f)); 
 
     // Song Info
     DrawText(s->title, 20, 280, 24, WHITE);
@@ -338,7 +412,7 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
     
     if (GuiButton(btnPlay, playIcon, playColor, mouse, click)) {
         phone->music.isPlaying = !phone->music.isPlaying;
-        if (phone->music.isPlaying) PlayMusicStream(s->stream); // Use Play instead of Resume for safer state
+        if (phone->music.isPlaying) PlayMusicStream(s->stream); 
         else PauseMusicStream(s->stream);
     }
 
@@ -352,10 +426,19 @@ void DrawAppMusic(PhoneState *phone, Vector2 mouse, bool click) {
         PlayMusicStream(phone->music.library[phone->music.currentSongIdx].stream);
     }
     
-    // Song Counter (e.g. "1 / 12")
+    // Song Counter
     DrawText(TextFormat("%d / %d", phone->music.currentSongIdx + 1, phone->music.songCount), 120, 470, 10, GRAY);
 }
 
+/*
+ * Description: Renders the Settings app, providing volume controls and save/load management.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - mouse: Mouse position.
+ * - click: Click state.
+ * Returns: None.
+ */
 void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
     DrawRectangle(0, 0, SCREEN_WIDTH, 60, GRAY);
     DrawText("SETTINGS", 20, 20, 20, WHITE);
@@ -389,13 +472,12 @@ void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool clic
     DrawLine(20, 260, SCREEN_WIDTH-20, 260, DARKGRAY);
     DrawText("GAME DATA", 20, 270, 20, DARKGRAY);
 
-    // [NEW] Help Button
+    // Help Button
     Rectangle helpBtn = { 20, 300, 240, 40 };
     if (GuiButton(helpBtn, "OPEN APP GUIDE", DARKPURPLE, mouse, click)) {
-        ShowTutorialHelp(); // Call tutorial helper
+        ShowTutorialHelp(); 
     }
 
-    // Moved these down
     Rectangle saveBtn = { 20, 360, 110, 50 };
     Rectangle loadBtn = { 150, 360, 110, 50 };
     Rectangle resetBtn = { 20, 430, 240, 40 };
@@ -417,6 +499,15 @@ void DrawAppSettings(PhoneState *phone, Player *player, Vector2 mouse, bool clic
 }
 
 // --- MAIN UPDATE LOOP ---
+
+/*
+ * Description: Updates the phone's logic, including animations, input handling, and active sub-apps.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * Returns: None.
+ */
 void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     if (IsKeyPressed(KEY_TAB)) phone->isOpen = !phone->isOpen;
     float target = phone->isOpen ? 1.0f : 0.0f;
@@ -430,7 +521,7 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         if (IsKeyPressed(KEY_THREE)) phone->currentApp = APP_BANK;
         if (IsKeyPressed(KEY_FOUR))  phone->currentApp = APP_MUSIC;
         if (IsKeyPressed(KEY_FIVE))  phone->currentApp = APP_SETTINGS;
-        if (IsKeyPressed(KEY_SIX)) phone->currentApp = APP_CAR_MONITOR;
+        if (IsKeyPressed(KEY_SIX))   phone->currentApp = APP_CAR_MONITOR;
     }
 
     if (phone->music.isPlaying) {
@@ -484,6 +575,16 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
     }
 }
 
+/*
+ * Description: Main rendering function for the phone, handling the render texture and bezel scaling.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * - map: Pointer to GameMap.
+ * - localMouse: Mouse position relative to the screen.
+ * - click: Click state.
+ * Returns: None.
+ */
 void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMouse, bool click) {
     float screenW = (float)GetScreenWidth();
     float screenH = (float)GetScreenHeight();
@@ -516,7 +617,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, RAYWHITE);
         }
 
-        // 1. DRAW APPS (Layer 0)
+        // 1. DRAW APPS
         switch (phone->currentApp) {
             case APP_HOME: DrawAppHome(phone, player, localMouse, click); break;
             case APP_DELIVERY: DrawDeliveryApp(phone, player, map, localMouse, click); break;
@@ -528,7 +629,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             default: break;
         }
 
-        // 2. DRAW STATUS BAR (Layer 1 - Always on Top)
+        // 2. DRAW STATUS BAR
         DrawRectangle(0, 0, SCREEN_WIDTH, 20, Fade(BLACK, 0.4f)); 
         
         time_t t;
@@ -543,7 +644,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
         DrawRectangle(battX + 20, 7, 2, 6, WHITE);
         DrawRectangle(battX + 2, 7, 14, 6, GREEN);
 
-        // 3. HOME BUTTON (Layer 2)
+        // 3. HOME BUTTON
         Rectangle homeBtn = { SCREEN_WIDTH/2 - 50, SCREEN_HEIGHT - 30, 100, 10 };
         Color homeColor = (CheckCollisionPointRec(localMouse, homeBtn)) ? BLACK : LIGHTGRAY;
         DrawRectangleRec(homeBtn, homeColor);
@@ -552,7 +653,7 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
             phone->currentApp = APP_HOME;
         }
         
-        // 4. NOTIFICATIONS (Layer 3)
+        // 4. NOTIFICATIONS
         if (notifTimer > 0) {
             float alpha = (notifTimer > 0.5f) ? 1.0f : (notifTimer * 2.0f);
             Rectangle notifRect = { 10, 30, SCREEN_WIDTH - 20, 50 };
@@ -573,6 +674,12 @@ void DrawPhone(PhoneState *phone, Player *player, GameMap *map, Vector2 localMou
     DrawTexturePro(phone->screenTexture.texture, src, screenDest, (Vector2){0,0}, 0.0f, WHITE);
 }
 
+/*
+ * Description: Unloads textures, music streams, and render textures used by the phone.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * Returns: None.
+ */
 void UnloadPhone(PhoneState *phone) {
     UnloadRenderTexture(phone->screenTexture);
     
@@ -583,7 +690,7 @@ void UnloadPhone(PhoneState *phone) {
     UnloadTexture(iconSettings);
     UnloadTexture(iconCar);
 
-    for(int i=0; i<3; i++) {
+    for(int i = 0; i < 3; i++) {
         UnloadMusicStream(phone->music.library[i].stream);
     }
 }

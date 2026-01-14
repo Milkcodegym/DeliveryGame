@@ -56,6 +56,17 @@ typedef struct {
 
 static MenuAssets menuAssets = {0};
 
+// Static variables to persist the car model
+static Model menuCarModel = { 0 };
+static bool isMenuCarLoaded = false;
+
+/*
+ * Description: Generates a random float between a minimum and maximum value.
+ * Parameters:
+ * - min: Minimum value.
+ * - max: Maximum value.
+ * Returns: Random float.
+ */
 float RandF(float min, float max) {
     return min + (float)GetRandomValue(0, 10000)/10000.0f * (max - min);
 }
@@ -67,7 +78,12 @@ float RandF(float min, float max) {
 // 1 = Small (Performance), 2 = Big (Gameplay)
 static int selectedMapOption = 1; 
 
-// Helper to save the choice so main.c can read it later
+/*
+ * Description: Saves the user's map size preference to a configuration file.
+ * Parameters:
+ * - choice: Integer representing the map choice (1 or 2).
+ * Returns: None.
+ */
 void SaveMapChoice(int choice) {
     FILE *f = fopen(CONFIG_FILE, "wb");
     if (f) {
@@ -78,6 +94,13 @@ void SaveMapChoice(int choice) {
 
 const unsigned char MENU_KEY = 0xAA; 
 
+/*
+ * Description: XOR obfuscation for simple data encryption/decryption in the menu.
+ * Parameters:
+ * - data: Pointer to data buffer.
+ * - size: Size of buffer.
+ * Returns: None.
+ */
 void MenuObfuscate(unsigned char* data, size_t size) {
     for (size_t i = 0; i < size; i++) {
         data[i] ^= MENU_KEY;
@@ -87,14 +110,30 @@ void MenuObfuscate(unsigned char* data, size_t size) {
 // 0 = Continue, 1 = New Game
 static int selectedMainMenuOption = 0; 
 
+/*
+ * Description: Deletes existing save and configuration files to reset the game state.
+ * Parameters: None.
+ * Returns: None.
+ */
 void DeleteSaveData() {
     if (FileExists(SAVE_FILE)) remove(SAVE_FILE);
     if (FileExists(CONFIG_FILE)) remove(CONFIG_FILE);
     // Reset selection vars
-    selectedMainMenuOption = 1; // Default to New Game since Continue is invalid now
+    selectedMainMenuOption = 1; 
 }
 
 // --- UI HELPER ---
+
+/*
+ * Description: Draws a stylized selection box for the UI.
+ * Parameters:
+ * - x, y: Position coordinates.
+ * - w, h: Dimensions.
+ * - title: Header text.
+ * - desc: Description text.
+ * - selected: Boolean indicating if this box is currently highlighted.
+ * Returns: None.
+ */
 void DrawSelectionBox(int x, int y, int w, int h, const char* title, const char* desc, bool selected) {
     Color bg = selected ? (Color){40, 60, 100, 200} : (Color){20, 20, 30, 200};
     Color border = selected ? YELLOW : GRAY;
@@ -110,8 +149,14 @@ void DrawSelectionBox(int x, int y, int w, int h, const char* title, const char*
     }
 }
 
-// [OPTIMIZATION] High-Performance Cube Batcher
-// This writes raw vertex data to the buffer, bypassing Raylib's internal overhead
+/*
+ * Description: Renders a cube using raw vertex data for high-performance batching.
+ * Parameters:
+ * - position: Center position of the cube.
+ * - size: Dimensions of the cube.
+ * - color: Color of the cube.
+ * Returns: None.
+ */
 void DrawCubeBatched(Vector3 position, Vector3 size, Color color) {
     float x = position.x;
     float y = position.y;
@@ -159,10 +204,17 @@ void DrawCubeBatched(Vector3 position, Vector3 size, Color color) {
     rlVertex3f(x - width, y + height, z - length);
 }
 
+/*
+ * Description: Calculates a color blended with the fog color based on distance.
+ * Parameters:
+ * - baseCol: The original color of the object.
+ * - pos: The world position of the object.
+ * Returns: The final fogged Color.
+ */
 Color GetFoggedColor(Color baseCol, Vector3 pos) {
     float dist = Vector3Length((Vector3){pos.x, 0, pos.z}); 
     float fogStart = 10.0f;
-    float fogEnd = 300.0f; // Smoother Fade
+    float fogEnd = 300.0f; 
     
     float factor = (dist - fogStart) / (fogEnd - fogStart);
     if (factor < 0.0f) factor = 0.0f;
@@ -176,6 +228,11 @@ Color GetFoggedColor(Color baseCol, Vector3 pos) {
     };
 }
 
+/*
+ * Description: Procedurally generates the background city and loads required 3D assets.
+ * Parameters: None.
+ * Returns: None.
+ */
 void LoadMenuAssets(void) {
     if (menuAssets.loaded) return;
 
@@ -289,6 +346,11 @@ void LoadMenuAssets(void) {
     menuAssets.loaded = true;
 }
 
+/*
+ * Description: Unloads models and frees memory used by the start menu background.
+ * Parameters: None.
+ * Returns: None.
+ */
 void UnloadMenuAssets(void) {
     if (!menuAssets.loaded) return;
     
@@ -311,16 +373,17 @@ void UnloadMenuAssets(void) {
     menuAssets.loaded = false;
 }
 
-// Static variables to persist the model between frames
-static Model menuCarModel = { 0 };
-static bool isMenuCarLoaded = false;
-
+/*
+ * Description: Loads and renders the player's saved car (or default) in the menu scene.
+ * Parameters: None.
+ * Returns: None.
+ */
 void DrawMenuPlayerCar(void) {
     // 1. Lazy Load: Run once on startup
     if (!isMenuCarLoaded) {
         char modelPath[256] = "resources/Playermodels/delivery.obj"; // Default Fallback
 
-        // --- TRY READING SAVE FILE ---
+        // Try reading save file to find custom car
         FILE *file = fopen("save_data.dat", "rb");
         if (file) {
             GameSaveData data;
@@ -331,16 +394,14 @@ void DrawMenuPlayerCar(void) {
                 // Decrypt
                 MenuObfuscate((unsigned char*)&data, sizeof(GameSaveData));
                 
-                // If valid save and has a custom car model
                 if (data.version == SAVE_VERSION && strlen(data.modelFileName) > 0) {
                     snprintf(modelPath, 256, "resources/Playermodels/%s", data.modelFileName);
                     printf("MENU: Found player vehicle in save: %s\n", modelPath);
                 }
             }
         }
-        // -----------------------------
 
-        // 2. Load the Model
+        // Load the Model
         if (FileExists(modelPath)) {
             menuCarModel = LoadModel(modelPath);
             isMenuCarLoaded = true;
@@ -349,14 +410,12 @@ void DrawMenuPlayerCar(void) {
             // Ultimate fallback if saved mod file is missing
             menuCarModel = LoadModel("resources/Playermodels/delivery.obj");
             isMenuCarLoaded = true;
-            isMenuCarLoaded = true;
         }
     }
 
-    // 3. Draw the Model
+    // 2. Draw the Model
     if (isMenuCarLoaded) {
-        // Standard Transformation
-        // Most models face -Z, so we rotate 180 to face camera
+        // Most models face -Z, rotate 180 to face camera
         Vector3 pos = { 0.0f, 0.05f, 0.0f }; 
         Vector3 axis = { 0.0f, 1.0f, 0.0f };
         float rotation = 180.0f; 
@@ -364,7 +423,7 @@ void DrawMenuPlayerCar(void) {
 
         DrawModelEx(menuCarModel, pos, axis, rotation, scale, WHITE);
         
-        // Simple Shadow Blob
+        // Shadow Blob
         DrawCylinder((Vector3){0, 0.02f, 0}, 1.2f, 1.2f, 0.0f, 16, Fade(BLACK, 0.4f));
     } 
     else {
@@ -373,8 +432,11 @@ void DrawMenuPlayerCar(void) {
     }
 }
 
-// Static variables to persist the model between frames
-
+/*
+ * Description: Renders the entire background scene including the road, buildings, and props.
+ * Parameters: None.
+ * Returns: None.
+ */
 void DrawMenuDiorama(void) {
     // 1. Endless Road
     for (int z = -250; z < 250; z += 50) {
@@ -425,8 +487,7 @@ void DrawMenuDiorama(void) {
             rlSetBlendMode(RL_BLEND_ALPHA); 
         }
         
-        // --- BATCHED CITY DRAWING (HIGH PERFORMANCE) ---
-        // This replaces the 6000 separate DrawCube calls
+        // --- BATCHED CITY DRAWING ---
         rlBegin(RL_QUADS);
             
             // 1. Buildings
@@ -448,7 +509,11 @@ void DrawMenuDiorama(void) {
     }
 }
 
-// --- 4. ATMOSPHERE ---
+/*
+ * Description: Draws the distant skybox and fog effects.
+ * Parameters: None.
+ * Returns: None.
+ */
 void DrawMenuAtmosphere(void) {
     rlDisableDepthMask(); 
         Color fogSolid = COLOR_FOG;
@@ -466,11 +531,25 @@ void DrawMenuAtmosphere(void) {
     rlEnableDepthMask();
 }
 
+/*
+ * Description: Easing function for smooth camera animations.
+ * Parameters:
+ * - t: Progress time (0.0 to 1.0).
+ * Returns: Eased value.
+ */
 float EaseOutCubic(float t) {
     return 1.0f - powf(1.0f - t, 3.0f);
 }
 
-// --- LOADING UI (Scaled) ---
+/*
+ * Description: Renders the loading screen bar and status text.
+ * Parameters:
+ * - screenWidth: Width of the screen.
+ * - screenHeight: Height of the screen.
+ * - progress: Loading progress (0.0 to 1.0).
+ * - status: Text description of the current task.
+ * Returns: None.
+ */
 void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, const char* status) {
     float uiScale = screenHeight / 720.0f;
 
@@ -505,9 +584,13 @@ void DrawLoadingInterface(int screenWidth, int screenHeight, float progress, con
     DrawText(pctText, cx - MeasureText(pctText, pctSize)/2, barY + 20*uiScale, pctSize, DARKGRAY);
 }
 
-// ============================================================================
-// PHASE 1: START MENU -> 50%
-// ============================================================================
+/*
+ * Description: The main start menu loop handling the state machine (Orbit -> Map Select -> Load).
+ * Parameters:
+ * - screenWidth: Screen width.
+ * - screenHeight: Screen height.
+ * Returns: True if the game should start, false if the user exits.
+ */
 bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
     float time = 0.0f;
     int menuState = -1; 
@@ -550,8 +633,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
 
         // --- LOGIC UPDATES ---
         
-        // 1. STATE 0 (ORBIT): Check for Save File on Enter
-        // 1. STATE 0: MAIN MENU (Orbit)
+        // STATE 0: MAIN MENU (Orbit)
         if (menuState == 0) { 
             float camRadius = 12.0f;
             camera.position = (Vector3){ sinf(time * 0.15f) * camRadius, 4.5f, cosf(time * 0.15f) * camRadius };
@@ -565,25 +647,24 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) selectedMainMenuOption = 0;
             if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) selectedMainMenuOption = 1;
             
-            // Clamp if save doesn't exist
             if (!saveExists) selectedMainMenuOption = 1;
 
             if (IsKeyPressed(KEY_ENTER)) {
                 if (selectedMainMenuOption == 0 && saveExists) {
                     // CONTINUE
-                    menuState = 1; // Go straight to Zoom/Load
+                    menuState = 1; // Go to Zoom
                     camStartPos = camera.position;
                     zoomTimer = 0.0f;
                 } 
                 else if (selectedMainMenuOption == 1) {
                     // NEW GAME
-                    DeleteSaveData(); // Wipe old data
+                    DeleteSaveData(); 
                     menuState = 3;    // Go to Map Selection
                 }
             }
         }
         
-        // 2. [NEW] STATE 3 (MAP SELECTION)
+        // STATE 3: MAP SELECTION
         else if (menuState == 3) { 
             float camRadius = 12.0f;
             // Slower spin while selecting
@@ -600,8 +681,8 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             }
         }
         
-        // ... (State 1 and State 2 remain exactly the same) ...
-        else if (menuState == 1) { // Zoom
+        // STATE 1: ZOOM ANIMATION
+        else if (menuState == 1) { 
             zoomTimer += dt;
             float t = zoomTimer / 1.5f; 
             if (t >= 1.0f) { t = 1.0f; menuState = 2; }
@@ -610,7 +691,8 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             camera.position.y = camStartPos.y + (camEndPos.y - camStartPos.y) * st;
             camera.position.z = camStartPos.z + (camEndPos.z - camStartPos.z) * st;
         }
-        else if (menuState == 2) { // Fake Load
+        // STATE 2: FAKE LOADING
+        else if (menuState == 2) { 
             float speed = (sharedStage == 3) ? 0.3f : 0.9f; 
             sharedProgress += speed * dt;
             if (sharedProgress > 0.10f) sharedStage = 1;
@@ -622,7 +704,14 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                 sharedProgress = 0.50f;
                 sharedStage = 5; 
                 static int f = 0; f++;
-                if (f > 10) { UnloadMenuAssets(); return true; }
+                if (f > 10) { 
+                    if (isMenuCarLoaded) {
+                        UnloadModel(menuCarModel);
+                        isMenuCarLoaded = false;
+                    }
+                    UnloadMenuAssets(); 
+                    return true; // Start Game
+                }
             }
         }
 
@@ -702,9 +791,9 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     DrawText(copy, sw - copyw - 20*uiScale, sh - 20*uiScale, (int)(12*uiScale), DARKGRAY);
                 }
                 
-                // [NEW] Draw Map Selection UI
+                // Draw Map Selection UI
                 if (menuState == 3) {
-                    DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.85f)); // Dark Overlay
+                    DrawRectangle(0, 0, sw, sh, Fade(BLACK, 0.85f)); 
                     
                     int titleSize = (int)(40 * uiScale);
                     const char* title = "SELECT CITY SIZE";
@@ -747,14 +836,22 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
             
         EndDrawing();
     }
-    // At the end of RunStartMenu_PreLoad before return:
-if (isMenuCarLoaded) {
-    UnloadModel(menuCarModel);
-    isMenuCarLoaded = false;
-}
+
+    if (isMenuCarLoaded) {
+        UnloadModel(menuCarModel);
+        isMenuCarLoaded = false;
+    }
     return false;
 }
 
+/*
+ * Description: Renders the second phase of loading (map generation) after the start menu closes.
+ * Parameters:
+ * - screenWidth: Screen width.
+ * - screenHeight: Screen height.
+ * - dt: Delta Time.
+ * Returns: True if loading is still in progress, false if finished.
+ */
 bool DrawPostLoadOverlay(int screenWidth, int screenHeight, float dt) {
     if (sharedProgress < 0.5f) sharedProgress = 0.5f;
 

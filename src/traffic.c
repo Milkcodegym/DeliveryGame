@@ -31,12 +31,18 @@
 // --- BRAKING & SPEED CONFIG ---
 #define DETECTION_DIST 15.0f   
 #define STOP_DISTANCE 4.0f     
-#define ACCEL_RATE 3.0f        // [FIX] Slower acceleration for heavy feel
+#define ACCEL_RATE 3.0f        
 #define BRAKE_RATE 12.0f       
 #define STUCK_THRESHOLD 5.0f 
 
 extern int GetClosestNode(GameMap *map, Vector2 position);
 
+/*
+ * Description: Initializes the traffic manager, deactivating all vehicle slots.
+ * Parameters:
+ * - traffic: Pointer to the TrafficManager struct.
+ * Returns: None.
+ */
 void InitTraffic(TrafficManager *traffic) {
     for (int i = 0; i < MAX_VEHICLES; i++) {
         traffic->vehicles[i].active = false;
@@ -44,6 +50,14 @@ void InitTraffic(TrafficManager *traffic) {
     }
 }
 
+/*
+ * Description: Finds the next valid edge connected to a node, avoiding U-turns if possible.
+ * Parameters:
+ * - map: Pointer to the GameMap.
+ * - nodeID: The current node index.
+ * - excludeEdgeIndex: The edge index the vehicle just came from.
+ * Returns: The index of the next edge, or -1 if none found.
+ */
 int FindNextEdge(GameMap *map, int nodeID, int excludeEdgeIndex) {
     if (!map->graph) return -1; 
     if (nodeID >= map->nodeCount) return -1;
@@ -74,6 +88,16 @@ int FindNextEdge(GameMap *map, int nodeID, int excludeEdgeIndex) {
     return -1;
 }
 
+/*
+ * Description: Checks for vehicles directly ahead on the same road segment to prevent collisions.
+ * Parameters:
+ * - traffic: Pointer to TrafficManager.
+ * - myIndex: The vehicle's own index (to ignore self).
+ * - myPos: Current position.
+ * - myForward: Forward vector.
+ * - myEdgeIndex: Current road edge index.
+ * Returns: Distance to the nearest car ahead, or -1.0f if clear.
+ */
 float GetDistanceToCarAhead(TrafficManager *traffic, int myIndex, Vector3 myPos, Vector3 myForward, int myEdgeIndex) {
     float closestDist = 9999.0f;
     bool found = false;
@@ -100,6 +124,14 @@ float GetDistanceToCarAhead(TrafficManager *traffic, int myIndex, Vector3 myPos,
     return found ? closestDist : -1.0f;
 }
 
+/*
+ * Description: Calculates the distance to the player if they are directly in the vehicle's path.
+ * Parameters:
+ * - carPos: Vehicle position.
+ * - carFwd: Vehicle forward vector.
+ * - playerPos: Player's position.
+ * Returns: Distance to player, or -1.0f if not in path.
+ */
 float GetDistanceToPlayer(Vector3 carPos, Vector3 carFwd, Vector3 playerPos) {
     Vector3 toPlayer = Vector3Subtract(playerPos, carPos);
     float distSq = Vector3LengthSqr(toPlayer);
@@ -114,6 +146,15 @@ float GetDistanceToPlayer(Vector3 carPos, Vector3 carFwd, Vector3 playerPos) {
     return sqrtf(distSq);
 }
 
+/*
+ * Description: Updates logic for all traffic vehicles: spawning, movement, pathfinding, and obstacle avoidance.
+ * Parameters:
+ * - traffic: Pointer to TrafficManager.
+ * - player_position: Player's position (for spawn/despawn logic).
+ * - map: Pointer to GameMap.
+ * - dt: Delta Time.
+ * Returns: None.
+ */
 void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *map, float dt) {
     if (map->edgeCount == 0 || map->nodeCount == 0 || !map->graph) return;
 
@@ -183,25 +224,19 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         
         float targetSpeed = maxEdgeSpeed;
         
-        // [FIX] SMART TURN LOGIC
-        // Instead of slowing down at 85% progress unconditionally, we calculate the angle.
-        // We use distance (meters) instead of progress (%) for consistency.
+        // Smart Turn Logic
         float distRemaining = v->edgeLength * (1.0f - v->progress);
         
-        if (distRemaining < 25.0f) { // Approaching intersection (25m out)
+        if (distRemaining < 25.0f) { // Approaching intersection
             if (v->nextEdgeIndex != -1) {
-                // 1. Calculate Current Direction
                 Vector2 s1 = map->nodes[v->startNodeID].position;
                 Vector2 e1 = map->nodes[v->endNodeID].position;
                 Vector2 dir1 = Vector2Normalize(Vector2Subtract(e1, s1));
 
-                // 2. Calculate Next Direction
                 Edge nextE = map->edges[v->nextEdgeIndex];
                 Vector2 s2 = map->nodes[nextE.startNode].position;
                 Vector2 e2 = map->nodes[nextE.endNode].position;
                 
-                // Determine which way the next road goes (away from intersection)
-                // The intersection node is v->endNodeID.
                 Vector2 dir2;
                 if (nextE.startNode == v->endNodeID) {
                     dir2 = Vector2Normalize(Vector2Subtract(e2, s2));
@@ -209,25 +244,18 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
                     dir2 = Vector2Normalize(Vector2Subtract(s2, e2));
                 }
 
-                // 3. Dot Product check
-                // 1.0 = Straight, 0.0 = 90 Degree Turn, -1.0 = U-Turn
                 float turnSharpness = Vector2DotProduct(dir1, dir2);
                 
-                // If turn is sharp (Dot < 0.9), slow down.
-                // 0.9 covers gentle curves. Anything less means "brake".
                 if (turnSharpness < 0.9f) {
-                    float turnSpeed = 6.0f; // 
-                    
-                    // Smoothly blend from RoadSpeed down to TurnSpeed as we get closer
+                    float turnSpeed = 6.0f; 
                     float blend = distRemaining / 25.0f; 
                     float approachSpeed = Lerp(turnSpeed, maxEdgeSpeed, blend);
                     
                     if (approachSpeed < targetSpeed) targetSpeed = approachSpeed;
                 }
-                // ELSE: Going straight, keep targetSpeed at maxEdgeSpeed!
             } 
             else {
-                // Dead End: Slow to stop
+                // Dead End
                 float blend = distRemaining / 25.0f;
                 targetSpeed = Lerp(0.0f, maxEdgeSpeed, blend);
             }
@@ -281,7 +309,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
             
             v->edgeLength = Vector2Distance(map->nodes[v->startNodeID].position, map->nodes[v->endNodeID].position);
-            currentEdge = nextE; // Update local handle
+            currentEdge = nextE; 
         }
 
         // --- LANE ALIGNMENT ---
@@ -302,6 +330,12 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
     }
 }
 
+/*
+ * Description: Renders all active vehicles as simple 3D block models (sedan, van, truck).
+ * Parameters:
+ * - traffic: Pointer to TrafficManager.
+ * Returns: None.
+ */
 void DrawTraffic(TrafficManager *traffic) {
     float time = (float)GetTime();
 
@@ -312,7 +346,7 @@ void DrawTraffic(TrafficManager *traffic) {
         // 1. Calculate the standard road angle
         float roadAngle = (atan2f(v->forward.x, v->forward.z) * RAD2DEG);
 
-        // 2. Selection of Car Type (50% scale preserved)
+        // 2. Selection of Car Type
         int type = i % 3; 
         Vector3 chassisSize, cabinSize;
         float cabinYOffset, cabinZOffset;
@@ -338,8 +372,7 @@ void DrawTraffic(TrafficManager *traffic) {
             // B. Rotate to match road direction
             rlRotatef(roadAngle, 0, 1, 0); 
 
-            // C. [THE FIX] Rotate the "Model" 45 degrees clockwise before drawing
-            // We apply this second rotation so all components are baked into this offset
+            // C. Rotate the "Model" 10 degrees clockwise for alignment fix
             rlRotatef(-10.0f, 0, 1, 0); 
 
             // 1. Chassis
@@ -373,6 +406,14 @@ void DrawTraffic(TrafficManager *traffic) {
     }
 }
 
+/*
+ * Description: Checks if the player has collided with any active traffic vehicle.
+ * Parameters:
+ * - traffic: Pointer to TrafficManager.
+ * - playerX, playerZ: Player position coordinates.
+ * - playerRadius: Player collision radius.
+ * Returns: Vector3 where X,Y is the push direction and Z is the impact speed (-1 if no collision).
+ */
 Vector3 TrafficCollision(TrafficManager *traffic, float playerX, float playerZ, float playerRadius) {
     for (int i = 0; i < MAX_VEHICLES; i++) {
         Vehicle *v = &traffic->vehicles[i];
@@ -385,8 +426,6 @@ Vector3 TrafficCollision(TrafficManager *traffic, float playerX, float playerZ, 
         float minDist = 1.4f; 
         
         if (distSq < minDist * minDist) {
-            // [FIX] Handle Stuck together: Return a Push Vector
-            // The result vector points FROM the car TO the player
             Vector2 pushDir = Vector2Normalize((Vector2){dx, dz});
             float speed = v->speed;
             

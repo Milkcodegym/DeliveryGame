@@ -17,8 +17,8 @@
 #include "screen_visuals.h"
 #include <math.h>
 #include <stdio.h>
-#include "raymath.h" // Required for Vector3Lerp
-#include "rlgl.h"    // Required for rlPushMatrix
+#include "raymath.h" 
+#include "rlgl.h"    
 
 // --- STATE FOR REFUEL SLIDER ---
 static float targetFuelAmount = 0.0f;
@@ -31,12 +31,17 @@ typedef struct {
     Vector3 endPos;     // Where it's going
     float progress;     // 0.0 to 1.0
     bool active;
-    bool isDropoff;     // New flag: True = Leaving Car, False = Entering Car
+    bool isDropoff;     // True = Leaving Car, False = Entering Car
 } DeliveryEffect;
 
 static DeliveryEffect fxQueue[5] = {0};
 
-// [NEW] Helper to find the active job (Picked Up)
+/*
+ * Description: Retrieves the currently active job (status: JOB_PICKED_UP) from the phone state.
+ * Parameters:
+ * - phone: Pointer to the PhoneState structure.
+ * Returns: Pointer to the active DeliveryTask, or NULL if none found.
+ */
 static DeliveryTask* GetActiveTask(PhoneState *phone) {
     for (int i = 0; i < 5; i++) {
         if (phone->tasks[i].status == JOB_PICKED_UP) {
@@ -46,6 +51,12 @@ static DeliveryTask* GetActiveTask(PhoneState *phone) {
     return NULL;
 }
 
+/*
+ * Description: Updates global visual timers, such as fuel price fluctuation.
+ * Parameters:
+ * - dt: Delta Time.
+ * Returns: None.
+ */
 void UpdateVisuals(float dt) {
     priceTimer += dt;
     if (priceTimer >= 60.0f) { 
@@ -58,7 +69,15 @@ void UpdateVisuals(float dt) {
     }
 }
 
-// Draws a BIGGER "Real" arrow shape with letters inside
+/*
+ * Description: Draws a stylized arrow key icon (WASD) with press feedback.
+ * Parameters:
+ * - cx: Center X position.
+ * - cy: Center Y position.
+ * - dir: Direction index (0=Up/W, 1=Right/D, 2=Down/S, 3=Left/A).
+ * - isPressed: Boolean indicating if the key is currently pressed.
+ * Returns: None.
+ */
 void DrawRealArrow(int cx, int cy, int dir, bool isPressed) {
     Vector2 points[8] = {
         {0, -35},   {28, -7},   {11, -7},   {11, 35},
@@ -107,6 +126,11 @@ void DrawRealArrow(int cx, int cy, int dir, bool isPressed) {
     DrawText(textChar, finalPoints[7].x - textOffsetX, finalPoints[7].y - textOffsetY, fontSize, WHITE);
 }
 
+/*
+ * Description: Renders the WASD input overlay on the screen.
+ * Parameters: None.
+ * Returns: None.
+ */
 void DrawWASDOverlay() {
     int spacing = 85;  
     int startX = 125;  
@@ -117,7 +141,16 @@ void DrawWASDOverlay() {
     DrawRealArrow(startX + spacing, startY, 1, IsKeyDown(KEY_D)); 
 }
 
-// --- HELPER: Text Outline ---
+/*
+ * Description: Helper function to draw text with a black outline for better visibility.
+ * Parameters:
+ * - text: String to draw.
+ * - posX, posY: Position coordinates.
+ * - fontSize: Font size.
+ * - color: Inner text color.
+ * - spacing: Thickness of the outline.
+ * Returns: None.
+ */
 void DrawTextOutline(const char *text, int posX, int posY, int fontSize, Color color, int spacing) {
     DrawText(text, posX - spacing, posY - spacing, fontSize, BLACK);
     DrawText(text, posX + spacing, posY - spacing, fontSize, BLACK);
@@ -126,13 +159,20 @@ void DrawTextOutline(const char *text, int posX, int posY, int fontSize, Color c
     DrawText(text, posX, posY, fontSize, color);
 }
 
-// --- SPEEDOMETER ---
+/*
+ * Description: Renders a speedometer gauge based on the player's current speed.
+ * Parameters:
+ * - currentSpeed: The current velocity of the player.
+ * - maxSpeed: The maximum possible speed (for scaling).
+ * - screenWidth: The width of the screen for positioning.
+ * Returns: None.
+ */
 void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth) {
-    // 1. Calculate Size
+    // Size Calculation
     float radius = screenWidth * 0.05f; 
     if (radius < 45) radius = 45; 
 
-    // 2. Position: Shift LEFT (Increased multiplier to 1.3 to separate them)
+    // Position: Shift LEFT
     int centerX = (screenWidth / 2) - (int)(radius * 1.3f);
     int centerY = (int)(screenWidth * 0.06f); 
 
@@ -173,15 +213,22 @@ void DrawSpeedometer(float currentSpeed, float maxSpeed, int screenWidth) {
     DrawTextOutline("KM/H", centerX - (labelWidth / 2), centerY + numSize + 5, labelSize, WHITE, 1);
 }
 
-// --- FUEL GAUGE ---
+/*
+ * Description: Renders the fuel gauge overlay with range estimation.
+ * Parameters:
+ * - player: Pointer to the Player struct.
+ * - screenW: Screen width.
+ * - screenH: Screen height.
+ * Returns: None.
+ */
 void DrawFuelOverlay(Player *player, int screenW, int screenH) {
-    // 1. Size Logic
+    // Size Logic
     float speedoRadius = screenW * 0.05f; 
     if (speedoRadius < 45) speedoRadius = 45;
     
     float gaugeRadius = speedoRadius * 0.7f; 
 
-    // 2. Position: Shift RIGHT
+    // Position: Shift RIGHT
     int centerX = (screenW / 2) + (int)(speedoRadius * 1.3f);
     int centerY = (int)(screenW * 0.06f);
 
@@ -191,17 +238,16 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     DrawCircleV(center, gaugeRadius, Fade(BLACK, 0.6f));
     DrawCircleLines((int)center.x, (int)center.y, gaugeRadius, GRAY);
     
-    // Labels (E and F)
+    // Labels
     int fSize = (int)(gaugeRadius * 0.35f);
     DrawText("E", centerX - gaugeRadius + 5, centerY + 5, fSize, RED);
     DrawText("F", centerX + gaugeRadius - 15, centerY + 5, fSize, GREEN);
 
-    // --- RANGE CALCULATION ---
+    // Range Calculation
     float consumption = player->fuelConsumption;
     if (consumption <= 0.001f) consumption = 0.01f; 
     
-    // Approximation: 1 unit of fuel ~ 5 meters range? (Tuning required based on physics)
-    float rangeMeters = (player->fuel / consumption) * 2.0f; // Multiplier tuned for visuals
+    float rangeMeters = (player->fuel / consumption) * 2.0f; 
     
     char rangeText[32];
     if (rangeMeters >= 1000.0f) {
@@ -210,7 +256,7 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
         snprintf(rangeText, 32, "%d m", (int)rangeMeters);
     }
 
-    // Draw Range Text (Bottom Center)
+    // Draw Range Text
     int rangeSize = (int)(gaugeRadius * 0.35f);
     int rangeWidth = MeasureText(rangeText, rangeSize);
     
@@ -248,19 +294,25 @@ void DrawFuelOverlay(Player *player, int screenW, int screenH) {
     }
 }
 
-// [UPDATED] G-Force Visualizer with Real Fragility Limit
+/*
+ * Description: Renders the G-Force meter, showing safe zones based on cargo fragility.
+ * Parameters:
+ * - player: Pointer to Player.
+ * - task: Pointer to the active DeliveryTask (for fragility limits).
+ * - x, y: Position coordinates.
+ * - scale: Scaling factor for UI size.
+ * Returns: None.
+ */
 void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float scale) {
     float radius = 40.0f * scale;
     DrawCircle(x, y, radius, Fade(BLACK, 0.8f));
     DrawCircleLines(x, y, radius, WHITE);
     
-    // Draw Safe Zone (Green) vs Danger Zone (Red) if cargo is fragile
+    // Draw Safe Zone vs Danger Zone
     if (task && task->fragility > 0.0f) {
-        // Must match delivery_app logic: gLimit = 1.5f * (1.0f - t->fragility);
         float gLimit = 1.5f * (1.0f - task->fragility); 
         if (gLimit < 0.3f) gLimit = 0.3f;
         
-        // Scale limit to radius (Assuming 2.0G is edge of meter)
         float limitRadius = (gLimit / 2.0f) * radius; 
         if (limitRadius > radius) limitRadius = radius;
 
@@ -274,34 +326,26 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     DrawLine(x, y - radius, x, y + radius, DARKGRAY); // Vertical Crosshair
 
     // Calculate approximate Gs
-    // X axis = Turning (Lateral)
     float gX = 0.0f;
     if (IsKeyDown(KEY_A)) gX = 1.0f;
     if (IsKeyDown(KEY_D)) gX = -1.0f;
-    // Scale by speed (turning faster = more Gs)
     gX *= (player->current_speed / player->max_speed) * 1.5f; 
 
-    // Y axis = Accel/Brake (Longitudinal)
-    // We cheat a bit and use IsKeyDown for instant visual feedback
     float gY = 0.0f;
-    if (IsKeyDown(KEY_W)) gY = 0.5f; // Pulling back (accelerating)
-    if (IsKeyDown(KEY_S)) gY = -0.8f; // Pushing forward (braking hard)
-    // Adjust logic to match actual physics forces if available
+    if (IsKeyDown(KEY_W)) gY = 0.5f; 
+    if (IsKeyDown(KEY_S)) gY = -0.8f; 
     
-    // Calculate magnitude to check against limit
     float magnitude = sqrtf(gX*gX + gY*gY);
     
-    // Clamp visual dot to circle edge
     float visualMag = magnitude;
     if (visualMag > 2.0f) visualMag = 2.0f;
-    float dist = (visualMag / 2.0f) * radius; // Map 0-2G to 0-Radius
+    float dist = (visualMag / 2.0f) * radius; 
 
     float angle = atan2f(gY, gX);
     float dotX = x + cosf(angle) * dist;
     float dotY = y + sinf(angle) * dist;
 
     Color dotColor = WHITE;
-    // Check if violating limit
     if (task && task->fragility > 0.0f) {
         float gLimit = 1.5f * (1.0f - task->fragility);
         if (magnitude > gLimit) dotColor = RED;
@@ -311,7 +355,14 @@ void DrawGForceMeter(Player *player, DeliveryTask *task, float x, float y, float
     DrawText("G-FORCE", x - 20*scale, y + radius + 5*scale, 10*scale, BLACK);
 }
 
-// [UPDATED] Real Temperature Visualizer
+/*
+ * Description: Renders a thermometer for temperature-sensitive cargo.
+ * Parameters:
+ * - task: Pointer to the active DeliveryTask.
+ * - x, y: Position coordinates.
+ * - scale: Scaling factor.
+ * Returns: None.
+ */
 void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
     float w = 20.0f * scale;
     float h = 80.0f * scale;
@@ -321,9 +372,6 @@ void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
     DrawRectangleLines(x, y, w, h, WHITE);
     
     if (task && task->timeLimit > 0) {
-        // Real Temperature Calculation
-        // timeLimit is the total time allowed before "cold".
-        // We compare GetTime() vs task->creationTime (which is reset on pickup)
         double elapsed = GetTime() - task->creationTime;
         float tempPct = 1.0f - ((float)elapsed / task->timeLimit);
         
@@ -332,7 +380,6 @@ void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
 
         float fillH = h * tempPct;
         
-        // Gradient Color
         Color tempColor = GREEN;
         if (tempPct < 0.5f) tempColor = ORANGE;
         if (tempPct < 0.2f) tempColor = RED;
@@ -340,49 +387,64 @@ void DrawThermometer(DeliveryTask *task, float x, float y, float scale) {
         DrawRectangle(x + 2, y + h - fillH, w - 4, fillH, tempColor);
         DrawText("TEMP", x - 5*scale, y + h + 5*scale, 10*scale, tempColor);
     } else {
-        // No Active Job or Non-Perishable
         DrawText("N/A", x + 2*scale, y + h/2 - 5*scale, 10*scale, GRAY);
         DrawText("TEMP", x - 5*scale, y + h + 5*scale, 10*scale, GRAY);
     }
     
-    // Ticks
     DrawLine(x, y + h*0.2f, x+w, y + h*0.2f, GRAY); // High
     DrawLine(x, y + h*0.8f, x+w, y + h*0.8f, GRAY); // Low
 }
 
-// 1. Trigger SUCTION (Ground -> Car)
+/*
+ * Description: Initiates a 3D animation of a package flying from the ground to the player (Pickup).
+ * Parameters:
+ * - itemPos: The world position of the item being picked up.
+ * Returns: None.
+ */
 void TriggerPickupAnimation(Vector3 itemPos) {
     for (int i = 0; i < 5; i++) {
         if (!fxQueue[i].active) {
             fxQueue[i].active = true;
-            fxQueue[i].isDropoff = false; // Suction
+            fxQueue[i].isDropoff = false; 
             fxQueue[i].startPos = itemPos;
-            fxQueue[i].endPos = itemPos; // Will be updated to player position dynamically
+            fxQueue[i].endPos = itemPos; 
             fxQueue[i].progress = 0.0f;
             return;
         }
     }
 }
 
-// 2. Trigger DROP-OFF (Car -> Ground) [NEW]
+/*
+ * Description: Initiates a 3D animation of a package flying from the player to the ground (Dropoff).
+ * Parameters:
+ * - playerPos: The player's current world position.
+ * - targetGroundPos: The target delivery spot on the ground.
+ * Returns: None.
+ */
 void TriggerDropoffAnimation(Vector3 playerPos, Vector3 targetGroundPos) {
     for (int i = 0; i < 5; i++) {
         if (!fxQueue[i].active) {
             fxQueue[i].active = true;
-            fxQueue[i].isDropoff = true; // Drop off
-            fxQueue[i].startPos = playerPos; // Start at car
-            fxQueue[i].endPos = targetGroundPos; // End on ground
+            fxQueue[i].isDropoff = true; 
+            fxQueue[i].startPos = playerPos; 
+            fxQueue[i].endPos = targetGroundPos; 
             fxQueue[i].progress = 0.0f;
             return;
         }
     }
 }
-// 3. Update & Draw Loop
+
 #ifndef COLOR_CARDBOARD
 #define COLOR_CARDBOARD (Color){ 170, 130, 100, 255 }
 #define COLOR_TAPE      (Color){ 200, 180, 150, 255 }
 #endif
 
+/*
+ * Description: Updates and renders all active 3D package animations.
+ * Parameters:
+ * - playerPos: The player's current position (end point for pickups).
+ * Returns: None.
+ */
 void UpdateAndDrawPickupEffects(Vector3 playerPos) {
     float dt = GetFrameTime();
     float speed = 4.0f; 
@@ -410,37 +472,24 @@ void UpdateAndDrawPickupEffects(Vector3 playerPos) {
 
         // Scale Logic
         float scale = fxQueue[i].isDropoff ? fxQueue[i].progress : (1.0f - fxQueue[i].progress);
-        
-        // Prevent it from disappearing completely at the very end of pickup
         if (scale < 0.1f) scale = 0.1f; 
 
         // --- DRAW THE FLYING PACKAGE ---
         rlPushMatrix();
             rlTranslatef(current.x, current.y, current.z);
-            
-            // Spin effect
             rlRotatef(fxQueue[i].progress * 720.0f, 0.0f, 1.0f, 0.0f);
-            // Tilt slightly to show the label
             rlRotatef(15.0f, 1.0f, 0.0f, 0.0f); 
             
             Vector3 center = {0, 0, 0};
-            
-            // Base dimensions of the package
-            float baseW = 0.6f;
-            float baseH = 0.4f;
-            float baseD = 0.5f;
-
-            // Scaled dimensions
-            float w = baseW * scale;
-            float h = baseH * scale;
-            float d = baseD * scale;
+            float w = 0.6f * scale;
+            float h = 0.4f * scale;
+            float d = 0.5f * scale;
 
             // 1. Main Box
             DrawCube(center, w, h, d, COLOR_CARDBOARD);
             DrawCubeWires(center, w, h, d, DARKBROWN);
 
             // 2. Label (White)
-            // Offset slightly so it sits on top
             DrawCube((Vector3){0, h/2.0f + (0.01f*scale), 0}, w*0.7f, 0.01f*scale, d*0.7f, RAYWHITE);
 
             // 3. Tape (Strip)
@@ -449,17 +498,24 @@ void UpdateAndDrawPickupEffects(Vector3 playerPos) {
         rlPopMatrix();
         
         // --- DRAW THE TRAIL ---
-        // We keep the color HERE so you know if it's a Pickup (Lime) or Delivery (Orange)
         Color trailColor = fxQueue[i].isDropoff ? ORANGE : LIME;
         DrawLine3D(start, current, Fade(trailColor, 0.5f));
     }
 }
+
+/*
+ * Description: Renders all pinned HUD elements (Speedometer, Fuel, G-Force, etc.) based on player preferences.
+ * Parameters:
+ * - player: Pointer to Player.
+ * - phone: Pointer to PhoneState (for task info).
+ * Returns: None.
+ */
 void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     int screenW = GetScreenWidth();
     int screenH = GetScreenHeight();
     float scale = (float)screenH / 720.0f;
 
-    // Fetch Active Task for "Real" Data
+    // Fetch Active Task
     DeliveryTask *activeTask = GetActiveTask(phone);
 
     // 1. WASD Overlay
@@ -490,11 +546,15 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
         DrawThermometer(activeTask, gadgetX - 10*scale, gadgetY - 30*scale, scale); 
         gadgetY -= gap;
     }
-    
 }
 
-// Add to screen_visuals.c or main.c
-
+/*
+ * Description: Renders the active mission HUD, showing timer, health, and cargo status.
+ * Parameters:
+ * - phone: Pointer to PhoneState.
+ * - player: Pointer to Player.
+ * Returns: None.
+ */
 void DrawCargoHUD(PhoneState *phone, Player *player) {
     // 1. Find Active Job
     DeliveryTask *activeTask = NULL;
@@ -509,12 +569,10 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
     // 2. Setup HUD Panel
     float screenW = (float)GetScreenWidth();
     
-    // Determine if we have a special condition (Fragile or Temp) to decide panel height
     bool isFragile = (activeTask->fragility > 0.0f);
     bool isTemp = (activeTask->timeLimit > 0 && (activeTask->jobType == LOC_FOOD || activeTask->jobType == LOC_CAFE));
     bool hasCondition = isFragile || isTemp;
 
-    // Taller panel if we need to show two bars, shorter if just the timer
     float panelHeight = hasCondition ? 150.0f : 90.0f;
     Rectangle panel = { screenW - 270, 100, 250, panelHeight };
 
@@ -524,47 +582,35 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
     // 3. Common Data Calculation
     double timeElapsed = GetTime() - activeTask->creationTime;
     float contentX = panel.x + 15;
-    float currentY = panel.y + 10; // We will increment this to stack elements
+    float currentY = panel.y + 10; 
 
-    // ---------------------------------------------------------
-    // SECTION A: TIMER (ALWAYS VISIBLE)
-    // ---------------------------------------------------------
+    // --- SECTION A: TIMER ---
     DrawText("DELIVERY TIME", contentX, currentY, 16, WHITE);
-    currentY += 25; // Move down for the bar/text
+    currentY += 25; 
 
     if (activeTask->timeLimit > 0) {
-        // --- Timer Bar ---
         float timePct = 1.0f - ((float)timeElapsed / activeTask->timeLimit);
         if (timePct < 0.0f) timePct = 0.0f;
 
         Rectangle timeBar = { contentX, currentY, 220, 25 };
         
-        // Background
         DrawRectangleRec(timeBar, Fade(GRAY, 0.3f));
-        // Fill
         DrawRectangle(timeBar.x, timeBar.y, timeBar.width * timePct, timeBar.height, (timePct > 0.3f) ? SKYBLUE : ORANGE);
-        // Outline
         DrawRectangleLinesEx(timeBar, 2.0f, LIGHTGRAY);
 
-        // Text: mm:ss
         int remaining = (int)(activeTask->timeLimit - timeElapsed);
         if (remaining < 0) remaining = 0;
         DrawText(TextFormat("%02d:%02d", remaining/60, remaining%60), timeBar.x + 85, timeBar.y + 4, 20, WHITE);
         
-        currentY += 35; // Move Y down for the next section (if any)
+        currentY += 35; 
     } else {
-        // --- Standard Timer (No Limit) ---
         DrawText(TextFormat("%.1fs", (float)timeElapsed), contentX, currentY, 24, GREEN);
         currentY += 35; 
     }
 
-    // ---------------------------------------------------------
-    // SECTION B: SUB-CASES (FRAGILE OR TEMP)
-    // ---------------------------------------------------------
+    // --- SECTION B: SUB-CASES ---
     
-    // --- SUBCASE 1: FRAGILE ---
     if (isFragile) {
-        // Divider line (optional, purely aesthetic)
         DrawLine(panel.x + 10, currentY - 5, panel.x + panel.width - 10, currentY - 5, Fade(LIGHTGRAY, 0.3f));
 
         float healthPct = activeTask->pay / activeTask->maxPay;
@@ -572,23 +618,16 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
 
         DrawText("CARGO INTEGRITY", contentX, currentY, 16, WHITE);
         
-        // Health Bar
         Rectangle hpBar = { contentX, currentY + 25, 220, 25 };
         
-        DrawRectangleRec(hpBar, Fade(RED, 0.3f)); // Background
+        DrawRectangleRec(hpBar, Fade(RED, 0.3f)); 
         DrawRectangle(hpBar.x, hpBar.y, hpBar.width * healthPct, hpBar.height, (healthPct > 0.5f) ? LIME : RED);
         DrawRectangleLinesEx(hpBar, 2.0f, LIGHTGRAY);
         
-        // Percentage Text
         DrawText(TextFormat("%d%%", (int)(healthPct * 100)), hpBar.x + 95, hpBar.y + 4, 20, WHITE);
-        
-        // Warning Icon
         DrawText("!", panel.x + 225, currentY, 20, ORANGE);
     }
-    
-    // --- SUBCASE 2: TEMPERATURE ---
     else if (isTemp) {
-        // Divider line
         DrawLine(panel.x + 10, currentY - 5, panel.x + panel.width - 10, currentY - 5, Fade(LIGHTGRAY, 0.3f));
 
         double thermalTime = timeElapsed * player->insulationFactor;
@@ -597,20 +636,17 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
 
         DrawText("TEMPERATURE", contentX, currentY, 16, WHITE);
 
-        // Temp Bar
         Rectangle tempBar = { contentX, currentY + 25, 220, 25 };
         
-        DrawRectangleRec(tempBar, Fade(BLUE, 0.3f)); // Background
+        DrawRectangleRec(tempBar, Fade(BLUE, 0.3f)); 
         
-        // Gradient Logic
         Color tempColor = ORANGE;
         if (tempPct < 0.5f) tempColor = YELLOW;
-        if (tempPct < 0.2f) tempColor = BLUE; // Too cold/spoiled
+        if (tempPct < 0.2f) tempColor = BLUE; 
 
         DrawRectangle(tempBar.x, tempBar.y, tempBar.width * tempPct, tempBar.height, tempColor);
         DrawRectangleLinesEx(tempBar, 2.0f, LIGHTGRAY);
 
-        // Insulation Text
         if (player->insulationFactor < 0.9f) {
             DrawText("Insulated", tempBar.x + 140, tempBar.y + 4, 16, Fade(WHITE, 0.7f));
         } else {
@@ -619,6 +655,14 @@ void DrawCargoHUD(PhoneState *phone, Player *player) {
     }
 }
 
+/*
+ * Description: Renders and updates the refueling UI window.
+ * Parameters:
+ * - player: Pointer to Player.
+ * - isActive: Boolean flag for visibility.
+ * - screenW, screenH: Screen dimensions.
+ * Returns: True if the window should remain active, false if closed.
+ */
 bool DrawRefuelWindow(Player *player, bool isActive, int screenW, int screenH) {
     if (!isActive) return false;
 
