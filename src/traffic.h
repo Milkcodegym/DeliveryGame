@@ -21,7 +21,7 @@
 
 typedef struct GameMap GameMap;
 
-#define MAX_VEHICLES 100
+#define MAX_VEHICLES 150
 
 typedef struct Vehicle {
     bool active;

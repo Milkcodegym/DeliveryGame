@@ -204,6 +204,9 @@ typedef struct {
     Model signGas;
     Model signMechanic;
     Model signDealership;
+    Model locMechanicModel;   // pitsGarageClosed
+    Model locFuelModel;       // pitsGarageCorner
+    Model locDealershipModel;
     // [NEW] Staggered Loading State
     int loadingSectorX;
     int loadingSectorY;
@@ -227,6 +230,7 @@ Color cityPalette[] = {
 
 
 // --- FORWARD DECLARATIONS ---
+bool IsPointNearSegment(Vector2 p, Vector2 a, Vector2 b, float threshold); // [NEW]
 bool IsInsideCityContext(GameMap *map, Vector2 pos);
 void BakeBuildingGeometry(Building *b);
 void BakeSingleEdgeDetails(GameMap *map, int edgeIdx);
@@ -599,10 +603,9 @@ void AddToManifest(SectorManifest *man, int index, int type) {
     }
 }
 
-
 // Pre-calculates which sector every object belongs to
 void BuildSectorManifests(GameMap *map) {
-    // 1. Buildings
+    // 1. Buildings (Center point is enough, large buildings usually span correctly)
     for (int i = 0; i < map->buildingCount; i++) {
         Vector2 center = GetBuildingCenter(map->buildings[i].footprint, map->buildings[i].pointCount);
         int gx = (int)((center.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
@@ -612,25 +615,40 @@ void BuildSectorManifests(GameMap *map) {
         }
     }
 
-
-    // 2. Edges (Roads) - Assign based on Midpoint
+    // 2. Edges (Roads) - [FIX] Account for Road Width in Bounding Box
     for (int i = 0; i < map->edgeCount; i++) {
         if (map->edges[i].startNode >= map->nodeCount) continue;
+        
         Vector2 p1 = map->nodes[map->edges[i].startNode].position;
         Vector2 p2 = map->nodes[map->edges[i].endNode].position;
-        Vector2 mid = Vector2Scale(Vector2Add(p1, p2), 0.5f);
         
-        int gx = (int)((mid.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
-        int gy = (int)((mid.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
-        
-        // Also add to start/end sectors to prevent gaps? 
-        // For simplicity, midpoint is usually enough for 100m chunks, 
-        // but let's strictly check bounds.
-        if (gx >= 0 && gx < SECTOR_GRID_COLS && gy >= 0 && gy < SECTOR_GRID_ROWS) {
-            AddToManifest(&cityRenderer.manifests[gy][gx], i, 1);
+        // Calculate true extent including width + buffer
+        float safeMargin = (map->edges[i].width * MAP_SCALE) + 5.0f;
+
+        float minX = fminf(p1.x, p2.x) - safeMargin;
+        float maxX = fmaxf(p1.x, p2.x) + safeMargin;
+        float minY = fminf(p1.y, p2.y) - safeMargin;
+        float maxY = fmaxf(p1.y, p2.y) + safeMargin;
+
+        // Convert to Grid Coordinates
+        int startGx = (int)((minX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int endGx   = (int)((maxX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int startGy = (int)((minY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+        int endGy   = (int)((maxY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
+
+        // Clamp to world bounds
+        if (startGx < 0) startGx = 0;
+        if (endGx >= SECTOR_GRID_COLS) endGx = SECTOR_GRID_COLS - 1;
+        if (startGy < 0) startGy = 0;
+        if (endGy >= SECTOR_GRID_ROWS) endGy = SECTOR_GRID_ROWS - 1;
+
+        // Add this edge to EVERY sector it physically touches
+        for (int y = startGy; y <= endGy; y++) {
+            for (int x = startGx; x <= endGx; x++) {
+                AddToManifest(&cityRenderer.manifests[y][x], i, 1);
+            }
         }
     }
-
 
     // 3. Areas (Parks)
     for (int i = 0; i < map->areaCount; i++) {
@@ -645,15 +663,14 @@ void BuildSectorManifests(GameMap *map) {
         }
     }
 
-
-    // 4. Pre-calc node degrees for road generation
+    // 4. Pre-calc node degrees
+    if (cityRenderer.nodeDegrees) free(cityRenderer.nodeDegrees);
     cityRenderer.nodeDegrees = (int*)calloc(map->nodeCount, sizeof(int));
     for(int i=0; i<map->edgeCount; i++) {
         if(map->edges[i].startNode < map->nodeCount) cityRenderer.nodeDegrees[map->edges[i].startNode]++;
         if(map->edges[i].endNode < map->nodeCount) cityRenderer.nodeDegrees[map->edges[i].endNode]++;
     }
 }
-
 
 int TriangulatePolygon(Vector2 *points, int count, int *outIndices) {
     if (count < 3) return 0;
@@ -1193,8 +1210,7 @@ void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
     float startX = (gx * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET;
     float startY = (gy * GRID_CELL_SIZE) - SECTOR_WORLD_OFFSET;
 
-    // [FIX] Density: Check every 3.5 meters (was 6.0f)
-    // This fills gaps much better.
+    // Density
     float step = 3.5f; 
 
     // Colors
@@ -1202,10 +1218,12 @@ void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
     Color grassTint = (Color){60, 110, 20, 255};
     Color flowerTint = (Color){200, 200, 200, 255};
 
+    SectorManifest *man = &cityRenderer.manifests[gy][gx];
+
     for (float py = startY; py < startY + GRID_CELL_SIZE; py += step) {
         for (float px = startX; px < startX + GRID_CELL_SIZE; px += step) {
             
-            // 1. Jitter (Organic placement)
+            // 1. Jitter
             float jx = px + GetRandomValue(-15, 15) / 10.0f;
             float jy = py + GetRandomValue(-15, 15) / 10.0f;
             Vector2 pos = {jx, jy};
@@ -1213,46 +1231,49 @@ void GenerateSectorVegetation(GameMap *map, int gx, int gy) {
             // 2. "Sea" Check
             if (!IsInsideCityContext(map, pos)) continue;
 
-            // 3. Building Check
-            // [FIX] Increased to 3.5f to keep trees out of living rooms
-            if (IsTooCloseToBuilding(map, pos, 3.5f)) continue;
+            // 3. Building Check [FIX] Increased buffer to 4.5m
+            if (IsTooCloseToBuilding(map, pos, 4.5f)) continue;
 
-            // 4. Road Check
-            int closestNode = GetClosestNode(map, pos);
-            if (closestNode != -1) {
-                // Uses the new stricter buffer
-                if (IsPointOnAsphalt(map, pos, closestNode)) continue; 
+            // 4. Road Check [FIX]
+            bool onRoad = false;
+            for(int k = 0; k < man->edgeCount; k++) {
+                int eIdx = man->edgeIndices[k];
+                Edge e = map->edges[eIdx];
+                
+                Vector2 p1 = map->nodes[e.startNode].position;
+                Vector2 p2 = map->nodes[e.endNode].position;
+                
+                // [FIX] Road Half Width + Sidewalk (2.5m) + Tree Radius Buffer (3.5m)
+                // Total buffer ensures no foliage touches the pavement.
+                float safeThreshold = (e.width * MAP_SCALE) + 6.0f;
+                
+                if (IsPointNearSegment(pos, p1, p2, safeThreshold)) {
+                    onRoad = true;
+                    break;
+                }
             }
+            if (onRoad) continue;
 
             // 5. Spawn Logic
-            // If we survived the checks, this is a VALID Green Zone.
             Vector3 spawnPos = {jx, 0.0f, jy}; 
             int roll = GetRandomValue(0, 100);
             int rot = GetRandomValue(0, 360);
 
-            // [FIX] Adjusted Probabilities
-            // Previous code left 60% empty. Now we fill almost everything.
             if (roll < 5) { 
-                // Large Tree (5%)
                 BakeObjectToSector(ASSET_PROP_TREE_LARGE, spawnPos, rot, (Vector3){6.5f, 6.5f, 6.5f}, treeTint);
             } 
             else if (roll < 20) { 
-                // Small Tree (15%)
                 BakeObjectToSector(ASSET_PROP_TREE_SMALL, spawnPos, rot, (Vector3){4.5f, 4.5f, 4.5f}, treeTint);
             } 
             else if (roll < 22) { 
-                // Bench (2% - Rare)
                 BakeObjectToSector(ASSET_PROP_BENCH, spawnPos, rot, (Vector3){1.5f, 1.5f, 1.5f}, (Color){100, 70, 40, 255});
             }
             else if (roll < 70) { 
-                // Grass Patch (48% - Filler)
                 BakeObjectToSector(ASSET_PROP_GRASS, spawnPos, rot, (Vector3){2.0f, 1.0f, 2.0f}, grassTint);
             }
             else if (roll < 85) { 
-                // Flowers (15%)
                 BakeObjectToSector(ASSET_PROP_FLOWERS, spawnPos, rot, (Vector3){1.5f, 1.0f, 1.5f}, flowerTint);
             }
-            // Remaining 15% is empty ground (for walking space)
         }
     }
 }
@@ -1848,6 +1869,20 @@ void LoadCityAssets() {
     // [NEW] Generate a shared leg model (Simple gray box)
     Mesh legMesh = GenMeshCube(0.1f, 1.0f, 0.1f); // Unit size
     
+    cityRenderer.locMechanicModel = LoadModel("resources/locations/pitsGarageClosed.obj");
+    cityRenderer.locFuelModel = LoadModel("resources/locations/pitsGarageCorner.obj");
+    cityRenderer.locDealershipModel = LoadModel("resources/locations/pitsOffice.obj");
+
+    // Fallback if missing
+    if(cityRenderer.locMechanicModel.meshCount == 0) cityRenderer.locMechanicModel = LoadModelFromMesh(GenMeshCube(4,3,4));
+    if(cityRenderer.locFuelModel.meshCount == 0) cityRenderer.locFuelModel = LoadModelFromMesh(GenMeshCube(4,3,4));
+    if(cityRenderer.locDealershipModel.meshCount == 0) cityRenderer.locDealershipModel = LoadModelFromMesh(GenMeshCube(4,3,4));
+
+    // [NEW] Load Barriers (Replacing the generic barrier asset if desired, or just loading them)
+    // Assuming you want to replace the standard construction barrier:
+    Model barRed = LoadModel("resources/locations/barrierWhite.obj");
+    if (barRed.meshCount > 0) cityRenderer.models[ASSET_PROP_BARRIER] = barRed;
+
     // [FIX] Allocate memory for colors! GenMeshCube returns NULL for colors.
     legMesh.colors = (unsigned char *)MemAlloc(legMesh.vertexCount * 4 * sizeof(unsigned char));
 
@@ -2581,7 +2616,7 @@ static void DrawCenteredLabel(Camera camera, Vector3 position, const char *text,
     if (screenPos.x > 0 && screenPos.x < GetScreenWidth() && 
         screenPos.y > 0 && screenPos.y < GetScreenHeight()) {
         
-        int fontSize = 20;
+        int fontSize = 45;
         int textW = MeasureText(text, fontSize);
         int padding = 4;
         
@@ -2608,7 +2643,6 @@ void DrawGameMap(GameMap *map, Camera camera) {
     DrawMapBoundaries(camera.position);
     // Only draw dynamic parks if close (Performance Optimization)
     // Dynamic parks use immediate mode drawing which is slow
-    DrawMapBoundaries(camera.position);
     // 2. Visible Range
     int range = (int)(RENDER_DIST_BASE / GRID_CELL_SIZE); 
     if (range < 1) range = 1; // Safety minimum
@@ -2653,83 +2687,130 @@ void DrawGameMap(GameMap *map, Camera camera) {
     
     // ... (Keep existing locations/events drawing logic) ...
     // Note: Ensure the rest of the function remains the same as previous steps
-    // E. Draw Locations (Minimalist & Small)
-        // E. Draw Locations (Minimalist & Small)
-        for (int i = 0; i < map->locationCount; i++) {
-            if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DIST_BASE) continue;
+    // E. Draw Locations (Corrected Center & Height)
+    for (int i = 0; i < map->locationCount; i++) {
+        if (Vector2Distance(pPos2D, map->locations[i].position) > RENDER_DIST_BASE) continue;
+        
+        // --- 1. SNAPPING LOGIC ---
+        Vector3 drawPos = { map->locations[i].position.x, 0.0f, map->locations[i].position.y };
+        float rotAngle = 0.0f; 
+        
+        int nodeIdx = GetClosestNode(map, map->locations[i].position);
+        
+        if (nodeIdx != -1 && map->graph && map->graph[nodeIdx].count > 0) {
+            int edgeIdx = map->graph[nodeIdx].connections[0].edgeIndex;
+            Edge e = map->edges[edgeIdx];
+            Vector2 p1 = map->nodes[e.startNode].position;
+            Vector2 p2 = map->nodes[e.endNode].position;
             
-            // --- 1. SNAPPING LOGIC (Keep buildings facing the road) ---
-            Vector3 drawPos = { map->locations[i].position.x, 0.0f, map->locations[i].position.y };
-            float rotAngle = 0.0f; 
+            Vector2 roadDir = Vector2Normalize(Vector2Subtract(p2, p1));
+            Vector2 roadNormal = { -roadDir.y, roadDir.x }; 
             
-            int nodeIdx = GetClosestNode(map, map->locations[i].position);
+            Vector2 toPoint = Vector2Subtract(map->locations[i].position, p1);
+            if (Vector2DotProduct(toPoint, roadNormal) < 0) roadNormal = Vector2Negate(roadNormal);
             
-            if (nodeIdx != -1 && map->graph && map->graph[nodeIdx].count > 0) {
-                int edgeIdx = map->graph[nodeIdx].connections[0].edgeIndex;
-                Edge e = map->edges[edgeIdx];
-                Vector2 p1 = map->nodes[e.startNode].position;
-                Vector2 p2 = map->nodes[e.endNode].position;
-                
-                Vector2 roadDir = Vector2Normalize(Vector2Subtract(p2, p1));
-                Vector2 roadNormal = { -roadDir.y, roadDir.x }; 
-                
-                Vector2 toPoint = Vector2Subtract(map->locations[i].position, p1);
-                if (Vector2DotProduct(toPoint, roadNormal) < 0) roadNormal = Vector2Negate(roadNormal);
-                
-                float t = Vector2DotProduct(toPoint, roadDir);
-                Vector2 centerOnRoad = Vector2Add(p1, Vector2Scale(roadDir, t));
-                
-                // [FIX] Reduced Offset: Closer to the curb (RoadWidth + 2.5m)
-                float offset = (e.width * MAP_SCALE) + 2.5f; 
-                
-                Vector2 finalPos = Vector2Add(centerOnRoad, Vector2Scale(roadNormal, offset));
-                drawPos.x = finalPos.x;
-                drawPos.z = finalPos.y;
-                rotAngle = atan2f(-roadNormal.x, -roadNormal.y) * RAD2DEG;
-            }
+            float t = Vector2DotProduct(toPoint, roadDir);
+            Vector2 centerOnRoad = Vector2Add(p1, Vector2Scale(roadDir, t));
+            
+            // [FIX] Reduced Offset to 5.0f (Closer to road)
+            float offset = (e.width * MAP_SCALE) + 5.0f; 
+            
+            Vector2 finalPos = Vector2Add(centerOnRoad, Vector2Scale(roadNormal, offset));
+            drawPos.x = finalPos.x;
+            drawPos.z = finalPos.y;
+            rotAngle = atan2f(-roadNormal.x, -roadNormal.y) * RAD2DEG;
+        }
 
-            // --- 2. MINIMALIST PROPS ---
-            
-            // Calculate side offset vector for placing sign next to prop
-            float rad = rotAngle * DEG2RAD;
-            Vector3 sideOffset = { cosf(rad) * 1.5f, 0.0f, sinf(rad) * 1.5f };
+        // Common Calculations
+        float rad = rotAngle * DEG2RAD;
+        float s = sinf(rad);
+        float c = cosf(rad);
+        Vector3 modelScale = { 2.5f, 2.5f, 2.5f };
 
-            if (map->locations[i].type == LOC_FUEL) {
-                // GAS PUMP (Small Yellow Box)
-                // Scale: 0.8m wide, 1.8m tall
-                DrawModelEx(cityRenderer.models[ASSET_PROP_BOX], (Vector3){drawPos.x, 0.9f, drawPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.8f, 1.8f, 0.8f}, YELLOW);
-                
-                // SIGN (Small, next to pump)
-                Vector3 signPos = Vector3Add(drawPos, sideOffset);
-                DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
-                DrawModelEx(cityRenderer.signGas, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
-            }
-            else if (map->locations[i].type == LOC_MECHANIC) {
-                // MECHANIC STAND (Low Workbench)
-                // Scale: 2.0m wide, 0.8m tall
-                DrawModelEx(cityRenderer.models[ASSET_PROP_BOX], (Vector3){drawPos.x, 0.4f, drawPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){2.0f, 0.8f, 0.8f}, DARKBLUE);
-                
-                // SIGN
-                Vector3 signPos = Vector3Add(drawPos, sideOffset);
-                DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
-                DrawModelEx(cityRenderer.signMechanic, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
-            }
-            else if (map->locations[i].type == LOC_DEALERSHIP) {
-                // CAR PLATFORM (Cylinder)
-                DrawCylinder((Vector3){drawPos.x, 0.1f, drawPos.z}, 1.8f, 1.8f, 0.2f, 16, DARKGRAY);
-                
-                // ROTATING DISPLAY CAR
-                float spin = (float)GetTime() * 30.0f;
-                DrawModelEx(cityRenderer.models[ASSET_CAR_SEDAN], (Vector3){drawPos.x, 0.2f, drawPos.z}, (Vector3){0,1,0}, spin, (Vector3){1.0f, 1.0f, 1.0f}, GOLD);
-                
-                // SIGN (Behind the platform)
-                Vector3 backOff = { -sinf(rad)*2.0f, 0, -cosf(rad)*2.0f };
-                Vector3 signPos = Vector3Add(drawPos, backOff);
-                
-                DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
-                DrawModelEx(cityRenderer.signDealership, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
+        // --- 2. DRAWING PER TYPE ---
+
+        if (map->locations[i].type == LOC_FUEL) {
+            // GAS STATION
+            // Rotation: +90
+            DrawModelEx(cityRenderer.locFuelModel, drawPos, (Vector3){0,1,0}, rotAngle + 90.0f, modelScale, WHITE);
+            
+            // [FIX] Center Calculation: 
+            // Relative to pivot (drawPos), move diagonally to find the "middle" of the L-shape
+            Vector3 centerPos = { 
+                drawPos.x + (c * 2.5f), 
+                0.9f, 
+                drawPos.z - (s * 2.5f) 
+            };
+
+            // Sign
+            Vector3 signPos = { drawPos.x + (c*5.0f), 0.0f, drawPos.z - (s*5.0f) };
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
+            DrawModelEx(cityRenderer.signGas, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
+            
+            if (Vector3DistanceSqr(centerPos, camera.position) < 144.0f) {
+                DrawCenteredLabel(camera, centerPos, "Refuel [E]", YELLOW);
             }
         }
+        else if (map->locations[i].type == LOC_MECHANIC) {
+            // MECHANIC
+            // Rotation: +180
+            DrawModelEx(cityRenderer.locMechanicModel, drawPos, (Vector3){0,1,0}, rotAngle + 180.0f, modelScale, WHITE);
+            
+            // [FIX] Center Calculation for +180 model
+            // Moves "Left" and "Back" relative to pivot
+            Vector3 centerPos = { 
+                drawPos.x - (c * 2.0f) - (s * 2.0f), 
+                0.9f, 
+                drawPos.z + (s * 2.0f) - (c * 2.0f) 
+            };
+
+            // Sign
+            Vector3 signPos = { drawPos.x + (c*4.0f), 0.0f, drawPos.z - (s*4.0f) };
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
+            DrawModelEx(cityRenderer.signMechanic, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
+
+            if (Vector3DistanceSqr(centerPos, camera.position) < 144.0f) {
+                DrawCenteredLabel(camera, centerPos, "Mechanic [E]", SKYBLUE);
+            }
+        }
+        else if (map->locations[i].type == LOC_DEALERSHIP) {
+            // DEALERSHIP
+            // [FIX] Lowered Building Base to 0.2f
+            Vector3 buildingPos = { drawPos.x + - 1.0f, 0.2f, drawPos.z };
+            DrawModelEx(cityRenderer.locDealershipModel, buildingPos, (Vector3){0,1,0}, rotAngle + 90.0f, modelScale, WHITE);
+            
+            // [FIX] Adjusted Center Calculation
+            // The building is rectangular, not square. We need to push further "Back" (local Z)
+            // relative to the rotation to find the true center.
+            // Move: 2.0m Right (width), 3.5m Back (length)
+            Vector3 centerPos = { 
+                drawPos.x + (c * 2.0f) - (s * 3.5f) - 4.6f, 
+                1.6f, // [FIX] Halved Height (was 3.8f -> 2.2f)
+                drawPos.z - (s * 2.0f) - (c * 3.5f) - 3.4f
+            };
+            
+            // Car & Platform
+            float spin = (float)GetTime() * 20.0f;
+            DrawCylinder((Vector3){centerPos.x, centerPos.y - 0.1f, centerPos.z}, 1.2f, 1.25f, 0.1f, 16, DARKGRAY);
+            DrawModelEx(cityRenderer.models[ASSET_CAR_SEDAN], centerPos, (Vector3){0,1,0}, spin, (Vector3){0.6f, 0.6f, 0.6f}, WHITE);
+            
+            // Sign (Side Flank)
+            Vector3 signPos = { 
+                drawPos.x + (c * 6.0f), 
+                0.0f, 
+                drawPos.z - (s * 6.0f) 
+            };
+            
+            DrawModelEx(cityRenderer.signLegModel, (Vector3){signPos.x, 0.9f, signPos.z}, (Vector3){0,1,0}, rotAngle + 90.0f, (Vector3){0.1f, 1.8f, 0.1f}, WHITE);
+            DrawModelEx(cityRenderer.signDealership, (Vector3){signPos.x, 1.8f, signPos.z}, (Vector3){0,1,0}, rotAngle + 180.0f, (Vector3){1.0f, 1.0f, 1.0f}, WHITE);
+
+            // Prompt (Lowered slightly to 0.9f)
+            Vector3 promptPos = { centerPos.x, 0.9f, centerPos.z };
+            if (Vector3DistanceSqr(promptPos, camera.position) < 144.0f) {
+                DrawCenteredLabel(camera, promptPos, "Enter Dealership [E]", GOLD);
+            }
+        }
+    }
 
     // 5. Draw Events
     for(int i=0; i<MAX_EVENTS; i++) {
@@ -2753,13 +2834,13 @@ void DrawGameMap(GameMap *map, Camera camera) {
         }
     }
     
-    // Interaction Prompts
+    // [FIX] Interaction Prompts (Lowered Height)
     for (int i = 0; i < map->locationCount; i++) {
         if (map->locations[i].type == LOC_FUEL || map->locations[i].type == LOC_MECHANIC || map->locations[i].type == LOC_DEALERSHIP) {
             if (Vector2Distance(pPos2D, map->locations[i].position) > 50.0f) continue;
 
-            // RE-CALCULATE SNAPPED POSITION FOR TEXT
-            Vector3 targetPos = { map->locations[i].position.x, 2.5f, map->locations[i].position.y };
+            // Recalculate snapped pos (identical logic to models)
+            Vector3 targetPos = { map->locations[i].position.x, 0.9f, map->locations[i].position.y }; // [FIX] Lowered Y to 1.8f
             
             int nodeIdx = GetClosestNode(map, map->locations[i].position);
             if (nodeIdx != -1 && map->graph && map->graph[nodeIdx].count > 0) {
@@ -2769,13 +2850,12 @@ void DrawGameMap(GameMap *map, Camera camera) {
                 Vector2 p2 = map->nodes[e.endNode].position;
                 Vector2 roadDir = Vector2Normalize(Vector2Subtract(p2, p1));
                 Vector2 roadNormal = { -roadDir.y, roadDir.x }; 
-                
                 Vector2 toPoint = Vector2Subtract(map->locations[i].position, p1);
                 if (Vector2DotProduct(toPoint, roadNormal) < 0) roadNormal = Vector2Negate(roadNormal);
-                
                 float t = Vector2DotProduct(toPoint, roadDir);
                 Vector2 centerOnRoad = Vector2Add(p1, Vector2Scale(roadDir, t));
-                float offset = (e.width * MAP_SCALE) + 2.5f; 
+                
+                float offset = (e.width * MAP_SCALE) + 4.0f; // Match Model Offset
                 
                 Vector2 finalPos = Vector2Add(centerOnRoad, Vector2Scale(roadNormal, offset));
                 targetPos.x = finalPos.x;
@@ -2920,7 +3000,7 @@ void DrawZoneMarker(GameMap *map, Camera camera, Vector3 drawPos, Color color) {
             EndMode3D();
             
                 const char* txt = isDropOff ? "DROP ZONE" : "PICKUP";
-                int fontSize = 20;
+                int fontSize = 40;
                 int textW = MeasureText(txt, fontSize);
                 
                 // Draw Background Badge
@@ -2951,21 +3031,32 @@ int SearchLocations(GameMap *map, const char* query, MapLocation* results) {
 }
 
 
-// [OPTIMIZATION] Fast Collision Check
+// [NEW] Helper for precise wall distance
+float GetDistToSegmentSq(Vector2 p, Vector2 a, Vector2 b) {
+    Vector2 pa = Vector2Subtract(p, a);
+    Vector2 ba = Vector2Subtract(b, a);
+    float h = Clamp(Vector2DotProduct(pa, ba) / Vector2DotProduct(ba, ba), 0.0f, 1.0f);
+    return Vector2DistanceSqr(p, Vector2Add(a, Vector2Scale(ba, h)));
+}
+
+// [OPTIMIZATION] Fast Collision Check (Updated with Buffer)
 bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCamera) {
     // 1. Determine which cell the object is in
     int gx = (int)((x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
     int gy = (int)((z + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE);
 
     Vector2 p = { x, z };
+    
+    // [FIX] Push collision out by 1.0f units + Player Radius
+    // This treats the walls as "thicker" and prevents center-point clipping.
+    float safeDist = radius;
+    float safeDistSq = safeDist * safeDist;
 
-    // 2. Check 3x3 grid around player (to handle straddling borders)
+    // 2. Check 3x3 grid around player
     for (int cy = gy - 1; cy <= gy + 1; cy++) {
         for (int cx = gx - 1; cx <= gx + 1; cx++) {
             
-            // Bounds check
             if (cx < 0 || cx >= SECTOR_GRID_COLS || cy < 0 || cy >= SECTOR_GRID_ROWS) continue;
-
 
             CollisionCell *cell = &colGrid[cy][cx];
             
@@ -2974,25 +3065,32 @@ bool CheckMapCollision(GameMap *map, float x, float z, float radius, bool isCame
                 int bIdx = cell->indices[k];
                 Building *b = &map->buildings[bIdx];
 
-
-                // Precise Poly Check
+                // A. Interior Check (Are we physically inside?)
                 if (CheckCollisionPointPoly(p, b->footprint, b->pointCount)) return true;
+                
+                // B. [NEW] Wall Buffer Check
+                // Check if we are too close to any exterior wall
+                for (int i = 0; i < b->pointCount; i++) {
+                    Vector2 v1 = b->footprint[i];
+                    Vector2 v2 = b->footprint[(i + 1) % b->pointCount];
+                    
+                    if (GetDistToSegmentSq(p, v1, v2) < safeDistSq) {
+                        return true; // Hit the invisible 1-unit buffer
+                    }
+                }
             }
         }
     }
 
-    //if (CheckBoundaryCollision((Vector3){x, 0, z}, radius)) return true;
-    // 4. Check Events (Keep this global as there are few of them)
+    // 4. Check Events (Keep this global)
     if (!isCamera){
         for(int i=0; i<MAX_EVENTS; i++) {
             if (map->events[i].active) {
-                // [FIX] Reduced hitbox by 50% (* 0.5f) to match the new visual barriers
                 float effectiveRadius = (map->events[i].radius * 0.5f) + radius;
                 if (Vector2Distance(p, map->events[i].position) < effectiveRadius) return true;
             }
         }
     }
-
 
     return false;
 }
@@ -3409,19 +3507,40 @@ GameMap LoadGameMap(const char *fileName) {
 // --- 2D MAP OPTIMIZATION ---
 // Uses the Sector Grid to draw ONLY what is visible on the phone screen.
 // This is 100x faster than looping through all buildings.
+// --- 2D MAP OPTIMIZATION ---
+// Uses the Sector Grid to draw ONLY what is visible on the phone screen.
+// This is 100x faster than looping through all buildings.
 void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
     if (!cityRenderer.loaded) return;
 
-    // 1. Calculate Visible World Bounds
-    // We reverse the camera transform to find where the screen corners are in the world
-    Vector2 topLeft = GetScreenToWorld2D((Vector2){0, 0}, cam);
-    Vector2 bottomRight = GetScreenToWorld2D((Vector2){screenW, screenH}, cam);
+    // 1. Calculate Visible World Bounds (Robust Rotation Support)
+    // We must check ALL four corners, not just top-left/bottom-right,
+    // because rotation changes which corner is the "min" or "max".
+    Vector2 corners[4];
+    corners[0] = GetScreenToWorld2D((Vector2){0, 0}, cam);             // Top Left
+    corners[1] = GetScreenToWorld2D((Vector2){screenW, 0}, cam);       // Top Right
+    corners[2] = GetScreenToWorld2D((Vector2){0, screenH}, cam);       // Bottom Left
+    corners[3] = GetScreenToWorld2D((Vector2){screenW, screenH}, cam); // Bottom Right
 
-    // 2. Convert to Grid Coordinates
-    int minX = (int)((topLeft.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - 1;
-    int minY = (int)((topLeft.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - 1;
-    int maxX = (int)((bottomRight.x + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + 1;
-    int maxY = (int)((bottomRight.y + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + 1;
+    float minWorldX = corners[0].x;
+    float maxWorldX = corners[0].x;
+    float minWorldY = corners[0].y;
+    float maxWorldY = corners[0].y;
+
+    for(int i = 1; i < 4; i++) {
+        if (corners[i].x < minWorldX) minWorldX = corners[i].x;
+        if (corners[i].x > maxWorldX) maxWorldX = corners[i].x;
+        if (corners[i].y < minWorldY) minWorldY = corners[i].y;
+        if (corners[i].y > maxWorldY) maxWorldY = corners[i].y;
+    }
+
+    // 2. Convert to Grid Coordinates with Buffer
+    // We add a +/- 2 chunk buffer to ensure smooth edges when zooming out
+    int buffer = 2;
+    int minX = (int)((minWorldX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - buffer;
+    int minY = (int)((minWorldY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) - buffer;
+    int maxX = (int)((maxWorldX + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + buffer;
+    int maxY = (int)((maxWorldY + SECTOR_WORLD_OFFSET) / GRID_CELL_SIZE) + buffer;
 
     // Clamp to map bounds
     if (minX < 0) minX = 0;
@@ -3442,7 +3561,6 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
                 if (area->pointCount < 3) continue;
                 Color areaColor = Fade(area->color, 0.4f);
                 DrawTriangleFan(area->points, area->pointCount, areaColor);
-                // Simplify outline for performance (skip thick lines if zoomed out)
                 if (cam.zoom > 1.0f) {
                     DrawLineStrip(area->points, area->pointCount, areaColor);
                 }
@@ -3483,5 +3601,4 @@ void DrawMap2DView(GameMap *map, Camera2D cam, float screenW, float screenH) {
         }
     }
 }
-
 

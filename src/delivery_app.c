@@ -257,8 +257,8 @@ static void DrawHomeScreen(PhoneState *phone, Player *player, Rectangle screenRe
         DrawRectangleRounded((Rectangle){cardRect.x + cardRect.width - pw - 20, cardRect.y + 10, pw + 10, 26}, 0.5f, 4, COLOR_ACCENT);
         DrawText(price, cardRect.x + cardRect.width - pw - 15, cardRect.y + 13, 20, WHITE);
         const char* dist = TextFormat("%.1fkm", t->distance/1000.0f);
-        if(t->status == JOB_ACCEPTED) dist = "PICK UP";
-        if(t->status == JOB_PICKED_UP) dist = "DELIVERING";
+        if(t->status == JOB_ACCEPTED) dist = "PICK UP [E]";
+        if(t->status == JOB_PICKED_UP) dist = "DELIVERING [E]";
         DrawText(dist, cardRect.x + cardRect.width - MeasureText(dist, 14) - 15, cardRect.y + 65, 14, (t->status != JOB_AVAILABLE)?COLOR_ACCENT:GRAY);
         y += 100;
     }
@@ -400,52 +400,7 @@ void UpdateDeliveryApp(PhoneState *phone, Player *player, GameMap *map) {
             // Minimum Pay Floor
             if (t->pay < 0.0f) t->pay = 0.0f; // Allow it to hit 0 for total destruction
 
-            // ... (Keep Delivery Completion Logic exactly as before) ...
-            /*if (Vector2Distance((Vector2){player->position.x, player->position.z}, t->customerPos) < 5.0f) {
-                t->status = JOB_DELIVERED;
-                ShowPhoneNotification("Delivered!", GREEN);
-                
-                // Add Base Pay
-                AddMoney(player, t->restaurant, t->pay);
-                player->totalEarnings += t->pay;
-                player->totalDeliveries++;
-                
-                // Tip Logic (Updated Low Rates)
-                double realElapsed = currentTime - t->creationTime;
-                double effectiveElapsed = realElapsed * player->insulationFactor;
-                float tip = 0.0f;
-
-                if (t->timeLimit <= 0 || effectiveElapsed < t->timeLimit) {
-                    // Base Tip: 10%
-                    tip = t->pay * 0.10f; 
-
-                    // Fragile Bonus: $3 (Only if mostly intact)
-                    if (t->fragility > 0.0f) {
-                        if (t->pay >= t->maxPay * 0.8f) tip += 3.0f; 
-                    }
-
-                    // Speed Bonus: $2
-                    if (t->timeLimit > 0 && effectiveElapsed < t->timeLimit * 0.6f) {
-                        tip += 2.0f;
-                    }
-                }
-                
-                // Cap tip
-                if (tip > t->pay * 0.5f) tip = t->pay * 0.5f;
-
-                if (tip > 0) {
-                    AddMoney(player, "Tip", tip);
-                    ShowPhoneNotification(TextFormat("Paid $%.2f + $%.2f Tip!", t->pay, tip), COLOR_ACCENT);
-                } else {
-                    ShowPhoneNotification(TextFormat("Paid $%.2f", t->pay), GREEN);
-                }
-                
-                Vector3 fwd = { sinf(player->angle*DEG2RAD), 0, cosf(player->angle*DEG2RAD) };
-                TriggerRandomEvent(map, player->position, fwd);
-                eventFallbackTimer = 120.0f; 
-                SaveGame(player, phone);
-                ShowPhoneNotification("Auto-Saved", LIME);
-            }*/
+            
         }
     }
 }

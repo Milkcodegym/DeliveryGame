@@ -425,10 +425,6 @@ void DrawMenuDiorama(void) {
             rlSetBlendMode(RL_BLEND_ALPHA); 
         }
         
-        DrawModelEx(menuAssets.tree, (Vector3){12.0f, 0.0f, -5.0f}, (Vector3){0,1,0}, 45.0f, (Vector3){6.0f, 6.0f, 6.0f}, treeTint);
-        DrawModelEx(menuAssets.tree, (Vector3){-12.0f, 0.0f, -15.0f}, (Vector3){0,1,0}, 90.0f, (Vector3){5.5f, 5.5f, 5.5f}, treeTint);
-        DrawModelEx(menuAssets.trash, (Vector3){9.0f, 0.0f, 5.0f}, (Vector3){0,1,0}, 0.0f, (Vector3){1.5f, 1.5f, 1.5f}, GRAY);
-
         // --- BATCHED CITY DRAWING (HIGH PERFORMANCE) ---
         // This replaces the 6000 separate DrawCube calls
         rlBegin(RL_QUADS);

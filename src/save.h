@@ -42,6 +42,11 @@ typedef struct GameSaveData {
     float insulationFactor;
     float loadResistance;
 
+    bool ownedCars[10];
+    bool ownedUpgrades[10];
+    int currentCarIndex;
+    bool isDrivingUpgrade;
+    
     // Resource State
     float fuel;
     float health;

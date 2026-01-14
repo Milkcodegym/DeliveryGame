@@ -84,6 +84,7 @@ static void ForceSpawnJob(PhoneState *phone, GameMap *map, bool isFragile) {
         snprintf(phone->tasks[0].customer, 32, "Tutorial House");
         phone->tasks[0].customerPos = map->locations[houseIdx].position;
         phone->tasks[0].pay = 150.0f; 
+        phone->tasks[0].maxPay = 150.0f; 
         phone->tasks[0].distance = Vector2Distance(phone->tasks[0].restaurantPos, phone->tasks[0].customerPos);
         phone->tasks[0].creationTime = GetTime();
         
@@ -292,7 +293,7 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     DrawText(expl, cx + 250*scale, cy + 60*scale, (int)(18*scale), DARKGRAY);
 
     Rectangle btnDone = { x + w - 180*scale, y + h - 60*scale, 160*scale, 40*scale };
-    DrawRectangleRec(btnDone, GREEN);
+    DrawRectangleRec(btnDone, GREEN); 
     const char* btnTxt = isHelpMode ? "CLOSE HELP" : "LET'S DRIVE";
     DrawText(btnTxt, btnDone.x + 25*scale, btnDone.y + 10*scale, (int)(16*scale), BLACK);
     

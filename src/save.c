@@ -3,14 +3,7 @@
  * Game Title: Delivery Game
  * Authors: Lucas Liço, Michail Michailidis
  * Copyright (c) 2025-2026
- *
  * License: zlib/libpng
- *
- * This software is provided 'as-is', without any express or implied warranty.
- * In no event will the authors be held liable for any damages arising from
- * the use of this software.
- *
- * Full license terms: see the LICENSE file.
  * -----------------------------------------------------------------------------
  */
 
@@ -36,7 +29,7 @@ bool SaveGame(Player *player, PhoneState *phone) {
     data.position = player->position;
     data.angle = player->angle;
     
-    // Car Stats (Critical for Dealership Persistence)
+    // Car Stats
     strcpy(data.modelFileName, player->currentModelFileName);
     data.max_speed = player->max_speed;
     data.acceleration = player->acceleration;
@@ -45,6 +38,14 @@ bool SaveGame(Player *player, PhoneState *phone) {
     data.fuelConsumption = player->fuelConsumption;
     data.insulationFactor = player->insulationFactor;
     data.loadResistance = player->loadResistance;
+
+    // [FIX] Garage Persistence
+    for(int i=0; i<10; i++) {
+        data.ownedCars[i] = player->ownedCars[i];
+        data.ownedUpgrades[i] = player->ownedUpgrades[i];
+    }
+    data.currentCarIndex = player->currentCarIndex;
+    data.isDrivingUpgrade = player->isDrivingUpgrade;
 
     // Resources
     data.fuel = player->fuel;
@@ -110,7 +111,6 @@ bool LoadGame(Player *player, PhoneState *phone) {
     Obfuscate((unsigned char*)&data, sizeof(GameSaveData));
 
     // 2. VERSION CHECK
-    // If version mismatches, we usually reset to avoid garbage data
     if (data.version != SAVE_VERSION) {
         TraceLog(LOG_WARNING, "SAVE: Save version mismatch (Old file?). Starting fresh.");
         return false;
@@ -122,23 +122,26 @@ bool LoadGame(Player *player, PhoneState *phone) {
     player->position = data.position;
     player->angle = data.angle;
     
+    // [FIX] Garage Restoration
+    for(int i=0; i<10; i++) {
+        player->ownedCars[i] = data.ownedCars[i];
+        player->ownedUpgrades[i] = data.ownedUpgrades[i];
+    }
+    player->currentCarIndex = data.currentCarIndex;
+    player->isDrivingUpgrade = data.isDrivingUpgrade;
+
     // --- CAR MODEL RESTORATION ---
-    // Check if the saved model is different from current default
     if (strlen(data.modelFileName) > 0) {
         TraceLog(LOG_INFO, "SAVE: Restoring vehicle model: %s", data.modelFileName);
         
-        // Unload default/previous model
         UnloadModel(player->model);
         
-        // Load Saved Car
         char path[128];
         sprintf(path, "resources/Playermodels/%s", data.modelFileName);
         player->model = LoadModel(path);
         
-        // Store filename in player struct for next save
         strcpy(player->currentModelFileName, data.modelFileName);
         
-        // Recalculate bounds
         BoundingBox box = GetModelBoundingBox(player->model);
         player->radius = (box.max.x - box.min.x) * 0.4f;
     }
@@ -166,7 +169,6 @@ bool LoadGame(Player *player, PhoneState *phone) {
         player->history[i] = data.history[i];
     }
 
-    
     // Pins
     player->pinSpeed = data.pinSpeed;
     player->pinFuel = data.pinFuel;
@@ -190,20 +192,17 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     }
 
     // 2. RESOURCE CLEANUP
-    // Unload the current vehicle model to prevent leaks/errors
     if (player->model.meshCount > 0) {
         UnloadModel(player->model);
-        player->model = (Model){0}; // Safety null
+        player->model = (Model){0}; 
     }
 
-    // 3. RESET PLAYER STATE (Manual Factory Reset)
-    // --- Physics & Stats ---
-    player->position = (Vector3){ 0.0f, 1.0f, 0.0f }; // Safe spawn height
+    // 3. RESET PLAYER STATE
+    player->position = (Vector3){ 0.0f, 1.0f, 0.0f }; 
     player->angle = 0.0f;
     player->current_speed = 0.0f;
     player->health = 100.0f;
     
-    // --- Economy ---
     player->money = 50.0f;
     player->fuel = 100.0f;
     player->maxFuel = 100.0f;
@@ -212,7 +211,7 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->totalEarnings = 0;
     player->transactionCount = 0;
     
-    // --- Vehicle (Default Van Stats) ---
+    // Reset to Default Van
     player->max_speed = 22.0f;
     player->acceleration = 1.3f;
     player->brake_power = 2.0f;
@@ -221,14 +220,12 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     player->insulationFactor = 0.0f;
     player->loadResistance = 0.0f;
     
-    // Load Default Model
     char path[128] = "resources/Playermodels/sedan.obj";
     if (FileExists(path)) {
         player->model = LoadModel(path);
         strcpy(player->currentModelFileName, "sedan.obj");
     }
     
-    // --- Clear History ---
     for(int i=0; i<MAX_TRANSACTIONS; i++) {
         player->history[i] = (Transaction){0};
     }
@@ -241,15 +238,14 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     // Reset Garage
     for(int i=0; i<10; i++) {
         player->ownedCars[i] = false;
-        player->ownedUpgrades[i] = false; // [NEW]
+        player->ownedUpgrades[i] = false;
     }
     
     player->ownedCars[1] = true; 
     player->currentCarIndex = 1;
-    player->isDrivingUpgrade = false; // [NEW]
+    player->isDrivingUpgrade = false; 
 
-    // --- Progression ---
-    player->tutorialFinished = false; // Restart tutorial
+    player->tutorialFinished = false; 
 
     // 4. RESET PHONE
     phone->isOpen = false;
@@ -257,18 +253,15 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
     phone->currentApp = APP_HOME;
     phone->activeTaskCount = 0;
     
-    // Clear Tasks
     for(int i=0; i<5; i++) {
         phone->tasks[i].status = JOB_AVAILABLE;
         phone->tasks[i].timeLimit = 0;
     }
 
-    // Reset Settings
     phone->settings.masterVolume = 1.0f;
     phone->settings.sfxVolume = 1.0f;
     phone->settings.mute = false;
 
-    // Reset Music
     phone->music.isPlaying = false;
     phone->music.currentSongIdx = 0;
 

@@ -175,7 +175,6 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             continue;
         }
 
-        // [FIX] Correctly identify the current edge for speed and lane logic
         Edge currentEdge = map->edges[v->currentEdgeIndex];
 
         // --- SPEED LOGIC ---
@@ -184,10 +183,57 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
         
         float targetSpeed = maxEdgeSpeed;
         
-        // Yield at intersections
-        if (v->progress > 0.85f) targetSpeed = 2.0f; 
+        // [FIX] SMART TURN LOGIC
+        // Instead of slowing down at 85% progress unconditionally, we calculate the angle.
+        // We use distance (meters) instead of progress (%) for consistency.
+        float distRemaining = v->edgeLength * (1.0f - v->progress);
+        
+        if (distRemaining < 25.0f) { // Approaching intersection (25m out)
+            if (v->nextEdgeIndex != -1) {
+                // 1. Calculate Current Direction
+                Vector2 s1 = map->nodes[v->startNodeID].position;
+                Vector2 e1 = map->nodes[v->endNodeID].position;
+                Vector2 dir1 = Vector2Normalize(Vector2Subtract(e1, s1));
 
-        // Obstacle detection
+                // 2. Calculate Next Direction
+                Edge nextE = map->edges[v->nextEdgeIndex];
+                Vector2 s2 = map->nodes[nextE.startNode].position;
+                Vector2 e2 = map->nodes[nextE.endNode].position;
+                
+                // Determine which way the next road goes (away from intersection)
+                // The intersection node is v->endNodeID.
+                Vector2 dir2;
+                if (nextE.startNode == v->endNodeID) {
+                    dir2 = Vector2Normalize(Vector2Subtract(e2, s2));
+                } else {
+                    dir2 = Vector2Normalize(Vector2Subtract(s2, e2));
+                }
+
+                // 3. Dot Product check
+                // 1.0 = Straight, 0.0 = 90 Degree Turn, -1.0 = U-Turn
+                float turnSharpness = Vector2DotProduct(dir1, dir2);
+                
+                // If turn is sharp (Dot < 0.9), slow down.
+                // 0.9 covers gentle curves. Anything less means "brake".
+                if (turnSharpness < 0.9f) {
+                    float turnSpeed = 6.0f; // 
+                    
+                    // Smoothly blend from RoadSpeed down to TurnSpeed as we get closer
+                    float blend = distRemaining / 25.0f; 
+                    float approachSpeed = Lerp(turnSpeed, maxEdgeSpeed, blend);
+                    
+                    if (approachSpeed < targetSpeed) targetSpeed = approachSpeed;
+                }
+                // ELSE: Going straight, keep targetSpeed at maxEdgeSpeed!
+            } 
+            else {
+                // Dead End: Slow to stop
+                float blend = distRemaining / 25.0f;
+                targetSpeed = Lerp(0.0f, maxEdgeSpeed, blend);
+            }
+        }
+
+        // Obstacle detection (Car ahead)
         float distToCar = GetDistanceToCarAhead(traffic, i, v->position, v->forward, v->currentEdgeIndex);
         if (distToCar != -1.0f) {
             if (distToCar < STOP_DISTANCE) targetSpeed = 0.0f; 
@@ -197,6 +243,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             }
         }
 
+        // Obstacle detection (Player)
         float distToPlayer = GetDistanceToPlayer(v->position, v->forward, player_position);
         if (distToPlayer != -1.0f) {
             if (distToPlayer < STOP_DISTANCE) targetSpeed = 0.0f; 
@@ -207,6 +254,7 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             }
         }
 
+        // Apply Speed
         v->speed = Lerp(v->speed, targetSpeed, ((v->speed > targetSpeed) ? BRAKE_RATE : ACCEL_RATE) * dt);
 
         // Stuck removal
@@ -233,25 +281,19 @@ void UpdateTraffic(TrafficManager *traffic, Vector3 player_position, GameMap *ma
             v->nextEdgeIndex = FindNextEdge(map, v->endNodeID, v->currentEdgeIndex);
             
             v->edgeLength = Vector2Distance(map->nodes[v->startNodeID].position, map->nodes[v->endNodeID].position);
-            // Refresh currentEdge for the position logic below
-            currentEdge = nextE;
+            currentEdge = nextE; // Update local handle
         }
 
-        // --- [FIX] STRAIGHT ALIGNMENT AND LANE LOGIC ---
+        // --- LANE ALIGNMENT ---
         Vector2 s2d = map->nodes[v->startNodeID].position;
         Vector2 e2d = map->nodes[v->endNodeID].position;
         
-        // Exact direction of the road
         Vector2 roadDir2D = Vector2Normalize(Vector2Subtract(e2d, s2d));
         v->forward = (Vector3){ roadDir2D.x, 0, roadDir2D.y };
 
-        // Lerp position on the center line
         Vector2 centerPos2D = Vector2Lerp(s2d, e2d, v->progress);
-        
-        // Perpendicular vector for lane offset (Right side of road)
         Vector2 rightVec2D = { -roadDir2D.y, roadDir2D.x };
         
-        // Calculate offset (if two-way, move to right lane)
         float offsetVal = currentEdge.oneway ? 0.0f : (currentEdge.width * 0.25f);
         
         v->position.x = centerPos2D.x + (rightVec2D.x * offsetVal);
@@ -298,7 +340,7 @@ void DrawTraffic(TrafficManager *traffic) {
 
             // C. [THE FIX] Rotate the "Model" 45 degrees clockwise before drawing
             // We apply this second rotation so all components are baked into this offset
-            rlRotatef(-22.0f, 0, 1, 0); 
+            rlRotatef(-10.0f, 0, 1, 0); 
 
             // 1. Chassis
             DrawCube((Vector3){0, 0, 0}, chassisSize.x, chassisSize.y, chassisSize.z, v->color);
@@ -340,8 +382,7 @@ Vector3 TrafficCollision(TrafficManager *traffic, float playerX, float playerZ, 
         float dz = playerZ - v->position.z;
         float distSq = dx*dx + dz*dz;
         
-        // Hitbox based on car length (~2.4 units)
-        float minDist = playerRadius - 0.05f; 
+        float minDist = 1.4f; 
         
         if (distSq < minDist * minDist) {
             // [FIX] Handle Stuck together: Return a Push Vector

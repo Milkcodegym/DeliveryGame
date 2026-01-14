@@ -267,7 +267,7 @@ int main(void)
                             Vector2 locPos2D = { map.locations[i].position.x + 2.0f, map.locations[i].position.y + 2.0f };
                             float dist = Vector2Distance(playerPos2D, locPos2D);
 
-                            if (dist < 12.0f) {
+                            if (dist < 3.0f) {
                                 if (map.locations[i].type == LOC_FUEL) {
                                     if (IsKeyPressed(KEY_E)) {
                                         isRefueling = true;
