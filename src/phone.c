@@ -164,11 +164,11 @@ void DrawAppHome(PhoneState *phone, Player *player, Vector2 mouse, bool click) {
         phone->currentApp = APP_SETTINGS;
     }
 
-    if (player->hasCarMonitorApp) {
-        if (DrawAppIcon(iconCar, "CarMon", 6, startX + iconSize + gapX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
-            phone->currentApp = APP_CAR_MONITOR;
-        }
+    
+    if (DrawAppIcon(iconCar, "CarMon", 6, startX + iconSize + gapX, startY + (iconSize + gapY)*2, iconSize, mouse, click)) {
+        phone->currentApp = APP_CAR_MONITOR;
     }
+    
 }
 
 void DrawAppBank(PhoneState *phone, Player *player) {
@@ -430,7 +430,7 @@ void UpdatePhone(PhoneState *phone, Player *player, GameMap *map) {
         if (IsKeyPressed(KEY_THREE)) phone->currentApp = APP_BANK;
         if (IsKeyPressed(KEY_FOUR))  phone->currentApp = APP_MUSIC;
         if (IsKeyPressed(KEY_FIVE))  phone->currentApp = APP_SETTINGS;
-        if (IsKeyPressed(KEY_SIX) && player->hasCarMonitorApp) phone->currentApp = APP_CAR_MONITOR;
+        if (IsKeyPressed(KEY_SIX)) phone->currentApp = APP_CAR_MONITOR;
     }
 
     if (phone->music.isPlaying) {

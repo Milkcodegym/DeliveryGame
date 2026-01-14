@@ -648,7 +648,7 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     DrawRectangleLines(20*uiScale, 20*uiScale, boxW, boxH, Fade(WHITE, 0.3f));
                     
                     DrawText("AUTH ECE - COURSE 004", 35*uiScale, 30*uiScale, 20*uiScale, WHITE);
-                    DrawText("DOMIMENOS PROGRAMMATISMOS", 35*uiScale, 55*uiScale, 12*uiScale, LIGHTGRAY);
+                    DrawText("Structured Programming", 35*uiScale, 55*uiScale, 12*uiScale, LIGHTGRAY);
 
                     int titleSize = (int)(60 * uiScale);
                     const char* title = "DELIVERY GAME 3D";
@@ -699,9 +699,9 @@ bool RunStartMenu_PreLoad(int screenWidth, int screenHeight) {
                     // Controls hint
                     const char* hint = "Use W/S or UP/DOWN to Select, ENTER to Confirm";
                     int hw = MeasureText(hint, (int)(16*uiScale));
-                    DrawText(hint, (sw - hw)/2, sh - (40*uiScale), (int)(16*uiScale), LIGHTGRAY);
+                    DrawText(hint, (sw - hw)/2, sh - (34*uiScale), (int)(16*uiScale), LIGHTGRAY);
 
-                    const char* copy = "(c) 2025 COPYRIGHT PLACEHOLDER";
+                    const char* copy = "v1.0 (2026) | License: zlib/libpng";
                     int copyw = MeasureText(copy, (int)(12*uiScale));
                     DrawText(copy, sw - copyw - 20*uiScale, sh - 20*uiScale, (int)(12*uiScale), DARKGRAY);
                 }

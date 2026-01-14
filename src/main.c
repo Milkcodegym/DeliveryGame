@@ -205,12 +205,11 @@ int main(void)
                         // Apply friction to stop car if a window popped up while driving
                         if (player.current_speed > 0) player.current_speed = player.current_speed * 0.4f;
                         if (player.current_speed < 0) player.current_speed = 0;
-                        player.fuel = player.maxFuel;
                     } 
                     else {
                         // Allow driving
                         UpdatePlayer(&player, &map, &traffic, dt);
-                        UpdateTraffic(&traffic, player.position, &map, dt);
+                        //UpdateTraffic(&traffic, player.position, &map, dt);
                         UpdateDevControls(&map, &player);
                     }
                     // --- INVISIBLE BORDER CHECK ---
@@ -270,7 +269,9 @@ int main(void)
 
                             if (dist < 12.0f) {
                                 if (map.locations[i].type == LOC_FUEL) {
-                                    if (IsKeyPressed(KEY_E)) isRefueling = true;
+                                    if (IsKeyPressed(KEY_E)) {
+                                        isRefueling = true;
+                                    }
                                 }
                                 else if (map.locations[i].type == LOC_MECHANIC) {
                                     if (IsKeyPressed(KEY_E)) isMechanicOpen = true;
@@ -294,7 +295,7 @@ int main(void)
                 if (GetDealershipState() == DEALERSHIP_ACTIVE) {
                     DrawDealership(&player);
                     // Draw Tutorial Overlay on top of Dealership if needed (e.g. "Buy a car")
-                    DrawTutorial(&player, &phone);
+                    DrawTutorial(&player, &phone, isRefueling);
                 }
                 else {
                     BeginMode3D(camera);
@@ -343,7 +344,7 @@ int main(void)
                         
                         Vector3 drawPos = player.position;
                         DrawModelEx(player.model, player.position, (Vector3){0.0f, 1.0f, 0.0f}, player.angle, (Vector3){0.35f, 0.35f, 0.35f}, WHITE);
-                        DrawTraffic(&traffic);
+                        //DrawTraffic(&traffic);
                     EndMode3D();
                     
                     //DEBUG
@@ -551,7 +552,7 @@ int main(void)
                     }
                     
                     // [TUTORIAL OVERLAY] Drawn Last
-                    DrawTutorial(&player, &phone);
+                    DrawTutorial(&player, &phone, isRefueling);
                 }
                 if (isLoading) {
                 // Returns false when bar hits 100%

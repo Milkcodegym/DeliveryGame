@@ -44,12 +44,15 @@ typedef enum {
     TUT_FINISHED          
 } TutState;
 
+
 // --- LOCALS ---
 static TutState currentState = TUT_INACTIVE;
 static float stateTimer = 0.0f;
 static int currentAppTab = 0; 
 static bool hasEnteredDealership = false;
 static bool showingHelp = false; 
+static int eventStep = 0;
+static bool check;
 
 // --- INTERNAL HELPERS ---
 
@@ -193,6 +196,27 @@ static void DrawFakeAppScreen(int appIndex, float x, float y, float w, float h, 
             DrawRectangle(x + 20*scale, sy + 20*scale, w - 40*scale, 6*scale, GRAY);
             DrawCircle(x + 20*scale + (w-40*scale)*0.8f, sy + 23*scale, 8*scale, BLUE);
             break;
+        case 5: // CAR MONITOR
+            DrawRectangle(x, y, w, h, (Color){20, 20, 25, 255}); // Dark Background
+            DrawText("MyCarMonitor", x + 20*scale, y + 20*scale, titleSize, SKYBLUE);
+            DrawLine(x + 20*scale, y + 50*scale, x + w - 20*scale, y + 50*scale, DARKGRAY);
+            
+            // Draw Fake Toggles
+            const char* fakeToggles[] = { "Speedometer", "Fuel Gauge", "G-Force" };
+            for(int i=0; i<3; i++) {
+                float rowY = y + 70*scale + (i*50*scale);
+                // Draw toggle box
+                DrawRectangle(x + 20*scale, rowY, w - 40*scale, 40*scale, (i==0) ? GREEN : Fade(DARKGRAY, 0.5f));
+                DrawRectangleLines(x + 20*scale, rowY, w - 40*scale, 40*scale, BLACK);
+                DrawText(fakeToggles[i], x + 30*scale, rowY + 12*scale, bodySize, WHITE);
+                // Draw toggle circle
+                DrawCircle(x + w - 40*scale, rowY + 20*scale, 6*scale, WHITE);
+            }
+            
+            // Fake Stats at bottom
+            DrawText("Top Speed: 180 km/h", x + 20*scale, y + 250*scale, bodySize, WHITE);
+            DrawText("0-100: 4.2 s", x + 20*scale, y + 270*scale, bodySize, WHITE);
+            break;
     }
 }
 
@@ -241,9 +265,9 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     
     float sidebarW = 200 * scale;
     DrawRectangle(x, y, sidebarW, h, LIGHTGRAY);
-    const char* tabs[] = { "JOBS", "MAPS", "BANK", "MUSIC", "SETTINGS" };
+    const char* tabs[] = { "JOBS", "MAPS", "BANK", "MUSIC", "SETTINGS", "MONITOR" };
     
-    for (int i=0; i<5; i++) {
+    for (int i=0; i<6; i++) {
         Rectangle tabRect = { x, y + 50*scale + (i*60*scale), sidebarW, 50*scale };
         bool selected = (currentAppTab == i);
         DrawRectangleRec(tabRect, selected ? WHITE : LIGHTGRAY);
@@ -259,11 +283,12 @@ static void DrawAppGuideScreen(int sw, int sh, float scale, Vector2 mouse, bool 
     
     const char* expl = "";
     if (currentAppTab == 0) expl = "JOBS (Key: 1)\n\nAccept delivery contracts here.\nPay attention to Pay, Distance,\nand Constraints (Fragile/Heavy).";
-    if (currentAppTab == 1) expl = "MAPS (Key: 2)\n\nLive GPS Navigation.\nUse the Black Button to re-center.\nFind Gas Stations (Yellow)\nand Mechanics (Black).\nDouble-click your destination \nto find the shortest route.";
+    if (currentAppTab == 1) expl = "MAPS (Key: 2)\n\nLive GPS Navigation.\nUse the Black Button to re-center.\nFind Gas Stations (Pump Icon),\nMechanics (Wrench Icon)\nand Dealerships (Car Icon).\nDouble-click your destination \nto find the shortest route.";
     if (currentAppTab == 2) expl = "BANK (Key: 3)\n\nTrack your financial health.\nView income and debts.\n(You start with debt).";
     if (currentAppTab == 3) expl = "MUSIC (Key: 4)\n\nPlay your own MP3/OGG files\nor use the built-in radio.\nTo insert files, just put them\nin the resources/music folder\nand restart the game!";
     if (currentAppTab == 4) expl = "SETTINGS (Key: 5)\n\nAdjust Volume levels.\nReset Save Data if stuck.\nAccess this help menu.";
-    
+    if (currentAppTab == 5) expl = "CAR MONITOR (Key: 6)\n\nUse it to PIN extra gauges\nto your screen (G-Force, Temp).\nAlso shows vehicle stats like\n0-100 times and Fuel Range.";
+
     DrawText(expl, cx + 250*scale, cy + 60*scale, (int)(18*scale), DARKGRAY);
 
     Rectangle btnDone = { x + w - 180*scale, y + h - 60*scale, 160*scale, 40*scale };
@@ -283,6 +308,9 @@ void InitTutorial() {
     stateTimer = 0.0f;
     hasEnteredDealership = false;
     showingHelp = false;
+    eventStep = 0;
+    check=0;
+    
 }
 
 void SkipTutorial(Player *player, PhoneState *phone) {
@@ -298,6 +326,8 @@ void ShowTutorialHelp() {
 
 bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, bool isRefueling, bool isMechanicOpen) {
     if (showingHelp) return true; 
+
+    player->fuelConsumption = 0.0f;
 
     if (player->tutorialFinished) return false;
     if (currentState == TUT_INACTIVE) currentState = TUT_WELCOME;
@@ -321,7 +351,7 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
         case TUT_CONTROLS:
             if (player->current_speed > 5.0f) {
                 stateTimer = 0.0f;
-                currentState = TUT_CRASH_INTRO; // To Crash Warning
+                currentState =TUT_CRASH_INTRO; // To Crash Warning
             }
             break;
         case TUT_SPAWN_FIRST_JOB:
@@ -353,18 +383,21 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
             break;
 
         case TUT_REFUEL_ACTION:
-            if (isRefueling) currentState = TUT_MECH_INTRO;
+            if (player->fuel >= (player->maxFuel * 0.9f) && !isRefueling) {
+                 currentState = TUT_MECH_INTRO;
+            }
             break;
 
         case TUT_MECH_ACTION:
-            if (isMechanicOpen) currentState = TUT_OUTRO;//TUT_DEALER_INTRO;
+            
+            if (isMechanicOpen) check=1;
+            if (!isMechanicOpen && check) currentState = TUT_DEALER_INTRO;
             break;
 
         case TUT_DEALER_ACTION:
             if (GetDealershipState() == DEALERSHIP_ACTIVE) hasEnteredDealership = true;
             if (hasEnteredDealership && GetDealershipState() == DEALERSHIP_INACTIVE) {
-                SkipTutorial(player, phone); 
-                ShowPhoneNotification("TUTORIAL COMPLETED", GOLD);
+                currentState = TUT_OUTRO;
             }
             break;
 
@@ -378,7 +411,7 @@ bool UpdateTutorial(Player *player, PhoneState *phone, GameMap *map, float dt, b
     return blocking;
 }
 
-void DrawTutorial(Player *player, PhoneState *phone) {
+void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling) {
     int sw = GetScreenWidth();
     int sh = GetScreenHeight();
     float scale = (float)sh / 720.0f;
@@ -406,7 +439,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             float x = (sw-w)/2, y = (sh-h)/2;
             DrawRectangle(x, y, w, h, RAYWHITE);
             DrawRectangleLines(x, y, w, h, BLACK);
-            
+ // Lock fuel consumption during tutorial
             int titleS = (int)(28*scale);
             int bodyS = (int)(18*scale);
             DrawText("WELCOME TO RAY-CITY", x + (w-MeasureText("WELCOME TO RAY-CITY", titleS))/2, y + 30*scale, titleS, DARKBLUE);
@@ -457,7 +490,7 @@ void DrawTutorial(Player *player, PhoneState *phone) {
         case TUT_CONTROLS:
             // This was already at bottom, kept it safe
             DrawText("USE [W][A][S][D] TO DRIVE", sw/2 - 150*scale, sh - 150*scale, (int)(30*scale), WHITE);
-            DrawText("Reach 45 KMH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
+            DrawText("Reach 25 KMH to continue", sw/2 - 120*scale, sh - 110*scale, (int)(20*scale), LIGHTGRAY);
             break;
 
         case TUT_CRASH_INTRO: 
@@ -493,7 +526,14 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_EVENT_INTRO:
-            if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types \nthat have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
+            if (eventStep == 0) {
+                // Show First Window
+                if (DrawTutWindow("DELIVERY TYPES", "Being a delivery driver is challenging.\n\nThere are many delivery cargo types \nthat have different requirements.\n\n\nFragile, heavy, hot,\nyou must be careful with these cargo types.", true)) {
+                    eventStep = 1; // Move to next step permanently
+                }
+            } 
+            else {
+                // Show Second Window
                 if (DrawTutWindow("ROAD EVENTS", "The city is unpredictable.\n\nAccidents, Roadworks, and Police stops\ncan block your path.\n\nIf you see cones or signs, slow down\nor find another route.", true)) {
                     currentState = TUT_REFUEL_INTRO;
                 }
@@ -501,18 +541,29 @@ void DrawTutorial(Player *player, PhoneState *phone) {
             break;
 
         case TUT_REFUEL_INTRO:
-            if (DrawTutWindow("RUNNING ON FUMES", "Your fuel gauge is low.\nYou can't deliver if you can't drive.\n\nI've marked the nearest GAS STATION.\nDrive to the pumps and press [E].", true)) {
-                player->fuel = 5.0f; currentState = TUT_REFUEL_ACTION; player->fuelConsumption = 0.0f;
+            if (DrawTutWindow("RUNNING ON FUMES", "Your fuel gauge is low.\nYou can't deliver if you can't drive.\n\nFind the nearest GAS STATION.\nDrive to the pumps and press [E].", true)) {
+                // --- CHANGE HERE: Drain fuel manually ---
+                player->fuel = 1.0f; 
+                currentState = TUT_REFUEL_ACTION; 
+                // ----------------------------------------
             }
             break;
 
         case TUT_REFUEL_ACTION:
-            // [FIX] Moved to Bottom
-            DrawText("GO TO GAS STATION", sw/2 - 100*scale, instructionY, (int)(20*scale), YELLOW);
+            // --- CHANGE HERE: Dynamic Instructions ---
+            if (isRefueling) {
+                DrawText("BUY FUEL UNTIL TANK IS FULL", sw/2 - 150*scale, instructionY, (int)(20*scale), GREEN);
+            } 
+            else if (player->fuel < player->maxFuel * 0.9f) {
+                DrawText("GO TO GAS STATION & FILL TANK", sw/2 - 160*scale, instructionY, (int)(20*scale), YELLOW);
+            }
+            else {
+                DrawText("TANK FULL! CLOSING MENU...", sw/2 - 140*scale, instructionY, (int)(20*scale), GREEN);
+            }
             break;
 
         case TUT_MECH_INTRO:
-            if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.\nYou can even buy a new app there and connect it to your car!", true)) {
+            if (DrawTutWindow("VEHICLE MAINTENANCE", "Your car takes damage over time.\nIf health hits 0, you pay heavy towing fees.\n\nVisit the MECHANIC (Wrench Icon)\nto repair damage and buy performance upgrades.", true)) {
                 currentState = TUT_MECH_ACTION; player->fuelConsumption = 0.02f;
             }
             break;

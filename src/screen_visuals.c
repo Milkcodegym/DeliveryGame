@@ -481,20 +481,16 @@ void DrawVisualsWithPinned(Player *player, PhoneState *phone) {
     float gadgetY = screenH - 250 * scale;
     float gap = 110 * scale;
 
-    if (player->unlockGForce && player->pinGForce) {
+    if (player->pinGForce) {
         DrawGForceMeter(player, activeTask, gadgetX, gadgetY, scale);
         gadgetY -= gap;
     }
 
-    if (player->unlockThermometer && player->pinThermometer) {
+    if (player->pinThermometer) {
         DrawThermometer(activeTask, gadgetX - 10*scale, gadgetY - 30*scale, scale); 
         gadgetY -= gap;
     }
     
-    // 5. Basic Accel Text (Debug)
-    if (player->pinAccel) {
-        DrawText(TextFormat("A: %.1f", player->acceleration), 20, 200, 20, GREEN);
-    }
 }
 
 // Add to screen_visuals.c or main.c

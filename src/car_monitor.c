@@ -60,22 +60,12 @@ void DrawCarMonitorApp(Player *player, Vector2 localMouse, bool click) {
     startY += gap;
 
     // Unlockables
-    if (player->unlockThermometer) {
-        ToggleBtn((Rectangle){20, startY, 240, 40}, "Food Temp.", &player->pinThermometer, localMouse, click);
-    } else {
-        DrawRectangle(20, startY, 240, 40, Fade(BLACK, 0.3f));
-        DrawRectangleLines(20, startY, 240, 40, DARKGRAY);
-        DrawText("LOCKED (Thermometer)", 30, startY + 12, 16, GRAY);
-    }
+    ToggleBtn((Rectangle){20, startY, 240, 40}, "Food Temp.", &player->pinThermometer, localMouse, click);
     startY += gap;
 
-    if (player->unlockGForce) {
-        ToggleBtn((Rectangle){20, startY, 240, 40}, "G-Force Meter", &player->pinGForce, localMouse, click);
-    } else {
-        DrawRectangle(20, startY, 240, 40, Fade(BLACK, 0.3f));
-        DrawRectangleLines(20, startY, 240, 40, DARKGRAY);
-        DrawText("LOCKED (G-Force)", 30, startY + 12, 16, GRAY);
-    }
+    
+    ToggleBtn((Rectangle){20, startY, 240, 40}, "G-Force Meter", &player->pinGForce, localMouse, click);
+    
     
     // --- LIVE DIAGNOSTICS (Moved Up) ---
     // Previous Y was 450. Buttons end around 360.

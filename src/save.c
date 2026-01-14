@@ -59,16 +59,10 @@ bool SaveGame(Player *player, PhoneState *phone) {
     for(int i=0; i<MAX_TRANSACTIONS; i++) {
         data.history[i] = player->history[i];
     }
-
-    // Upgrades
-    data.hasCarMonitorApp = player->hasCarMonitorApp;
-    data.unlockGForce = player->unlockGForce;
-    data.unlockThermometer = player->unlockThermometer;
     
     // UI Pins
     data.pinSpeed = player->pinSpeed;
     data.pinFuel = player->pinFuel;
-    data.pinAccel = player->pinAccel;
     data.pinGForce = player->pinGForce;
     data.pinThermometer = player->pinThermometer;
 
@@ -172,15 +166,10 @@ bool LoadGame(Player *player, PhoneState *phone) {
         player->history[i] = data.history[i];
     }
 
-    // Upgrades
-    player->hasCarMonitorApp = data.hasCarMonitorApp;
-    player->unlockGForce = data.unlockGForce;
-    player->unlockThermometer = data.unlockThermometer;
     
     // Pins
     player->pinSpeed = data.pinSpeed;
     player->pinFuel = data.pinFuel;
-    player->pinAccel = data.pinAccel;
     player->pinGForce = data.pinGForce;
     player->pinThermometer = data.pinThermometer;
     
@@ -244,15 +233,10 @@ void ResetSaveGame(Player *player, PhoneState *phone) {
         player->history[i] = (Transaction){0};
     }
 
-    // --- Reset Upgrades ---
-    player->hasCarMonitorApp = false;
-    player->unlockGForce = false;
-    player->unlockThermometer = false;
     player->pinSpeed = true;
     player->pinFuel = true;
-    player->pinAccel = false;
-    player->pinGForce = false;
-    player->pinThermometer = false;
+    player->pinGForce = true;
+    player->pinThermometer = true;
     
     // Reset Garage
     for(int i=0; i<10; i++) {

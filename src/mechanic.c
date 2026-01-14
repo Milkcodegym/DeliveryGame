@@ -123,7 +123,7 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
     startY += 70 * scale;
 
     // 6. APPS
-    if (!player->hasCarMonitorApp) {
+    /*if (!player->hasCarMonitorApp) {
         DrawText("MyCarMonitor App", col2X, startY, 16*scale, GRAY);
         if (MechButton((Rectangle){col2X, startY + 20*scale, 280*scale, 40*scale}, "Buy App ($100)", PURPLE, mouse, player->money < 100)) {
             AddMoney(player, "Bought App", -100);
@@ -146,7 +146,7 @@ bool DrawMechanicWindow(Player *player, PhoneState *phone, bool isActive, int sc
             AddMoney(player, "G-Force Meter", -500);
             player->unlockGForce = true;
         }
-    }
+    }*/
 
     // Close Button
     if (MechButton((Rectangle){x + w/2 - 60*scale, y + h - 50*scale, 120*scale, 40*scale}, "LEAVE", DARKGRAY, mouse, false)) {

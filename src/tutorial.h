@@ -24,6 +24,8 @@
 #include "map.h"
 #include "dealership.h" // Needed for DealershipState
 
+
+
 void InitTutorial(void);
 
 // [UPDATED] Now accepts UI states to track progress
@@ -36,7 +38,7 @@ bool UpdateTutorial(
     bool isMechanicOpen
 );
 
-void DrawTutorial(Player *player, PhoneState *phone);
+void DrawTutorial(Player *player, PhoneState *phone, bool isRefueling);
 
 // Helper to skip
 void SkipTutorial(Player *player, PhoneState *phone);

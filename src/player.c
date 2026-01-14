@@ -108,7 +108,10 @@ Player InitPlayer(Vector3 startPos) {
     
     p.drag = 0.002f;           // Very low air drag
     p.steering_val = 0.0f;     
-    
+    p.pinGForce=true;
+    p.pinFuel=true;
+    p.pinThermometer=true;
+    p.pinSpeed=true;
     p.rotationSpeed = 120.0f; 
     
     p.yVelocity = 0.0f;

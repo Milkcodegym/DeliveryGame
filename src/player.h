@@ -81,17 +81,11 @@ typedef struct Player {
     float insulationFactor; // [SAVE THIS]
     float loadResistance;   // [SAVE THIS]
 
-    // [NEW] APP & UPGRADES
-    bool hasCarMonitorApp;
     
-    // Unlocks
-    bool unlockGForce;
-    bool unlockThermometer;
     
     // Visual Pins
     bool pinSpeed;
     bool pinFuel;
-    bool pinAccel;
     bool pinGForce;
     bool pinThermometer;
 
